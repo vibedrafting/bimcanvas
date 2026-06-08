@@ -178,10 +178,11 @@ class MainAgent:
         # drain loop 据此把【原生总结文本】投递给前端，而非丢弃（修复 detach 后总结被吞）。
         self._bg_completion_pending: dict[str, Any] | None = None
         self._bg_summary_parts: list[str] = []
-        # N1 方案①：后台原生唤醒是多轮 agentic（多 ResultMessage，每 tool-call 一个）。
-        # 记录"本轮是否含工具调用"——据此判定收口：收到"无 tool_use 轮"的 ResultMessage 才合并 emit
-        # （主控纯文本收尾）；含工具调用的中间轮 ResultMessage 仅复位本标记、继续收集、不收口
-        # （修复旧逻辑首个 ResultMessage 即清 pending → 后续轮 AssistantMessage 静默丢弃）。
+        # 后台原生总结回合内是否出现过工具调用（仅作日志诊断）。
+        # 注意：SDK 一个 response 只有一个 ResultMessage（response 内多次 tool-call 是
+        # AssistantMessage↔UserMessage 往返、不产生额外 RM）。R4-3 起收口判据已由本标记改为
+        # "_bg_summary_parts 非空"（见 _handle_background_message 的 ResultMessage 分支），
+        # 本字段保留仅供诊断、不再参与收口决策。
         self._bg_round_had_tool: bool = False
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
@@ -846,31 +847,38 @@ class MainAgent:
                 # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
                 if self.verbose:
                     self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
-            elif self._bg_round_had_tool:
-                # N1 方案①中间轮：本轮含工具调用 → 不是收尾（后台原生唤醒是多轮 agentic、
-                # 多 ResultMessage）。复位轮标记、继续收集后续轮文本，不收口（不清 pending）。
-                self._bg_round_had_tool = False
-                if self.verbose:
-                    self._agent_logger.log_info(
-                        "[Background] 中间轮（含工具调用）收尾 → 保持收集，不收口"
-                    )
             else:
-                # N1 方案①收口：本轮无工具调用 = 主控纯文本总结收尾 → 把跨多轮收集的全部文本
-                # 合并后经带外通道投递前端（落 history + 实时 SSE）。
-                if self.verbose and self._in_response:
-                    self._agent_logger.log_response_end()
-                    self._in_response = False
-                pending = self._bg_completion_pending
+                # R4-3 收口判据：had_tool → content 非空。
+                # SDK 一个 response 只有一个 ResultMessage（response 内多次 tool-call 是
+                # AssistantMessage↔UserMessage 往返、不产生额外 RM；旧注释"每 tool-call 一个 RM"是错的）。
+                # ResultMessage = 该 response 完全结束 = 此前所有 AssistantMessage（含汇报文本）已到达收齐，
+                # 故此刻合并 emit 的文本必然完整不截断。
                 content = "\n".join(self._bg_summary_parts).strip()
-                self._bg_completion_pending = None
-                self._bg_summary_parts = []
-                self._bg_round_had_tool = False
-                if self.verbose:
-                    self._agent_logger.log_info(
-                        f"[Background] 原生总结回合收口（无工具调用轮）→ 投递完成汇报 "
-                        f"(task_id={pending.get('taskId')}, chars={len(content)})"
-                    )
-                await self._emit_background_completion(pending, content)
+                if not content:
+                    # content 为空 = detach 启动回合的尾随 RM / 主控纯工具无文本响应：汇报文本尚未到达。
+                    # 不收口、保留 pending 继续收集（替代原 had_tool 中间轮分支的"防误清丢汇报"职责），
+                    # 由兜底 flush（下次前台回合 / disconnect）兜底。
+                    self._bg_round_had_tool = False
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            "[Background] 无汇报文本的 ResultMessage → 保持收集，不收口"
+                        )
+                else:
+                    # 已收集到汇报文本（含"汇报+截图同轮"，had_tool=True 也照样收口）→ 把跨多轮收集的
+                    # 全部文本合并后经带外通道投递前端（落 history + 实时 SSE）。
+                    if self.verbose and self._in_response:
+                        self._agent_logger.log_response_end()
+                        self._in_response = False
+                    pending = self._bg_completion_pending
+                    self._bg_completion_pending = None
+                    self._bg_summary_parts = []
+                    self._bg_round_had_tool = False
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            f"[Background] 原生总结回合收口（content 非空，含工具轮亦收口）→ 投递完成汇报 "
+                            f"(task_id={pending.get('taskId')}, chars={len(content)})"
+                        )
+                    await self._emit_background_completion(pending, content)
         elif isinstance(message, TaskProgressMessage):
             # 高频进度心跳：只经带外通道推前端（Task 页实时可视化），不打 Server 控制台。
             # 单条仅 task_id、无 usage/last_tool，逐 tick 刷屏且无 console 价值；实时进度看 Task 页。
