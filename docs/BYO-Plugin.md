@@ -357,7 +357,65 @@ Server 写入 gate 仅锁定 `baseline/` + `computed/` 只读区,其余(`schemes
 
 ---
 
-## 11. 反馈
+## 11. 场景模板
+
+任何 plugin 都可以向平台贡献「从场景新建」的模板，只需在 plugin 根目录下放置 `scenes/` 目录。平台启动后会扫描所有已安装 plugin，自动聚合到 `GET /api/scenes` 接口。
+
+### 11.1 目录结构
+
+```
+your-plugin/
+└── scenes/
+    ├── index.json          # 必须：场景注册表
+    └── {sceneId}/
+        ├── scene.bcp       # 必须：场景模板文件
+        └── meta.json       # 可选：补充元数据
+```
+
+### 11.2 index.json
+
+```json
+{
+  "version": "1.0",
+  "scenes": [
+    {
+      "id": "my-scene-90",
+      "displayName": "紧凑户型 90㎡",
+      "tags": ["住宅", "两居"],
+      "area": 90,
+      "path": "my-scene-90/scene.bcp"
+    }
+  ]
+}
+```
+
+字段：`id`（`[a-z0-9-]+`）、`displayName`、`tags`（字符串数组）、`area`（整数，㎡）、`path`（相对 `scenes/` 的路径）。
+
+### 11.3 meta.json（可选）
+
+```json
+{
+  "id": "my-scene-90",
+  "displayName": "紧凑户型 90㎡",
+  "description": "适合首次置业，动线紧凑",
+  "area": 90,
+  "tags": ["住宅", "两居"],
+  "rooms": ["主卧", "次卧", "客厅", "餐厅", "卫生间"],
+  "bcpVersion": "3.0"
+}
+```
+
+meta.json 读取失败不影响场景出现在列表中，只是缺少 `description` / `rooms` 字段。
+
+### 11.4 约束
+
+- `id` 在全局所有 plugin 内无需唯一，但平台会携带 `pluginId` 区分来源。
+- `scene.bcp` 是标准 BIMCanvas 项目文件（ZIP 格式），用户选择后平台复制并初始化为新项目。
+- plugin 无需声明任何 MCP tools 也可贡献场景；`scenes/` 与 `mcp_tools/` 相互独立。
+
+---
+
+## 12. 反馈
 
 发现本文档错漏 / Template 字段表达不清 / 错误信息没指向修复方向,请到 BIMCanvas 主仓库
 开 Issue。dogfood 阶段反馈直接驱动本文档与错误信息的优化。

@@ -300,9 +300,10 @@ export class ProjectService {
     }
 }
 
-// ─── Atlas API ───
+// ─── Scenes API ───
 
-export interface AtlasSceneItem {
+export interface SceneItem {
+    pluginId: string;
     id: string;
     displayName: string;
     tags: string[];
@@ -311,21 +312,21 @@ export interface AtlasSceneItem {
     rooms?: string[];
 }
 
-export interface AtlasScenesResponse {
+export interface ScenesResponse {
     available: boolean;
-    scenes?: AtlasSceneItem[];
+    scenes?: SceneItem[];
     error?: string;
 }
 
-const ATLAS_API_BASE = `${SERVER_API}/atlas`;
+const SCENES_API_BASE = `${SERVER_API}/scenes`;
 
-export class AtlasService {
+export class SceneService {
     /**
-     * 获取 atlas 场景列表。未安装 atlas plugin 时返回 { available: false }。
+     * 聚合所有已安装 plugin 的场景列表。无场景时返回 { available: false }。
      */
-    static async fetchScenes(): Promise<AtlasScenesResponse> {
+    static async fetchScenes(): Promise<ScenesResponse> {
         try {
-            const response = await axios.get<AtlasScenesResponse>(`${ATLAS_API_BASE}/scenes`);
+            const response = await axios.get<ScenesResponse>(`${SCENES_API_BASE}`);
             return response.data;
         } catch (error: any) {
             return { available: false, error: error.message };
@@ -333,15 +334,16 @@ export class AtlasService {
     }
 
     /**
-     * 从 atlas 场景创建新项目。返回与 ProjectLoadResult 相同的结构。
+     * 从指定 plugin 的场景创建新项目。返回与 ProjectLoadResult 相同的结构。
      */
     static async createProjectFromScene(
+        pluginId: string,
         sceneId: string,
         projectName: string
     ): Promise<ProjectLoadResult> {
         try {
             const response = await axios.post<ProjectLoadResult>(
-                `${ATLAS_API_BASE}/scenes/${encodeURIComponent(sceneId)}/create-project`,
+                `${SCENES_API_BASE}/${encodeURIComponent(pluginId)}/${encodeURIComponent(sceneId)}/create-project`,
                 { projectName }
             );
             return response.data;

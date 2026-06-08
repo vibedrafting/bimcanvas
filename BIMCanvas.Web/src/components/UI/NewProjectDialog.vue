@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import GlassButton from './base/GlassButton.vue';
-import { AtlasService, type AtlasSceneItem } from '../../services/ProjectService';
+import { SceneService, type SceneItem } from '../../services/ProjectService';
 
 interface Props {
     visible: boolean;
@@ -11,41 +11,46 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-    (e: 'create', projectName: string, sceneId: string | null): void;
+    (e: 'create', projectName: string, pluginId: string | null, sceneId: string | null): void;
     (e: 'cancel'): void;
 }>();
 
 const BLANK_ID = '__blank__';
 
 const projectName = ref(props.defaultName ?? '');
-const selectedSceneId = ref<string>(BLANK_ID); // 默认选中空白
-const atlasScenes = ref<AtlasSceneItem[]>([]);
-const atlasAvailable = ref(false);
+const selectedSceneId = ref<string>(BLANK_ID);
+const scenes = ref<SceneItem[]>([]);
+const scenesAvailable = ref(false);
+const loading = ref(true);
 
 onMounted(async () => {
     projectName.value = props.defaultName ?? '';
     try {
-        const resp = await AtlasService.fetchScenes();
-        atlasAvailable.value = resp.available;
-        atlasScenes.value = resp.scenes ?? [];
+        const resp = await SceneService.fetchScenes();
+        scenesAvailable.value = resp.available;
+        scenes.value = resp.scenes ?? [];
     } catch {
-        atlasAvailable.value = false;
+        scenesAvailable.value = false;
+    } finally {
+        loading.value = false;
     }
 });
 
 const canCreate = computed(() => projectName.value.trim().length > 0);
 
-const selectCard = (id: string, scene?: AtlasSceneItem) => {
+const selectedScene = computed(() =>
+    selectedSceneId.value === BLANK_ID ? null : scenes.value.find(s => s.id === selectedSceneId.value) ?? null
+);
+
+const selectCard = (id: string, scene?: SceneItem) => {
     selectedSceneId.value = id;
-    // 选中场景时，若项目名是默认名则自动替换为场景名
     if (id !== BLANK_ID && scene) {
         if (!projectName.value.trim() || projectName.value === props.defaultName) {
             projectName.value = scene.displayName;
         }
     }
-    // 切回空白时，若项目名是某个场景名则恢复默认
     if (id === BLANK_ID) {
-        const isSceneName = atlasScenes.value.some(s => s.displayName === projectName.value);
+        const isSceneName = scenes.value.some(s => s.displayName === projectName.value);
         if (isSceneName) {
             projectName.value = props.defaultName ?? '';
         }
@@ -55,8 +60,12 @@ const selectCard = (id: string, scene?: AtlasSceneItem) => {
 const handleCreate = () => {
     const name = projectName.value.trim();
     if (!name) return;
-    const sceneId = selectedSceneId.value === BLANK_ID ? null : selectedSceneId.value;
-    emit('create', name, sceneId);
+    if (selectedSceneId.value === BLANK_ID) {
+        emit('create', name, null, null);
+    } else {
+        const selected = scenes.value.find(s => s.id === selectedSceneId.value);
+        emit('create', name, selected?.pluginId ?? null, selectedSceneId.value);
+    }
 };
 
 const handleCancel = () => emit('cancel');
@@ -72,62 +81,92 @@ const handleKeydown = (e: KeyboardEvent) => {
         <Transition name="dialog">
             <div v-if="visible" class="dialog-overlay" @click.self="handleCancel">
                 <div class="new-project-dialog" @keydown="handleKeydown">
-                    <!-- Header -->
                     <div class="dialog-header">
                         <h3>新建项目</h3>
                     </div>
 
-                    <!-- 场景选择（空白 + atlas 场景并列） -->
-                    <div class="scene-grid" :class="{ 'no-atlas': !atlasAvailable }">
-                        <!-- 空白项目卡片 -->
-                        <div
-                            class="scene-card"
-                            :class="{ selected: selectedSceneId === '__blank__' }"
-                            @click="selectCard('__blank__')"
-                        >
-                            <div class="scene-check">
-                                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3">
-                                    <polyline points="20 6 9 17 4 12"/>
-                                </svg>
-                            </div>
-                            <div class="scene-icon blank-icon">
-                                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5">
-                                    <rect x="3" y="3" width="18" height="18" rx="2"/>
-                                </svg>
-                            </div>
-                            <div class="scene-info">
-                                <div class="scene-name">空白项目</div>
-                                <div class="scene-meta">从零开始</div>
-                            </div>
-                        </div>
-
-                        <!-- Atlas 场景卡片 -->
-                        <template v-if="atlasAvailable">
+                    <!-- 场景列表 + 详情 两栏布局（有场景时） -->
+                    <div v-if="!loading && scenesAvailable" class="scene-layout">
+                        <!-- 左栏：场景列表 -->
+                        <div class="scene-list">
                             <div
-                                v-for="scene in atlasScenes"
-                                :key="scene.id"
-                                class="scene-card"
-                                :class="{ selected: selectedSceneId === scene.id }"
-                                @click="selectCard(scene.id, scene)"
+                                class="scene-list-item"
+                                :class="{ selected: selectedSceneId === '__blank__' }"
+                                @click="selectCard('__blank__')"
                             >
-                                <div class="scene-check">
-                                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3">
+                                <div class="item-icon blank-icon">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                    </svg>
+                                </div>
+                                <span class="item-name">空白项目</span>
+                                <div class="item-check">
+                                    <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3">
                                         <polyline points="20 6 9 17 4 12"/>
                                     </svg>
                                 </div>
-                                <div class="scene-icon">
-                                    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5">
+                            </div>
+
+                            <div
+                                v-for="scene in scenes"
+                                :key="scene.id"
+                                class="scene-list-item"
+                                :class="{ selected: selectedSceneId === scene.id }"
+                                @click="selectCard(scene.id, scene)"
+                            >
+                                <div class="item-icon">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
                                         <rect x="3" y="3" width="18" height="18" rx="2"/>
                                         <path d="M3 9h18M9 21V9"/>
                                     </svg>
                                 </div>
-                                <div class="scene-info">
-                                    <div class="scene-name">{{ scene.displayName }}</div>
-                                    <div class="scene-meta">{{ scene.description }}</div>
+                                <span class="item-name">{{ scene.displayName }}</span>
+                                <div class="item-check">
+                                    <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
                                 </div>
                             </div>
-                        </template>
+                        </div>
+
+                        <!-- 右栏：选中场景详情 -->
+                        <div class="scene-detail">
+                            <template v-if="selectedSceneId === '__blank__'">
+                                <div class="detail-preview blank-preview">
+                                    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1" opacity="0.3">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                    </svg>
+                                </div>
+                                <div class="detail-title">空白项目</div>
+                                <div class="detail-desc">从零开始，完全自由的画布。</div>
+                            </template>
+                            <template v-else-if="selectedScene">
+                                <div class="detail-preview">
+                                    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1" opacity="0.5">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                        <path d="M3 9h18M9 21V9"/>
+                                    </svg>
+                                </div>
+                                <div class="detail-title">{{ selectedScene.displayName }}</div>
+                                <div v-if="selectedScene.description" class="detail-desc">{{ selectedScene.description }}</div>
+                                <div class="detail-meta">
+                                    <span v-if="selectedScene.area" class="meta-chip">{{ selectedScene.area }}㎡</span>
+                                    <span v-for="tag in selectedScene.tags" :key="tag" class="meta-chip">{{ tag }}</span>
+                                </div>
+                                <div v-if="selectedScene.rooms?.length" class="detail-rooms">
+                                    <span v-for="room in selectedScene.rooms" :key="room" class="room-chip">{{ room }}</span>
+                                </div>
+                            </template>
+                        </div>
                     </div>
+
+                    <!-- 无场景时：仅显示空白项目提示 -->
+                    <div v-else-if="!loading" class="no-scenes-hint">
+                        从零开始新建空白项目。安装场景 plugin 后可从模板快速开始。
+                    </div>
+
+                    <!-- 加载中 -->
+                    <div v-else class="loading-hint">加载场景中...</div>
 
                     <!-- 项目名称 -->
                     <div class="field">
@@ -140,7 +179,6 @@ const handleKeydown = (e: KeyboardEvent) => {
                         />
                     </div>
 
-                    <!-- 操作按钮 -->
                     <div class="dialog-actions">
                         <GlassButton variant="ghost" @click="handleCancel">取消</GlassButton>
                         <GlassButton variant="primary" :disabled="!canCreate" @click="handleCreate">创建</GlassButton>
@@ -169,7 +207,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     border: 1px solid var(--border-subtle);
     border-radius: 14px;
     padding: 24px;
-    width: 560px;
+    width: 600px;
     max-width: 94vw;
     box-shadow:
         0 8px 40px rgba(0, 0, 0, 0.4),
@@ -177,7 +215,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 .dialog-header {
-    margin-bottom: 18px;
+    margin-bottom: 16px;
 }
 
 .dialog-header h3 {
@@ -187,71 +225,61 @@ const handleKeydown = (e: KeyboardEvent) => {
     color: var(--text-primary);
 }
 
-/* Scene grid */
-.scene-grid {
+/* Two-column layout */
+.scene-layout {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: 180px 1fr;
+    gap: 12px;
     margin-bottom: 16px;
+    min-height: 200px;
 }
 
-.scene-grid.no-atlas {
-    grid-template-columns: 1fr;
-}
-
-.scene-card {
-    position: relative;
+/* Left: scene list */
+.scene-list {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding: 16px 10px 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-align: center;
-    user-select: none;
+    gap: 2px;
+    overflow-y: auto;
+    max-height: 240px;
+    padding-right: 4px;
 }
 
-.scene-card:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
+.scene-list::-webkit-scrollbar {
+    width: 4px;
+}
+.scene-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.scene-list::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
 }
 
-.scene-card.selected {
-    background: rgba(59, 130, 246, 0.1);
-    border-color: var(--accent-blue);
-    box-shadow: 0 0 0 1px var(--accent-blue) inset;
-}
-
-/* 选中勾 */
-.scene-check {
-    position: absolute;
-    top: 7px;
-    right: 7px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--accent-blue);
+.scene-list-item {
     display: flex;
     align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: all 0.15s ease;
-    color: white;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+    user-select: none;
+    position: relative;
 }
 
-.scene-card.selected .scene-check {
-    opacity: 1;
-    transform: scale(1);
+.scene-list-item:hover {
+    background: rgba(255, 255, 255, 0.05);
 }
 
-.scene-icon {
+.scene-list-item.selected {
+    background: rgba(59, 130, 246, 0.12);
+}
+
+.item-icon {
+    flex-shrink: 0;
     color: var(--accent-blue);
-    opacity: 0.8;
+    opacity: 0.7;
+    display: flex;
 }
 
 .blank-icon {
@@ -259,35 +287,132 @@ const handleKeydown = (e: KeyboardEvent) => {
     opacity: 0.5;
 }
 
-.scene-card.selected .scene-icon {
+.scene-list-item.selected .item-icon {
     opacity: 1;
 }
 
-.scene-info {
-    width: 100%;
+.item-name {
+    flex: 1;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
-.scene-name {
-    font-size: 0.82rem;
+.scene-list-item.selected .item-name {
+    color: var(--text-primary);
+}
+
+.item-check {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: scale(0.4);
+    transition: all 0.12s ease;
+    color: white;
+}
+
+.scene-list-item.selected .item-check {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* Right: detail panel */
+.scene-detail {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.detail-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 64px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+    color: var(--accent-blue);
+}
+
+.blank-preview {
+    color: var(--text-tertiary);
+}
+
+.detail-title {
+    font-size: 0.9rem;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 3px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+
+.detail-desc {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.meta-chip {
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--accent-blue);
     white-space: nowrap;
 }
 
-.scene-meta {
-    font-size: 0.7rem;
+.detail-rooms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.room-chip {
+    font-size: 0.68rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
     color: var(--text-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* No-scenes fallback */
+.no-scenes-hint {
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    padding: 12px 0 16px;
+    line-height: 1.5;
+}
+
+.loading-hint {
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    padding: 20px 0;
+    text-align: center;
 }
 
 /* Field */
 .field {
-    margin-bottom: 18px;
+    margin-bottom: 16px;
 }
 
 .name-input {
