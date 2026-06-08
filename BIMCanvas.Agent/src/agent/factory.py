@@ -30,7 +30,10 @@ def create_agent(
     # 会抛 'NoneType' object has no attribute 'post'。
     # session 生命周期挂到 agent._owned_session,agent.disconnect() 时关闭。
     owned_session = aiohttp.ClientSession()
-    bundle = build_config_bundle(session=owned_session)
+    # 传入 project_path:当 LaunchContext 文件已被前一个 agent 消费(多窗口场景)导致
+    # resolve_launch_context() 回退 projectless 时,从 project.json 补全 scenes,
+    # 避免 list_project_scenes 误报"未绑定项目"。
+    bundle = build_config_bundle(session=owned_session, project_path=project_path or None)
 
     if normalized == OPENAI_RUNTIME_ID:
         agent = OpenAIAgent(

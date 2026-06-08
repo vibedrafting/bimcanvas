@@ -129,6 +129,8 @@ class MainAgent:
         self._pending_tool_calls: dict[str, str] = {}  # tool_use_id -> tool_call_id 映射
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
         self._tool_to_subagent: dict[str, str] = {}
+        # 并行工具调用安全的工具名跟踪：tool_use_id → tool_name（解决 _current_tool_name 单值覆盖问题）
+        self._tool_name_by_id: dict[str, str] = {}
 
         # 当前请求的模型（用于 set_model 检查，避免重复发送控制消息）
         self._current_model: str | None = None
@@ -721,6 +723,8 @@ class MainAgent:
                             self._agent_logger.log_response_end()
                             self._in_response = False
                         self._current_tool_name = block.name
+                        if block.id:
+                            self._tool_name_by_id[block.id] = block.name
                         if block.name == "Task":
                             # Task 工具：enter_subagent 已包含 DISPATCH 输出
                             subagent_type = block.input.get("subagent_type", "unknown")
@@ -735,7 +739,8 @@ class MainAgent:
                 elif isinstance(block, ToolResultBlock):
                     if self.verbose:
                         is_error = getattr(block, 'is_error', False)
-                        tool_name = self._current_tool_name or "unknown"
+                        block_id = getattr(block, 'tool_use_id', None)
+                        tool_name = (self._tool_name_by_id.pop(block_id, None) if block_id else None) or self._current_tool_name or "unknown"
                         self._agent_logger.log_tool_result(tool_name, block.content, is_error)
                         if tool_name == "Task":
                             result_summary = str(block.content)[:200] if block.content else None
@@ -822,15 +827,19 @@ class MainAgent:
         elif event_type == "tool_use":
             tool_name = event.get("name", "")
             tool_input = event.get("input", {})
+            tool_use_id = event.get("id", "") or event.get("tool_use_id", "")
             if self.verbose:
                 self._agent_logger.log_tool_use(tool_name, tool_input)
                 self._current_tool_name = tool_name
+                if tool_use_id:
+                    self._tool_name_by_id[tool_use_id] = tool_name
                 if tool_name == "Task":
                     subagent_type = tool_input.get("subagent_type", "unknown")
                     self._agent_logger.enter_subagent(subagent_type)
 
         elif event_type == "tool_result":
-            tool_name = self._current_tool_name or event.get("tool_name", "unknown")
+            ev_tool_use_id = event.get("tool_use_id", "")
+            tool_name = (self._tool_name_by_id.pop(ev_tool_use_id, None) if ev_tool_use_id else None) or event.get("tool_name") or self._current_tool_name or "unknown"
             result = event.get("result", "")
             is_error = event.get("is_error", False)
             if self.verbose:
@@ -871,8 +880,7 @@ class MainAgent:
             self._current_tool_name = None
             self._placeholder_text_suppressed_logged = False
             self._response_model = None
-
-            await self._client.query(user_message)
+            self._tool_name_by_id.clear()
 
             full_response = ""
             async for message in self._client.receive_response():
@@ -1078,6 +1086,7 @@ class MainAgent:
         self._active_subagents.clear()
         self._tool_call_counter = 0
         self._pending_tool_calls.clear()
+        self._tool_name_by_id.clear()
         self._tool_to_subagent.clear()
 
         # 构建画布上下文 content block（独立于用户消息，对齐 Claude Code 的 <ide_selection> 模式）
@@ -1224,7 +1233,8 @@ class MainAgent:
                         self._streamed_text = False  # 重置标记，准备下一轮
                     elif isinstance(block, ToolUseBlock):
                         self._current_tool_name = block.name
-
+                        if block.id:
+                            self._tool_name_by_id[block.id] = block.name
                         if block.name == "Task":
                             # SubAgent 开始 - 添加到活跃映射（支持多个并行）
                             subagent_type = block.input.get("subagent_type", "general-purpose")
@@ -1276,13 +1286,11 @@ class MainAgent:
                             )
 
                     elif isinstance(block, ToolResultBlock):
-                        tool_name = self._current_tool_name or "unknown"
+                        block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        tool_name = (self._tool_name_by_id.pop(block_tool_use_id, None) if block_tool_use_id else None) or self._current_tool_name or "unknown"
                         is_error = getattr(block, 'is_error', False)
                         if self.verbose:
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
-
-                        # 使用 tool_use_id 精确匹配
-                        block_tool_use_id = getattr(block, 'tool_use_id', None)
 
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
@@ -1326,9 +1334,9 @@ class MainAgent:
             elif isinstance(message, UserMessage):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
-                        tool_name = self._current_tool_name or "unknown"
-                        is_error = getattr(block, 'is_error', False)
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        tool_name = (self._tool_name_by_id.pop(block_tool_use_id, None) if block_tool_use_id else None) or self._current_tool_name or "unknown"
+                        is_error = getattr(block, 'is_error', False)
                         # 日志：输出工具结果
                         if self.verbose:
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
