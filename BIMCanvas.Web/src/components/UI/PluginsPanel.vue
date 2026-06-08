@@ -70,9 +70,17 @@ const onInstallClick = () => {
   showInstallDialog.value = true;
 };
 
-const onInstallConfirm = async (payload: { repoUrl: string; ref?: string | null }) => {
+const onInstallConfirm = async (
+  payload:
+    | { source: 'github'; repoUrl: string; ref?: string | null }
+    | { source: 'local'; path: string; link: boolean }
+) => {
   showInstallDialog.value = false;
-  await store.install({ repoUrl: payload.repoUrl, ref: payload.ref });
+  if (payload.source === 'github') {
+    await store.install({ sourceKind: 'github', repoUrl: payload.repoUrl, ref: payload.ref });
+  } else {
+    await store.install({ sourceKind: 'local', path: payload.path, link: payload.link });
+  }
 };
 
 const onTrustAndActivateClick = (plugin: PluginListItem) => {
@@ -169,7 +177,7 @@ onMounted(async () => {
                 <rect x="14" y="14" width="7" height="7" rx="1" />
               </svg>
               <p class="empty-title">尚未安装任何 plugin</p>
-              <p class="empty-hint">点击右上 [+ 安装新插件] 从 GitHub 安装。</p>
+              <p class="empty-hint">点击右上 [+ 安装新插件] 从 GitHub 或本地目录安装。</p>
             </div>
 
             <!-- Plugin 列表 (subcard 风格,与 runtime-card 视觉一致) -->
