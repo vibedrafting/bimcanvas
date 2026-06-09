@@ -77,6 +77,10 @@ export interface WorkflowTranscriptAgent {
   tokens?: number
   toolCalls?: number
   durationMs?: number
+  /** 起始时刻 epoch ms（完成态来自 wf_json startedAt，运行态来自 agent jsonl 首行）；供 phase 跨度计算 */
+  startedAt?: number
+  /** 结束/最近活动 epoch ms（完成态=startedAt+durationMs，运行态=agent jsonl 末行）；供 phase 跨度计算 */
+  endedAt?: number
   prompt?: string
   outcome?: string
   tools: { name: string; input?: string }[]

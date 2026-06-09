@@ -204,6 +204,29 @@ function agentStateClass(state?: string): string {
   return ''
 }
 
+// 每阶段运行时间（墙钟跨度）：phase 内 agent 的 min(startedAt) → max(endedAt)；
+// 有运行中 agent 时延到 now（实时 ticking）。完成态/运行态同一套逻辑。
+// 注意：phase 间因 pipeline 并行会重叠，各 phase 时长之和 > 总时长，非总时长的拆分。
+function phaseDurationMs(agents: WorkflowTranscriptAgent[]): number | null {
+  const starts: number[] = []
+  const ends: number[] = []
+  let running = false
+  for (const a of agents) {
+    if (typeof a.startedAt === 'number') starts.push(a.startedAt)
+    if (typeof a.endedAt === 'number') ends.push(a.endedAt)
+    if (a.state === 'running') running = true
+  }
+  if (!starts.length) return null
+  const start = Math.min(...starts)
+  let end = ends.length ? Math.max(...ends) : start
+  if (running) end = Math.max(end, now.value)  // 运行中：延到 now（本地 dev 同机，clock 偏差可忽略）
+  return Math.max(0, end - start)
+}
+function phaseDurText(agents: WorkflowTranscriptAgent[]): string {
+  const ms = phaseDurationMs(agents)
+  return ms === null ? '' : (formatMs(ms) ?? '')
+}
+
 // 每阶段完成度 + 状态（对齐 CLI 左栏 "Inventory 12/12 ✓" / "› Infrastructure 3/10"）
 function phaseStats(agents: WorkflowTranscriptAgent[]): { done: number; total: number; status: 'done' | 'active' | 'pending' } {
   const total = agents.length
@@ -274,6 +297,7 @@ const dismiss = () => {
           </span>
           <span class="phase-title">{{ ph.title || `阶段 ${ph.index}` }}</span>
           <span class="phase-count">{{ phaseStats(ph.agents).done }}/{{ phaseStats(ph.agents).total }}</span>
+          <span v-if="phaseDurText(ph.agents)" class="phase-dur">{{ phaseDurText(ph.agents) }}</span>
           <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
         </div>
 
@@ -420,6 +444,8 @@ const dismiss = () => {
     font-size: 0.6rem; font-weight: 700; font-family: var(--font-mono);
     background: var(--surface-dim); color: var(--text-tertiary); border-radius: 8px; padding: 0 6px; min-width: 28px; text-align: center;
   }
+  .phase-dur { font-size: 0.62rem; font-family: var(--font-mono); color: var(--text-tertiary); flex-shrink: 0; }
+  &.active .phase-dur { color: var(--accent-primary); }
   .phase-detail { font-size: 0.66rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 .phase-agents { padding: 0 10px 0 18px; display: flex; flex-direction: column; gap: 6px; }

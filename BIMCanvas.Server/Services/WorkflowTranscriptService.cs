@@ -96,6 +96,8 @@ namespace BIMCanvas.Server.Services
                 foreach (var e in prog.OfType<JObject>())
                 {
                     if ((string?)e["type"] != "workflow_agent") continue;
+                    var startedAt = (long?)e["startedAt"];
+                    var durationMs = (long?)e["durationMs"];
                     var agent = new WorkflowTranscriptAgent
                     {
                         AgentId = (string?)e["agentId"] ?? "",
@@ -104,7 +106,12 @@ namespace BIMCanvas.Server.Services
                         State = (string?)e["state"],
                         Tokens = (int?)e["tokens"],
                         ToolCalls = (int?)e["toolCalls"],
-                        DurationMs = (long?)e["durationMs"]
+                        DurationMs = durationMs,
+                        StartedAt = startedAt,
+                        // 结束时刻：优先 startedAt+durationMs；否则退到 lastProgressAt。供前端算 phase 跨度。
+                        EndedAt = (startedAt.HasValue && durationMs.HasValue)
+                            ? startedAt + durationMs
+                            : (long?)e["lastProgressAt"]
                     };
                     if (subDir != null && !string.IsNullOrEmpty(agent.AgentId))
                     {
@@ -287,10 +294,20 @@ namespace BIMCanvas.Server.Services
 
             int input = 0, output = 0; bool sawTokens = false; int toolCount = 0;
             string? lastStructured = null, lastText = null, model = null;
+            long? firstTs = null, lastTs = null;
 
             foreach (var line in SafeReadLines(file))
             {
                 JObject obj; try { obj = JObject.Parse(line); } catch { continue; }
+                // 行级 timestamp（运行态 phase 跨度时间源；完成态已由 wf_json 设过 → 下方 ??= 不覆盖）
+                var tsTok = obj["timestamp"];
+                if (tsTok != null && tsTok.Type == JTokenType.String
+                    && DateTimeOffset.TryParse((string?)tsTok, out var dto))
+                {
+                    var ms = dto.ToUnixTimeMilliseconds();
+                    firstTs ??= ms;
+                    lastTs = ms;
+                }
                 var type = (string?)obj["type"];
                 var message = obj["message"] as JObject;
                 if (message == null) continue;
@@ -334,6 +351,8 @@ namespace BIMCanvas.Server.Services
             agent.Model ??= model;                       // 完成态已从 wf_json 设过 → 不覆盖
             if (sawTokens) agent.Tokens ??= input + output;
             agent.ToolCalls ??= toolCount;
+            agent.StartedAt ??= firstTs;                  // 完成态保留 wf_json 权威值，运行态用 jsonl 时间
+            agent.EndedAt ??= lastTs;
             if (string.IsNullOrEmpty(agent.Outcome)) agent.Outcome = lastStructured ?? lastText;
         }
 
