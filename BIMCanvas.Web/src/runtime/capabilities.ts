@@ -6,7 +6,7 @@ const unsupported: CapabilityEntry = { level: 'unsupported' };
 
 export const connectedCapabilities: WebCapabilities = {
   projectCatalog: supported,
-  projectCreation: unsupported,
+  projectCreation: supported,
   serverPersistence: supported,
   bcpExport: supported,
   webSnapshotImport: unsupported,
@@ -19,7 +19,8 @@ export const connectedCapabilities: WebCapabilities = {
   gitBranching: supported,
   worktreeReview: supported,
   agentChat: supported,
-  runtimeSettings: supported
+  runtimeSettings: supported,
+  envisionPanel: supported,
 };
 
 const moduleLibraryBindingCapability: CapabilityEntry = isDirectoryPickerSupported()
@@ -47,5 +48,6 @@ export const standaloneCapabilities: WebCapabilities = {
   gitBranching: unsupported,
   worktreeReview: unsupported,
   agentChat: unsupported,
-  runtimeSettings: unsupported
+  runtimeSettings: unsupported,
+  envisionPanel: unsupported,
 };

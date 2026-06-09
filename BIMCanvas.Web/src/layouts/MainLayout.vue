@@ -11,6 +11,7 @@ import PlacementSizeBar from '../components/UI/place/PlacementSizeBar.vue';
 import VariantNavigatorBar from '../components/UI/VariantNavigatorBar.vue';
 import ModuleLibraryPanel from '../components/UI/ModuleLibraryPanel.vue';
 import BoundaryDebugPanel from '../components/UI/BoundaryDebugPanel.vue';
+import EnvisionPanel from '../components/UI/EnvisionPanel.vue';
 import { useDebugStore } from '../stores/debugStore';
 import { useCanvasStore } from '../stores/canvasStore';
 import { storeToRefs } from 'pinia';
@@ -30,9 +31,18 @@ const { currentOperation } = storeToRefs(canvasStore);
 const runtime = getWebRuntime();
 const canAgentChat = supports(runtime.capabilities.agentChat);
 const canUseModuleLibrary = supports(runtime.capabilities.moduleLibrary);
+const canEnvision = supports(runtime.capabilities.envisionPanel);
 
 // 模块库面板
 const showModuleLibrary = ref(false);
+
+// Envision 面板
+const showEnvisionPanel = ref(false);
+
+const onOpenEnvisionPanel = () => {
+  if (!canEnvision) return;
+  showEnvisionPanel.value = !showEnvisionPanel.value;
+};
 
 // 是否进入"模块布置"状态（PromptBar 据此决定是否注入 PlacementSizeBar slot）
 const isPlacing = computed(() => currentOperation.value === 'placing');
@@ -59,10 +69,12 @@ const onSelectModule = (mod: ModuleDefinition) => {
 onMounted(() => {
   debugStore.log('MainLayout Mounted.');
   window.addEventListener('bimcanvas:open-module-library', onOpenModuleLibrary);
+  window.addEventListener('bimcanvas:open-envision-panel', onOpenEnvisionPanel);
 });
 
 onUnmounted(() => {
   window.removeEventListener('bimcanvas:open-module-library', onOpenModuleLibrary);
+  window.removeEventListener('bimcanvas:open-envision-panel', onOpenEnvisionPanel);
 });
 
 const showPulse = ref(false);
@@ -125,6 +137,12 @@ watch(() => props.buildComplete, (newVal) => {
     />
 
     <BoundaryDebugPanel />
+
+    <EnvisionPanel
+      v-if="canEnvision"
+      :visible="showEnvisionPanel"
+      @close="showEnvisionPanel = false"
+    />
   </div>
 </template>
 

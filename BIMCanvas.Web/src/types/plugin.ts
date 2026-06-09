@@ -37,6 +37,8 @@ export interface PluginListItem {
   installedAt: string; // ISO 8601
   trustedAt?: string | null; // ISO 8601
   isActive: boolean;
+  /** manifest 声明了 configSchema，UI 显示"配置"按钮 */
+  hasConfigSchema?: boolean;
 }
 
 /** GET /api/plugins 响应 */
@@ -45,10 +47,20 @@ export interface PluginListResponse {
   activePluginId: string | null;
 }
 
-/** POST /api/plugins/install 请求 */
+/** POST /api/plugins/install 请求 (与 PluginsController.InstallRequest 对齐) */
 export interface InstallPluginRequest {
-  repoUrl: string;
+  /** source 类型:'github'(默认) | 'local'。缺省按 github 处理(向后兼容)。 */
+  sourceKind?: SourceKind;
+
+  // ─ github source ─
+  repoUrl?: string;
   ref?: string | null;
+
+  // ─ local source ─
+  /** 本地 plugin 目录绝对路径(sourceKind=local 时必填)。 */
+  path?: string;
+  /** local 模式:true(默认)=junction 软链,改源码即时生效;false=复制快照。 */
+  link?: boolean;
 }
 
 /** POST /api/plugins/install 响应 */

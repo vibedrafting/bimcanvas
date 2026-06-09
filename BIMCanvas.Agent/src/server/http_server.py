@@ -42,6 +42,10 @@ agents: dict[str, HostAgentProtocol] = {}  # windowId → Agent
 _agents_lock = asyncio.Lock()
 runtime_store = RuntimeStateStore()
 
+# Plugin web action registry: (namespace, action_name) → async handler
+# Populated by config_bundle after each plugin's register() call.
+_plugin_action_registry: dict[tuple[str, str], Any] = {}
+
 STREAM_DELTA_FLUSH_INTERVAL_SECONDS = 0.08
 STREAM_DELTA_FLUSH_MAX_CHARS = 512
 _COALESCIBLE_DELTA_CHUNK_TYPES = {"text", "thinking"}
@@ -1812,8 +1816,106 @@ async def screenshot_save_handler(request: web.Request) -> web.Response:
     return web.json_response({"path": str(filepath)})
 
 
+async def plugin_action_handler(request: web.Request) -> web.Response:
+    """通用插件 Web Action 路由处理器。
+
+    路由: POST /api/plugin-actions/{namespace}/{action}
+    将请求分发到插件注册的 web_action handler。
+    """
+    namespace = request.match_info["namespace"]
+    action = request.match_info["action"]
+
+    handler = _plugin_action_registry.get((namespace, action))
+    if handler is None:
+        return web.json_response(
+            {"error": f"action '{action}' not found for plugin '{namespace}'"},
+            status=404,
+        )
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    try:
+        result = await handler(data)
+        return web.json_response(result)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("plugin action %s/%s 执行失败", namespace, action)
+        return web.json_response({"error": str(exc)}, status=500)
+
+
+async def _startup_register_web_actions(app: web.Application) -> None:
+    """HTTP server 启动时扫描所有已安装插件，注册 web_actions 到 registry。
+
+    不依赖 Agent 初始化，不依赖 active plugin，任何已安装插件的 web_action 均可用。
+    """
+    import importlib.util
+    from pathlib import Path
+    from ..config.loader import resolve_bimcanvas_home
+    from bimcanvas_plugin_sdk import McpServerBuilder
+    from bimcanvas_plugin_sdk.context import PluginContext
+
+    try:
+        home = Path(resolve_bimcanvas_home())
+        plugins_dir = home / "plugins"
+        print(f"[web_actions] home={home}, plugins_dir={plugins_dir}, exists={plugins_dir.is_dir()}", flush=True)
+        if not plugins_dir.is_dir():
+            logger.info("plugins_dir 不存在，跳过 web_actions 注册: %s", plugins_dir)
+            return
+
+        import os as _os
+        server_url = _os.environ.get("BIMCANVAS_SERVER_URL", "http://localhost:5000").rstrip("/")
+
+        for plugin_dir in sorted(plugins_dir.iterdir()):
+            if not plugin_dir.is_dir() or plugin_dir.name == "core-base":
+                continue
+
+            mcp_tools_dir = plugin_dir / "mcp_tools"
+            py_files = sorted(mcp_tools_dir.glob("*.py")) if mcp_tools_dir.is_dir() else []
+            if not py_files:
+                continue
+
+            plugin_id = plugin_dir.name
+            namespace = py_files[0].stem
+            entry_path = py_files[0].resolve()
+
+            try:
+                plugin_ctx = PluginContext(
+                    server_url=server_url,
+                    project_path=None,
+                    active_plugin_id=plugin_id,
+                    logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
+                    session=None,  # web_action 用自己的 aiohttp session，不依赖长连接
+                )
+                builder = McpServerBuilder(namespace=namespace, context=plugin_ctx)
+
+                module_name = f"_bimcanvas_webaction_{plugin_id.replace('-', '_')}"
+                spec = importlib.util.spec_from_file_location(module_name, entry_path)
+                if spec is None or spec.loader is None:
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                import sys as _sys
+                _sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+
+                register_fn = getattr(module, "register", None)
+                if not callable(register_fn):
+                    continue
+                register_fn(builder)
+
+                for wa in builder.web_actions:
+                    _plugin_action_registry[(namespace, wa.name)] = wa.handler
+                    logger.info("startup: web_action 已注册 %s/%s", namespace, wa.name)
+
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("startup: plugin %s web_actions 注册失败: %s", plugin_id, exc, exc_info=True)
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("startup: _startup_register_web_actions 失败: %s", exc, exc_info=True)
+
+
 async def on_shutdown(app: web.Application) -> None:
-    """应用关闭时清理资源"""
     logger.info("Shutting down, cleaning up agents...")
     await cleanup_agents()
 
@@ -1827,6 +1929,7 @@ def create_app() -> web.Application:
     """
     app = web.Application(client_max_size=12 * 1024**2)
 
+    app.on_startup.append(_startup_register_web_actions)
     app.on_shutdown.append(on_shutdown)
 
     cors = aiohttp_cors.setup(app, defaults={
@@ -1858,6 +1961,7 @@ def create_app() -> web.Application:
         web.post("/api/screenshot/save", screenshot_save_handler),
         web.get("/api/question/events", question_events_handler),
         web.post("/api/question/answer", question_answer_handler),
+        web.post("/api/plugin-actions/{namespace}/{action}", plugin_action_handler),
     ]
 
     routes_by_path: dict[str, list] = {}

@@ -132,13 +132,45 @@ public static class PluginPaths
     public static readonly string[] ReservedMcpNamespaces = new[] { "canvas" };
 
     /// <summary>
+    /// 判断路径是否为 reparse point (junction / symbolic link)。
+    /// 用于 local 软链安装的 plugin:删除时只能删链接本身,绝不能递归进源目录。
+    /// 路径不存在返回 false。
+    /// </summary>
+    public static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path) && !File.Exists(path)) return false;
+            var attrs = File.GetAttributes(path);
+            return (attrs & FileAttributes.ReparsePoint) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 稳健删除目录:先递归清除只读属性(Git pack 文件 *.idx/*.pack 默认只读,
     /// 否则 Directory.Delete 在 Windows 抛 UnauthorizedAccessException),再递归删除。
     /// 目录不存在则 no-op。
+    /// <para>
+    /// <b>软链安全</b>:若 <paramref name="path"/> 本身是 reparse point(junction/symlink,
+    /// local 软链安装产物),只删链接本身(<c>recursive:false</c>),**绝不递归进源目录** ——
+    /// 否则会把用户的 plugin 源码仓一并删掉,造成数据丢失。
+    /// </para>
     /// </summary>
     public static void DeleteDirectoryResilient(string path)
     {
         if (!Directory.Exists(path)) return;
+
+        // 软链/junction:只摘链接,不碰链接目标
+        if (IsReparsePoint(path))
+        {
+            Directory.Delete(path, recursive: false);
+            return;
+        }
+
         foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
         {
             var attrs = File.GetAttributes(file);

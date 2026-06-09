@@ -38,6 +38,45 @@ export class ProjectService {
     }
 
     /**
+     * 新建空白项目（带冲突检测）
+     */
+    static async createProject(name: string): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(`${API_BASE}/create`, { name });
+            return response.data;
+        } catch (error: any) {
+            if (error.response?.status === 409) {
+                return error.response.data as ProjectLoadResult;
+            }
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '新建项目失败'
+            };
+        }
+    }
+
+    /**
+     * 解决「新建空项目」的同名冲突
+     */
+    static async createResolveConflict(
+        name: string,
+        resolution: 'Overwrite' | 'UseExisting'
+    ): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(
+                `${API_BASE}/create-resolve?resolution=${resolution}`,
+                { name }
+            );
+            return response.data;
+        } catch (error: any) {
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '解决冲突失败'
+            };
+        }
+    }
+
+    /**
      * 上传 BCP 文件（带冲突检测）
      * @param file BCP 文件
      * @returns 加载结果（可能是 Success、Conflict 或 Error）
@@ -258,5 +297,64 @@ export class ProjectService {
         }
 
         return { blob: response.data, filename };
+    }
+}
+
+// ─── Scenes API ───
+
+export interface SceneItem {
+    pluginId: string;
+    id: string;
+    displayName: string;
+    tags: string[];
+    area?: number;
+    description?: string;
+    rooms?: string[];
+}
+
+export interface ScenesResponse {
+    available: boolean;
+    scenes?: SceneItem[];
+    error?: string;
+}
+
+const SCENES_API_BASE = `${SERVER_API}/scenes`;
+
+export class SceneService {
+    /**
+     * 聚合所有已安装 plugin 的场景列表。无场景时返回 { available: false }。
+     */
+    static async fetchScenes(): Promise<ScenesResponse> {
+        try {
+            const response = await axios.get<ScenesResponse>(`${SCENES_API_BASE}`);
+            return response.data;
+        } catch (error: any) {
+            return { available: false, error: error.message };
+        }
+    }
+
+    /**
+     * 从指定 plugin 的场景创建新项目。返回与 ProjectLoadResult 相同的结构。
+     */
+    static async createProjectFromScene(
+        pluginId: string,
+        sceneId: string,
+        projectName: string
+    ): Promise<ProjectLoadResult> {
+        try {
+            const response = await axios.post<ProjectLoadResult>(
+                `${SCENES_API_BASE}/${encodeURIComponent(pluginId)}/${encodeURIComponent(sceneId)}/create-project`,
+                { projectName }
+            );
+            return response.data;
+        } catch (error: any) {
+            if (error.response?.status === 409) {
+                return error.response.data as ProjectLoadResult;
+            }
+            return {
+                status: 'Error',
+                message: error.response?.data?.message || error.message || '从场景创建项目失败'
+            };
+        }
     }
 }

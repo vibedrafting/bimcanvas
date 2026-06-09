@@ -3,7 +3,7 @@ import { ChangeSource } from '../types/history';
 import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
 import { useSystemStore } from '../stores/systemStore';
-import { ProjectService, type ProjectLoadResult } from '../services/ProjectService';
+import { ProjectService, SceneService, type ProjectLoadResult } from '../services/ProjectService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 
@@ -12,6 +12,7 @@ const showConflictDialog = ref(false);
 const conflictProjectName = ref('');
 const conflictExistingPath = ref('');
 const pendingFile = ref<File | null>(null);
+const pendingCreateName = ref<string | null>(null);
 
 // 导入流程的健康检查挂起状态：Server 已接收 .bcp，但还没 loadInitialProject —
 // 等 RepairDialog (mode=import) 给出 proceed / abort 决策后才继续
@@ -168,9 +169,42 @@ export function useProjectFile() {
 
     if (resolution === 'Cancel') {
       pendingFile.value = null;
+      pendingCreateName.value = null;
       return;
     }
 
+    // 分支 1：新建空项目的冲突
+    if (pendingCreateName.value) {
+      const name = pendingCreateName.value;
+      try {
+        const result = await ProjectService.createResolveConflict(name, resolution);
+        if (result.status === 'Success') {
+          appStore.stageProjectWarnings(result.warnings);
+          if (await suspendForHealthCheck(result, null, ChangeSource.UserCreate)) return;
+          await completeLoad(ChangeSource.UserCreate);
+        } else {
+          appStore.clearPendingProjectWarnings();
+          sys.pushToast({
+            type: 'error',
+            title: '冲突解决失败',
+            message: result.message ?? '未知错误',
+          });
+        }
+      } catch (err: any) {
+        appStore.clearPendingProjectWarnings();
+        console.error('Failed to resolve create conflict:', err);
+        sys.pushToast({
+          type: 'error',
+          title: '冲突解决失败',
+          message: err?.message ?? String(err),
+        });
+      } finally {
+        pendingCreateName.value = null;
+      }
+      return;
+    }
+
+    // 分支 2：导入 .bcp 的冲突
     if (!pendingFile.value) {
       console.error('No pending file for conflict resolution');
       return;
@@ -201,6 +235,40 @@ export function useProjectFile() {
       });
     } finally {
       pendingFile.value = null;
+    }
+  };
+
+  // 新建空白项目（Connected 模式）
+  const handleCreate = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      sys.pushToast({
+        type: 'warning',
+        title: '项目名不能为空',
+        message: '请输入有效的项目名称',
+      });
+      return;
+    }
+
+    const result = await ProjectService.createProject(trimmed);
+
+    if (result.status === 'Conflict') {
+      appStore.clearPendingProjectWarnings();
+      pendingCreateName.value = trimmed;
+      conflictProjectName.value = result.projectName || trimmed;
+      conflictExistingPath.value = result.existingPath || '';
+      showConflictDialog.value = true;
+    } else if (result.status === 'Success') {
+      appStore.stageProjectWarnings(result.warnings);
+      if (await suspendForHealthCheck(result, null, ChangeSource.UserCreate)) return;
+      await completeLoad(ChangeSource.UserCreate);
+    } else {
+      appStore.clearPendingProjectWarnings();
+      sys.pushToast({
+        type: 'error',
+        title: '新建项目失败',
+        message: result.message ?? '未知错误',
+      });
     }
   };
 
@@ -283,8 +351,44 @@ export function useProjectFile() {
     }
   };
 
+  // 从场景创建项目
+  const handleCreateFromAtlasScene = async (pluginId: string, sceneId: string, projectName: string) => {
+    const trimmed = projectName.trim();
+    if (!trimmed) {
+      sys.pushToast({
+        type: 'warning',
+        title: '项目名不能为空',
+        message: '请输入有效的项目名称',
+      });
+      return;
+    }
+
+    const result = await SceneService.createProjectFromScene(pluginId, sceneId, trimmed);
+
+    if (result.status === 'Conflict') {
+      appStore.clearPendingProjectWarnings();
+      pendingCreateName.value = trimmed;
+      conflictProjectName.value = result.projectName || trimmed;
+      conflictExistingPath.value = result.existingPath || '';
+      showConflictDialog.value = true;
+    } else if (result.status === 'Success') {
+      appStore.stageProjectWarnings(result.warnings);
+      if (await suspendForHealthCheck(result, null, ChangeSource.UserCreate)) return;
+      await completeLoad(ChangeSource.UserCreate);
+    } else {
+      appStore.clearPendingProjectWarnings();
+      sys.pushToast({
+        type: 'error',
+        title: '从场景创建项目失败',
+        message: result.message ?? '未知错误',
+      });
+    }
+  };
+
   return {
     handleLoad,
+    handleCreate,
+    handleCreateFromAtlasScene,
     handleExport,
     handleExportSnapshot,
     handleExportBcp,

@@ -7,10 +7,12 @@ import ConflictDialog from '../components/UI/ConflictDialog.vue';
 import RepairDialog from '../components/UI/RepairDialog.vue';
 import HomeSettingsPanel from '../components/UI/HomeSettingsPanel.vue';
 import PluginsPanel from '../components/UI/PluginsPanel.vue';
+import NewProjectDialog from '../components/UI/NewProjectDialog.vue';
 import { useProjectFile } from '../composables/useProjectFile';
 import type { ProjectSummary } from '../types/homepage';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
+import { SceneService } from '../services/ProjectService';
 
 const appStore = useAppStore();
 const canvasStore = useCanvasStore();
@@ -47,6 +49,8 @@ const onRepairClosed = () => {
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const {
   handleLoad,
+  handleCreate,
+  handleCreateFromAtlasScene,
   processFile,
   handleConflictResolve,
   showConflictDialog,
@@ -57,6 +61,11 @@ const {
   continueLoadAfterHealthCheck,
   abortLoadAfterHealthCheck
 } = useProjectFile();
+
+const loadScenes = async () => {
+  // preload scene availability — NewProjectDialog fetches independently on open
+  try { await SceneService.fetchScenes(); } catch { }
+};
 
 const onImportHealthProceed = async () => {
   await continueLoadAfterHealthCheck();
@@ -102,12 +111,27 @@ const getDefaultProjectName = (): string => {
   return `新建项目_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
 };
 
+// 新建项目对话框
+const showNewProjectDialog = ref(false);
+
 const handleCreateProject = async () => {
   if (!canProjectCreation) return;
-  const defaultName = getDefaultProjectName();
-  const projectName = window.prompt('项目名称', defaultName);
-  if (projectName === null) return;
-  await canvasStore.createBlankProject(projectName);
+  showNewProjectDialog.value = true;
+};
+
+const onNewProjectCreate = async (projectName: string, pluginId: string | null, sceneId: string | null) => {
+  showNewProjectDialog.value = false;
+  if (pluginId && sceneId) {
+    await handleCreateFromAtlasScene(pluginId, sceneId, projectName);
+  } else if (canProjectCatalog) {
+    await handleCreate(projectName);
+  } else {
+    await canvasStore.createBlankProject(projectName);
+  }
+};
+
+const onNewProjectCancel = () => {
+  showNewProjectDialog.value = false;
 };
 
 // 打开项目
@@ -183,6 +207,7 @@ const displayProjects = computed(() => {
 onMounted(() => {
   if (canProjectCatalog) {
     appStore.fetchProjectList();
+    loadScenes();
   }
 });
 </script>
@@ -289,6 +314,7 @@ onMounted(() => {
       />
 
       <div v-else-if="canProjectCatalog" key="projects" class="projects-view">
+
       <!-- Tab 栏 -->
       <div class="tab-bar">
         <button
@@ -475,6 +501,14 @@ onMounted(() => {
       :folder-path="pendingHealthCheck.projectPath"
       @proceed="onImportHealthProceed"
       @abort="onImportHealthAbort"
+    />
+
+    <!-- 新建项目对话框 -->
+    <NewProjectDialog
+      :visible="showNewProjectDialog"
+      :default-name="getDefaultProjectName()"
+      @create="onNewProjectCreate"
+      @cancel="onNewProjectCancel"
     />
   </div>
 </template>
@@ -889,5 +923,131 @@ onMounted(() => {
 .dialog-enter-active .delete-dialog,
 .dialog-leave-active .delete-dialog {
   transition: all 0.2s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+/* Atlas Panel */
+.atlas-panel {
+  background: var(--glass-bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg, 12px);
+  padding: 16px 20px 20px;
+  margin-bottom: 24px;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.atlas-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.atlas-panel-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.atlas-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.atlas-close-btn:hover {
+  color: var(--text-primary);
+}
+
+.atlas-scene-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.atlas-scene-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.atlas-scene-card:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-1px);
+}
+
+.atlas-scene-icon {
+  flex-shrink: 0;
+  color: var(--accent-blue);
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.atlas-scene-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.atlas-scene-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-scene-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.atlas-tag {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-blue);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+}
+
+.atlas-scene-desc {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Atlas panel transition */
+.atlas-panel-enter-active,
+.atlas-panel-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.atlas-panel-enter-from,
+.atlas-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 </style>

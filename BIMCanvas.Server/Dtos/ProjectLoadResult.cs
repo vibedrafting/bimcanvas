@@ -111,6 +111,14 @@ namespace BIMCanvas.Server.Dtos
     }
 
     /// <summary>
+    /// 新建空项目请求 (POST /api/project/create / /create-resolve)。
+    /// </summary>
+    public class CreateProjectRequest
+    {
+        public string Name { get; set; } = "";
+    }
+
+    /// <summary>
     /// 保存模块数据请求
     /// v3.3: 支持按分区保存
     /// </summary>

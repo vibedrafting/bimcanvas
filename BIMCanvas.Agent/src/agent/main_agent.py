@@ -149,6 +149,8 @@ class MainAgent:
         # meta.phases 暂存（key=tool_use_id=block.id），TaskStarted 拿到 task_id 后再推前端。
         # 不依赖闭源 CLI 写的 per-run 脚本副本/wf_*.json（运行态常缺失/runId 错位）。
         self._pending_workflow_meta: dict[str, dict[str, Any]] = {}
+        # 并行工具调用安全的工具名跟踪：tool_use_id → tool_name（解决 _current_tool_name 单值覆盖问题）
+        self._tool_name_by_id: dict[str, str] = {}
 
         # 当前请求的模型（用于 set_model 检查，避免重复发送控制消息）
         self._current_model: str | None = None
@@ -1241,6 +1243,8 @@ class MainAgent:
                             self._agent_logger.log_response_end()
                             self._in_response = False
                         self._current_tool_name = block.name
+                        if block.id:
+                            self._tool_name_by_id[block.id] = block.name
                         if block.name == "Task":
                             # Task 工具：enter_subagent 已包含 DISPATCH 输出
                             subagent_type = block.input.get("subagent_type", "unknown")
@@ -1255,7 +1259,8 @@ class MainAgent:
                 elif isinstance(block, ToolResultBlock):
                     if self.verbose:
                         is_error = getattr(block, 'is_error', False)
-                        tool_name = self._current_tool_name or "unknown"
+                        block_id = getattr(block, 'tool_use_id', None)
+                        tool_name = (self._tool_name_by_id.pop(block_id, None) if block_id else None) or self._current_tool_name or "unknown"
                         self._agent_logger.log_tool_result(tool_name, block.content, is_error)
                         if tool_name == "Task":
                             result_summary = str(block.content)[:200] if block.content else None
@@ -1342,15 +1347,19 @@ class MainAgent:
         elif event_type == "tool_use":
             tool_name = event.get("name", "")
             tool_input = event.get("input", {})
+            tool_use_id = event.get("id", "") or event.get("tool_use_id", "")
             if self.verbose:
                 self._agent_logger.log_tool_use(tool_name, tool_input)
                 self._current_tool_name = tool_name
+                if tool_use_id:
+                    self._tool_name_by_id[tool_use_id] = tool_name
                 if tool_name == "Task":
                     subagent_type = tool_input.get("subagent_type", "unknown")
                     self._agent_logger.enter_subagent(subagent_type)
 
         elif event_type == "tool_result":
-            tool_name = self._current_tool_name or event.get("tool_name", "unknown")
+            ev_tool_use_id = event.get("tool_use_id", "")
+            tool_name = (self._tool_name_by_id.pop(ev_tool_use_id, None) if ev_tool_use_id else None) or event.get("tool_name") or self._current_tool_name or "unknown"
             result = event.get("result", "")
             is_error = event.get("is_error", False)
             if self.verbose:
@@ -1394,6 +1403,7 @@ class MainAgent:
             self._current_tool_name = None
             self._placeholder_text_suppressed_logged = False
             self._response_model = None
+            self._tool_name_by_id.clear()
 
             # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列。
             # 不变量：注册新回合前，上一回合的 ResultMessage 必须已被 drain 读出（正常回合结束时
@@ -1645,6 +1655,7 @@ class MainAgent:
         self._active_subagents.clear()
         self._tool_call_counter = 0
         self._pending_tool_calls.clear()
+        self._tool_name_by_id.clear()
         self._tool_to_subagent.clear()
         # A 修复:本回合是否启动了后台 Workflow（用于"真后台脱离"——见 AssistantMessage 分支末尾）
         self._turn_launched_workflow = False
@@ -1801,12 +1812,13 @@ class MainAgent:
                         self._streamed_text = False  # 重置标记，准备下一轮
                     elif isinstance(block, ToolUseBlock):
                         self._current_tool_name = block.name
+                        if block.id:
+                            self._tool_name_by_id[block.id] = block.name
                         if block.name == "Workflow":
                             # A 修复:标记本回合启动了后台 Workflow，供稍后"真后台脱离"判定
                             self._turn_launched_workflow = True
                             # Task 页运行态全阶段预声明:读脚本 meta.phases 暂存,待 TaskStarted 推前端
                             self._stash_workflow_meta(block)
-
                         if block.name == "Task":
                             # SubAgent 开始 - 添加到活跃映射（支持多个并行）
                             subagent_type = block.input.get("subagent_type", "general-purpose")
@@ -1858,13 +1870,11 @@ class MainAgent:
                             )
 
                     elif isinstance(block, ToolResultBlock):
-                        tool_name = self._current_tool_name or "unknown"
+                        block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        tool_name = (self._tool_name_by_id.pop(block_tool_use_id, None) if block_tool_use_id else None) or self._current_tool_name or "unknown"
                         is_error = getattr(block, 'is_error', False)
                         if self.verbose:
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)
-
-                        # 使用 tool_use_id 精确匹配
-                        block_tool_use_id = getattr(block, 'tool_use_id', None)
 
                         if block_tool_use_id and block_tool_use_id in self._active_subagents:
                             # SubAgent 完成 - 从映射中获取并清理
@@ -1927,9 +1937,9 @@ class MainAgent:
             elif isinstance(message, UserMessage):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
-                        tool_name = self._current_tool_name or "unknown"
-                        is_error = getattr(block, 'is_error', False)
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
+                        tool_name = (self._tool_name_by_id.pop(block_tool_use_id, None) if block_tool_use_id else None) or self._current_tool_name or "unknown"
+                        is_error = getattr(block, 'is_error', False)
                         # 日志：输出工具结果
                         if self.verbose:
                             self._agent_logger.log_tool_result(tool_name, block.content, is_error)

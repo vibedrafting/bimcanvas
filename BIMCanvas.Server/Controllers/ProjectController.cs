@@ -579,6 +579,157 @@ namespace BIMCanvas.Server.Controllers
         }
 
         /// <summary>
+        /// 创建空白项目（无 .bcp 输入）。与 /upload 对称：检测同名冲突 → 物化空 baseline → 走相同的派生初始化管线。
+        /// 不绑定 plugin scene；scenes[] 由用户后续在 /scenes 端点显式添加（R10 不变量）。
+        /// </summary>
+        [HttpPost("create")]
+        public ActionResult<ProjectLoadResult> CreateBlankProject([FromBody] CreateProjectRequest request)
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "请提供项目名称"
+                });
+            }
+
+            string trimmedName;
+            try
+            {
+                ProjectService.ValidateProjectName(request.Name);
+                trimmedName = request.Name.Trim();
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+
+            try
+            {
+                var (hasConflict, existingPath) = _projectService.CheckEmptyProjectConflict(trimmedName);
+                if (hasConflict)
+                {
+                    return Conflict(new ProjectLoadResult
+                    {
+                        Status = "Conflict",
+                        ExistingPath = existingPath,
+                        ProjectName = trimmedName,
+                        Message = $"项目 '{trimmedName}' 已存在"
+                    });
+                }
+
+                var loadResult = _projectService.CreateProject(trimmedName, overwrite: false);
+                _projectContext.SetProject(loadResult.ProjectPath, null);
+
+                _recentProjectsService.RecordOpen(trimmedName, loadResult.ProjectPath);
+                BIMCanvas.Server.Logging.ConversationLogger.Initialize(loadResult.ProjectPath);
+
+                return Ok(CreateSuccessProjectLoadResult(loadResult.ProjectPath, loadResult.Warnings));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "创建空白项目失败: {Name}", trimmedName);
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// 解决「新建空项目」的同名冲突（覆盖或使用已存在）。镜像 /upload-resolve 的两路分支。
+        /// </summary>
+        [HttpPost("create-resolve")]
+        public ActionResult<ProjectLoadResult> CreateResolveConflict(
+            [FromBody] CreateProjectRequest request,
+            [FromQuery] string resolution)
+        {
+            if (request is null || string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "请提供项目名称"
+                });
+            }
+
+            if (resolution != "Overwrite" && resolution != "UseExisting")
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = "无效的解决策略，必须是 Overwrite 或 UseExisting"
+                });
+            }
+
+            string trimmedName;
+            try
+            {
+                ProjectService.ValidateProjectName(request.Name);
+                trimmedName = request.Name.Trim();
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+
+            try
+            {
+                string projectPath;
+                List<string> warnings;
+
+                if (resolution == "UseExisting")
+                {
+                    projectPath = Path.Combine(ProjectService.DefaultProjectsRoot, trimmedName);
+                    if (!Directory.Exists(projectPath))
+                    {
+                        return NotFound(new ProjectLoadResult
+                        {
+                            Status = "Error",
+                            Message = $"项目目录不存在: {projectPath}"
+                        });
+                    }
+
+                    var openResult = _projectService.OpenFolder(projectPath);
+                    projectPath = openResult.ProjectPath;
+                    warnings = openResult.Warnings;
+                    _projectContext.SetProject(projectPath, null);
+                }
+                else // Overwrite
+                {
+                    var createResult = _projectService.CreateProject(trimmedName, overwrite: true);
+                    projectPath = createResult.ProjectPath;
+                    warnings = createResult.Warnings;
+                    _projectContext.SetProject(projectPath, null);
+                }
+
+                _recentProjectsService.RecordOpen(trimmedName, projectPath);
+                BIMCanvas.Server.Logging.ConversationLogger.Initialize(projectPath);
+
+                return Ok(CreateSuccessProjectLoadResult(projectPath, warnings));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "解决新建项目冲突失败: {Name}", trimmedName);
+                return StatusCode(500, new ProjectLoadResult
+                {
+                    Status = "Error",
+                    Message = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
         /// 打开 BCP 文件（带冲突检测）- 基于路径（仅供服务端使用）
         /// </summary>
         [HttpPost("open")]

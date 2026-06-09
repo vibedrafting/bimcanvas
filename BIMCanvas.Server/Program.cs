@@ -369,6 +369,22 @@ app.Map("/agent", agentApp =>
     });
 });
 
+// Plugin Web Actions — 透明转发到 Agent，无任何业务逻辑
+// 路由: /api/plugin-actions/{namespace}/{action}
+// Agent 侧由 _plugin_action_registry 根据 namespace+action 分发到插件 handler
+app.Map("/api/plugin-actions", pluginActionsApp =>
+{
+    pluginActionsApp.Run(async context =>
+    {
+        var agentClient = context.RequestServices.GetRequiredService<AgentClientService>();
+        // app.Map 剥离了前缀，手动还原完整路径后再转发
+        var originalPath = context.Request.Path;
+        context.Request.Path = "/api/plugin-actions" + originalPath;
+        await ProxyToAgentAsync(context, agentClient.AgentBaseUrl);
+        context.Request.Path = originalPath;
+    });
+});
+
 if (isProduction && productionWebDistPath != null)
 {
     app.MapFallbackToFile(

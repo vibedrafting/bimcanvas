@@ -57,6 +57,12 @@ public sealed class PluginLifecycleService
         => _installService.InstallAsync(repoUrl, gitRef, ct);
 
     /// <summary>
+    /// 从本地目录安装 plugin (转发)。git 之外的注册源。R1:不调 Probe。
+    /// </summary>
+    public Task<PluginInstallState> InstallFromLocalAsync(string localPath, bool link, CancellationToken ct = default)
+        => _installService.InstallFromLocalAsync(localPath, link, ct);
+
+    /// <summary>
     /// 信任 plugin:调 <see cref="ExecutablePluginProbe"/> + 通过则 MarkTrusted (V13 T6c)。
     /// Probe 失败抛 <see cref="PluginProbeFailedException"/>,plugin 保持 untrusted。
     /// </summary>
