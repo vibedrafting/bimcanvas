@@ -198,24 +198,25 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 选完成态 wf_*.json：给了 taskId 就只认匹配的（没匹配→返回 null 触发实时态，
-        /// 不能回退到"最新"否则运行中会错读上一次完成的 run）；没给 taskId 才取最新。
+        /// 选完成态 wf_*.json：完成态必须绑定具体 run 身份(taskId)，不靠 mtime 猜。
+        /// - 给了 taskId：只认匹配的；没匹配(本次 run 完成文件还没写出)→ null → 走实时态。
+        /// - 没给 taskId：无法识别是哪个 run → 一律 null 走实时态(BuildLive)，绝不回退"取最新完成文件"——
+        ///   否则同一会话先后跑多个 workflow 时，新 run 启动期会错读上一个已完成 run 的 wf_*.json，
+        ///   把仍在跑的新 run 误报 completed(latent bug)。代价：对"已完成会话的无 taskId 查询"会报成
+        ///   运行态，但前端完成态查询恒带 taskId(onWorkflowCompleted 先绑 taskId 再 loadTranscript)，不受影响。
         /// </summary>
         private static string? PickRunJson(string workflowsDir, string? taskId)
         {
+            if (string.IsNullOrEmpty(taskId)) return null;  // 无 run 身份 → 不认完成态，交 BuildLive
             if (!Directory.Exists(workflowsDir)) return null;
             var files = Directory.EnumerateFiles(workflowsDir, "wf_*.json", SearchOption.TopDirectoryOnly).ToList();
             if (files.Count == 0) return null;
-            if (!string.IsNullOrEmpty(taskId))
+            foreach (var f in files)
             {
-                foreach (var f in files)
-                {
-                    try { if (string.Equals((string?)JObject.Parse(File.ReadAllText(f))["taskId"], taskId, StringComparison.Ordinal)) return f; }
-                    catch { }
-                }
-                return null; // taskId 指定但本次 run 还没写出 → 走实时态
+                try { if (string.Equals((string?)JObject.Parse(File.ReadAllText(f))["taskId"], taskId, StringComparison.Ordinal)) return f; }
+                catch { }
             }
-            return files.OrderByDescending(f => File.GetLastWriteTimeUtc(f)).First();
+            return null; // taskId 指定但本次 run 还没写出 → 走实时态
         }
 
         private static HashSet<string> ReadJournalStarted(string subDir)
