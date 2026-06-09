@@ -69,6 +69,7 @@ public sealed class PluginsController : ControllerBase
             string? displayName = null;
             string? description = null;
             string? mcpNamespace = null;
+            bool hasConfigSchema = false;
             try
             {
                 var manifestPath = PluginPaths.PluginManifestFile(kv.Key);
@@ -78,6 +79,7 @@ public sealed class PluginsController : ControllerBase
                     displayName = (string?)manifest["displayName"];
                     description = (string?)manifest["description"];
                     mcpNamespace = (string?)manifest["mcpNamespace"] ?? (string?)manifest["name"];
+                    hasConfigSchema = manifest["configSchema"] is JArray arr && arr.Count > 0;
                 }
             }
             catch { /* manifest 损坏不阻断列表 */ }
@@ -96,6 +98,7 @@ public sealed class PluginsController : ControllerBase
                 InstalledAt = kv.Value.InstalledAt,
                 TrustedAt = kv.Value.TrustedAt,
                 IsActive = string.Equals(activePluginId, kv.Key, StringComparison.OrdinalIgnoreCase),
+                HasConfigSchema = hasConfigSchema,
             };
         }).ToList();
 
@@ -318,6 +321,112 @@ public sealed class PluginsController : ControllerBase
         }
     }
 
+    // ─── GET /api/plugins/{id}/config ──────────────────────────────────────
+
+    /// <summary>
+    /// 读取插件配置：返回 manifest 中声明的 configSchema 以及当前已保存的值。
+    /// secret 字段的值脱敏为 "***"，不暴露原始内容。
+    /// </summary>
+    [HttpGet("{pluginId}/config")]
+    public IActionResult GetConfig(string pluginId)
+    {
+        var manifestPath = PluginPaths.PluginManifestFile(pluginId);
+        if (!System.IO.File.Exists(manifestPath))
+            return NotFound(new ErrorResponse("plugin_not_found", $"plugin '{pluginId}' 未安装"));
+
+        JArray schema;
+        try
+        {
+            var manifest = JObject.Parse(System.IO.File.ReadAllText(manifestPath));
+            schema = manifest["configSchema"] as JArray ?? new JArray();
+        }
+        catch
+        {
+            return StatusCode(500, new ErrorResponse("manifest_parse_error", "manifest 解析失败"));
+        }
+
+        var allPluginConfigs1 = ConfigService.LoadSection("pluginConfigs");
+        var stored = allPluginConfigs1[pluginId] as JObject ?? new JObject();
+        var values = new JObject();
+        foreach (var item in schema.OfType<JObject>())
+        {
+            var key = (string?)item["key"];
+            if (key is null) continue;
+            var isSecret = (bool?)item["secret"] ?? false;
+            var rawValue = (string?)stored[key];
+            values[key] = rawValue is null ? null
+                : isSecret ? "***"
+                : rawValue;
+        }
+
+        return Ok(new { schema, values });
+    }
+
+    // ─── PUT /api/plugins/{id}/config ──────────────────────────────────────
+
+    /// <summary>
+    /// 保存插件配置。值写入 instance.config.json 的 pluginConfigs.{id} 段。
+    /// Agent 下次调用 ctx.get_config() 时（TTL 内缓存失效后）自动拉取，无需重启。
+    /// </summary>
+    [HttpPut("{pluginId}/config")]
+    public IActionResult SaveConfig(string pluginId, [FromBody] JObject body)
+    {
+        if (body is null)
+            return BadRequest(new ErrorResponse("invalid_request", "请求体必须非空"));
+
+        var manifestPath = PluginPaths.PluginManifestFile(pluginId);
+        if (!System.IO.File.Exists(manifestPath))
+            return NotFound(new ErrorResponse("plugin_not_found", $"plugin '{pluginId}' 未安装"));
+
+        // 只允许写 manifest configSchema 中声明的 key，防止注入任意配置
+        JArray schema;
+        try
+        {
+            var manifest = JObject.Parse(System.IO.File.ReadAllText(manifestPath));
+            schema = manifest["configSchema"] as JArray ?? new JArray();
+        }
+        catch
+        {
+            return StatusCode(500, new ErrorResponse("manifest_parse_error", "manifest 解析失败"));
+        }
+
+        var allowedKeys = schema.OfType<JObject>()
+            .Select(item => (string?)item["key"])
+            .Where(k => k is not null)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var allPluginConfigs = ConfigService.LoadSection("pluginConfigs");
+        var existing = allPluginConfigs[pluginId] as JObject ?? new JObject();
+        foreach (var prop in body.Properties())
+        {
+            if (!allowedKeys.Contains(prop.Name))
+                return BadRequest(new ErrorResponse("invalid_key",
+                    $"配置键 '{prop.Name}' 未在 manifest configSchema 中声明"));
+            existing[prop.Name] = prop.Value;
+        }
+
+        allPluginConfigs[pluginId] = existing;
+        ConfigService.SaveSection("pluginConfigs", allPluginConfigs);
+
+        _logger.LogInformation("plugin {Id} 配置已保存，keys={Keys}",
+            pluginId, string.Join(",", body.Properties().Select(p => p.Name)));
+
+        return Ok(new { saved = true });
+    }
+
+    // ─── GET /api/plugins/{id}/config/values ───────────────────────────────
+
+    /// <summary>
+    /// 返回插件配置原始值（不脱敏）。仅供 Agent 进程内网调用，获取注入到 PluginContext 的配置。
+    /// </summary>
+    [HttpGet("{pluginId}/config/values")]
+    public IActionResult GetConfigValues(string pluginId)
+    {
+        var allPluginConfigs = ConfigService.LoadSection("pluginConfigs");
+        var stored = allPluginConfigs[pluginId] as JObject ?? new JObject();
+        return Ok(stored);
+    }
+
     // ─── 异常映射 ──────────────────────────────────────────────────────────
 
     private IActionResult MapPluginException(PluginException ex)
@@ -399,6 +508,8 @@ public sealed class PluginListItem
     public DateTimeOffset InstalledAt { get; set; }
     public DateTimeOffset? TrustedAt { get; set; }
     public bool IsActive { get; set; }
+    /// <summary>manifest 中声明了 configSchema（至少一项），UI 据此显示"配置"按钮。</summary>
+    public bool HasConfigSchema { get; set; }
 }
 
 public sealed class ErrorResponse

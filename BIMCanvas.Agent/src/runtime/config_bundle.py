@@ -387,6 +387,16 @@ def _load_plugin_mcp_server(
             f"plugin {plugin_id} 加载失败 ({type(exc).__name__}: {exc});该 plugin 被 disable"
         )
 
+    # 将插件注册的 web_actions 写入 HTTP server registry，供 Web UI 直接调用
+    if builder.web_actions:
+        try:
+            from ..server.http_server import _plugin_action_registry
+            for wa in builder.web_actions:
+                _plugin_action_registry[(namespace, wa.name)] = wa.handler
+                logger.info("plugin %s 注册 web_action: %s %s/%s", plugin_id, wa.method, namespace, wa.name)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("plugin %s web_actions 注册失败: %s", plugin_id, exc)
+
     plugin_server = builder.build()
     return namespace, plugin_server, builder.tool_names
 
@@ -444,7 +454,101 @@ def _build_mcp_servers(
             f"plugin {plugin_id} 已加载: namespace={namespace}, tools={list(result)}"
         )
 
+    # 额外扫描所有已安装插件的 web_actions（不限于 active plugin）
+    # web_actions 面向 Web UI，任何已信任插件都应能注册，无需 active
+    _register_all_web_actions(launch_context, session, already_loaded=set(servers.keys()), diagnostics=diagnostics)
+
     return servers, tool_names, diagnostics
+
+
+def _register_all_web_actions(
+    launch_context: "PluginLaunchContext",
+    session: "aiohttp.ClientSession | None",
+    already_loaded: set[str],
+    diagnostics: list[str],
+) -> None:
+    """扫描所有已安装插件，注册其 web_actions（跳过已加载为 MCP server 的 namespace）。
+
+    web_actions 不属于 MCP 工具链，不影响 Agent 权限控制。
+    任何插件只要有 mcp_tools/<ns>.py 且声明了 web_action，就注册到 _plugin_action_registry。
+    """
+    loader = get_config_loader()
+    plugins_dir = loader.config_dir / "plugins"
+    if not plugins_dir.is_dir():
+        return
+
+    for plugin_dir in plugins_dir.iterdir():
+        if not plugin_dir.is_dir():
+            continue
+        plugin_id = plugin_dir.name
+        if plugin_id == "core-base":
+            continue  # core-base 已在主流程处理
+
+        mcp_tools_dir = plugin_dir / "mcp_tools"
+        if not mcp_tools_dir.is_dir():
+            continue
+        py_files = list(mcp_tools_dir.glob("*.py"))
+        if not py_files:
+            continue
+        namespace = py_files[0].stem
+
+        if namespace in already_loaded:
+            # 已作为 MCP server 加载（active plugin），web_actions 已在主流程注册
+            continue
+
+        # 只注册 web_actions，不构建完整 MCP server
+        try:
+            _load_web_actions_only(plugin_dir, plugin_id, namespace, launch_context, session)
+            diagnostics.append(f"plugin {plugin_id} web_actions 已注册: namespace={namespace}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("plugin %s web_actions 注册失败: %s", plugin_id, exc, exc_info=True)
+            diagnostics.append(f"plugin {plugin_id} web_actions 注册失败: {exc}")
+
+
+def _load_web_actions_only(
+    plugin_root: Path,
+    plugin_id: str,
+    namespace: str,
+    launch_context: "PluginLaunchContext",
+    session: "aiohttp.ClientSession | None",
+) -> None:
+    """只加载插件的 web_actions，注册到 _plugin_action_registry，不构建 MCP server。
+
+    用于非 active 但已信任的插件——它们的 web_actions 需要响应 Web UI 请求。
+    """
+    import importlib.util
+    from bimcanvas_plugin_sdk import McpServerBuilder
+    from bimcanvas_plugin_sdk.context import PluginContext
+    from ..server.http_server import _plugin_action_registry
+
+    entry_path = sorted((plugin_root / "mcp_tools").glob("*.py"))[0].resolve()
+    plugin_ctx = PluginContext(
+        server_url=launch_context.server_url,
+        project_path=launch_context.project_path,
+        active_plugin_id=plugin_id,
+        active_scene=plugin_id,
+        logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
+        session=session,
+        scenes=launch_context.scenes,
+    )
+    builder = McpServerBuilder(namespace=namespace, context=plugin_ctx)
+
+    module_name = f"bimcanvas_plugin_{plugin_id.replace('-', '_')}_webonly"
+    spec = importlib.util.spec_from_file_location(module_name, entry_path)
+    if spec is None or spec.loader is None:
+        return
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    register_fn = getattr(module, "register", None)
+    if not callable(register_fn):
+        return
+    register_fn(builder)
+
+    for wa in builder.web_actions:
+        _plugin_action_registry[(namespace, wa.name)] = wa.handler
+        logger.info("plugin %s web_action 已注册（非active）: %s/%s", plugin_id, namespace, wa.name)
 
 
 def _resolve_effective_permissions(

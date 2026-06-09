@@ -14,6 +14,7 @@ import { onMounted, ref, computed, nextTick } from 'vue';
 import GlassButton from './base/GlassButton.vue';
 import InstallPluginDialog from './dialogs/InstallPluginDialog.vue';
 import TrustAndActivateDialog from './dialogs/TrustAndActivateDialog.vue';
+import PluginConfigDialog from './dialogs/PluginConfigDialog.vue';
 import { usePluginStore } from '../../stores/pluginStore';
 import type { PluginListItem } from '../../types/plugin';
 
@@ -31,6 +32,7 @@ const isMounted = ref(false);
 const showInstallDialog = ref(false);
 const trustTarget = ref<PluginListItem | null>(null);
 const uninstallTarget = ref<PluginListItem | null>(null);
+const configTarget = ref<PluginListItem | null>(null);
 
 // ─── 工具函数 ───────────────────────────────────────────────────────
 
@@ -245,6 +247,15 @@ onMounted(async () => {
                   </span>
 
                   <GlassButton
+                    v-if="p.hasConfigSchema"
+                    variant="secondary"
+                    :disabled="store.isBusy(p.pluginId)"
+                    @click="configTarget = p"
+                  >
+                    配置
+                  </GlassButton>
+
+                  <GlassButton
                     variant="danger"
                     :disabled="store.isBusy(p.pluginId)"
                     @click="onUninstallClick(p)"
@@ -264,6 +275,15 @@ onMounted(async () => {
       :visible="showInstallDialog"
       @confirm="onInstallConfirm"
       @cancel="showInstallDialog = false"
+    />
+
+    <PluginConfigDialog
+      v-if="configTarget"
+      :visible="!!configTarget"
+      :plugin-id="configTarget.pluginId"
+      :display-name="configTarget.displayName"
+      @close="configTarget = null"
+      @saved="configTarget = null"
     />
 
     <TrustAndActivateDialog

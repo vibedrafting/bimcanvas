@@ -26,6 +26,8 @@ export interface WebCapabilities {
   worktreeReview: CapabilityEntry;
   agentChat: CapabilityEntry;
   runtimeSettings: CapabilityEntry;
+  /** AI 效果图生成面板（需要 envision plugin 激活） */
+  envisionPanel: CapabilityEntry;
 }
 
 export interface WebSnapshot {

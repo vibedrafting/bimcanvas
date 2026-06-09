@@ -40,6 +40,8 @@ export interface PluginListItem {
   installedAt: string; // ISO 8601
   trustedAt?: string | null; // ISO 8601
   isActive: boolean;
+  /** manifest 声明了 configSchema，UI 显示"配置"按钮 */
+  hasConfigSchema?: boolean;
 }
 
 /** GET /api/plugins 响应 */

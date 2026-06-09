@@ -21,6 +21,7 @@ const runtime = getWebRuntime();
 const canGitBranching = supports(runtime.capabilities.gitBranching);
 const canAgentChat = supports(runtime.capabilities.agentChat);
 const canUseModuleLibrary = supports(runtime.capabilities.moduleLibrary);
+const canEnvision = supports(runtime.capabilities.envisionPanel);
 
 // Tabs definition
 const baseTabs = [
@@ -31,11 +32,13 @@ const baseTabs = [
   { id: 'library', label: 'Library' },
   { id: 'edit', label: 'Edit' },
   { id: 'view', label: 'View' },
+  { id: 'envision', label: 'Envision' },
 ];
 
 const tabs = computed(() => baseTabs.filter((tab) => {
   if (tab.id === 'design') return canGitBranching || canAgentChat;
   if (tab.id === 'library') return canUseModuleLibrary;
+  if (tab.id === 'envision') return canEnvision;
   return true;
 }));
 
@@ -150,6 +153,10 @@ const handleConflictCancel = () => {
   showConflictDialog.value = false;
   pendingBranchData.value = null;
 };
+
+const dispatchEnvisionOpen = () => {
+  window.dispatchEvent(new CustomEvent('bimcanvas:open-envision-panel'));
+};
 </script>
 
 <template>
@@ -159,12 +166,13 @@ const handleConflictCancel = () => {
         v-for="tab in tabs"
         :key="tab.id"
         class="tab-wrapper"
-        @mouseenter="openTab(tab.id, $event)"
+        @mouseenter="tab.id !== 'envision' && openTab(tab.id, $event)"
         @mouseleave="closeTab"
       >
         <button
           class="tab-btn"
           :class="{ active: activeTab === tab.id }"
+          @click="tab.id === 'envision' && dispatchEnvisionOpen()"
         >
           {{ tab.label }}
         </button>
