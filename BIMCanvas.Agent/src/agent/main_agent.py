@@ -946,13 +946,16 @@ class MainAgent:
             return
         ctx = self._last_runtime_context or {}
         status = pending.get("status", "completed")
-        body = content.strip() if content else ""
-        if not body:
-            body = self._compose_background_text(status, pending.get("fallback", ""))
+        # has_summary：主控是否产出了原生总结文本。True → Chat 渲染气泡 + 落 history；
+        # False → 仅 generic 占位（'Workflow ... completed'），前端只收口 Task 面板、不渲染气泡、不落盘。
+        has_summary = bool(content and content.strip())
+        body = content.strip() if has_summary else \
+            self._compose_background_text(status, pending.get("fallback", ""))
         record = {
             "kind": "background_task",  # 前端通道判别字段（与 interaction record 区分）
             "taskId": pending.get("taskId"),
             "status": status,
+            "hasSummary": has_summary,  # 前端/落盘据此区分富总结 vs generic 占位
             "content": body,
             "summary": pending.get("fallback", ""),
             "outputFile": pending.get("outputFile"),

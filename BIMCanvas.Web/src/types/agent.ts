@@ -145,6 +145,8 @@ export interface BackgroundTaskRecord {
   kind: 'background_task';
   taskId: string;
   status: BackgroundTaskStatus;
+  // 主控是否产出原生总结：true→渲染 Chat 气泡+落 history；false→仅 generic 占位，只收口 Task 面板不渲染
+  hasSummary?: boolean;
   // 由 Agent 组装好的展示文本（实时注入气泡与 history 重建复用同一份，保证渲染收敛）
   content: string;
   summary: string;
