@@ -100,6 +100,41 @@
       "type": "string",
       "minLength": 1,
       "description": "新建 scene 时的 sceneId 默认 pattern,如 'interior-layout-{n}' / 'electrical-points-{n}'。{n} 由 Server 在 POST /api/project/{id}/scenes 内推断递增。用户可手改 sceneId,但需匹配 ^[a-z0-9-]+$ 且项目内唯一(主真理源 §3.9)。**缺省值** = '{name}-{n}'(若 plugin 不显式声明此字段,Server 用 plugin name 拼接)。"
+    },
+    "configSchema": {
+      "type": "array",
+      "description": "插件所需的用户配置项声明。平台据此在插件管理 UI 中生成配置表单，将值存储在 instance.config.json 的 pluginConfigs.{name} 段，并通过 PluginContext.get_config() 在运行时注入给插件。无需重启服务即可生效。",
+      "items": {
+        "type": "object",
+        "required": ["key", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "配置项键名，全大写加下划线，如 AITOLL_API_KEY。插件通过 ctx.get_config()[key] 读取。"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "UI 表单显示的标签文本。"
+          },
+          "description": {
+            "type": "string",
+            "description": "表单字段的辅助说明文字（可选）。"
+          },
+          "secret": {
+            "type": "boolean",
+            "default": false,
+            "description": "true 时 UI 渲染为密码输入框，API 返回时值脱敏为 ***。"
+          },
+          "required": {
+            "type": "boolean",
+            "default": false,
+            "description": "true 时插件激活前 UI 提示必须填写此项。"
+          }
+        }
+      }
     }
   }
 }
