@@ -214,6 +214,21 @@ function onWorkflowPhases(record: {
   if (record.workflowName) predeclaredName.value = record.workflowName
 }
 
+/**
+ * 从 Workflow 工具结果绑定 run 身份（taskId 最可靠的 in-turn 来源）。
+ * 实时进度 SSE（background_task.progress）可能漏传 taskId（只带 sdkSessionId），导致完成后
+ * loadTranscript 无 taskId → 服务端 PickRunJson 返回 null → 永久卡实时态（no-toggle / 末位 agent
+ * 永远"运行中" / 启发式烂 label）。Workflow 工具结果文本含 "Task ID: <id>"，在 tool.completed
+ * 就绑定，确保完成后能精确命中权威 wf_{runId}.json。
+ */
+function bindWorkflowIdentity(meta: { toolCallId?: string; taskId?: string; sdkSessionId?: string }): void {
+  const w = workflow.value
+  if (!w) return
+  if (meta.toolCallId && w.toolCallId && meta.toolCallId !== w.toolCallId) return
+  if (meta.taskId && !w.taskId) w.taskId = meta.taskId
+  if (meta.sdkSessionId && !w.sdkSessionId) w.sdkSessionId = meta.sdkSessionId
+}
+
 function onSubtaskStarted(key: string, name?: string, type?: string): void {
   if (!isRunning()) return
   ensureAgent(key, { label: name, type })
