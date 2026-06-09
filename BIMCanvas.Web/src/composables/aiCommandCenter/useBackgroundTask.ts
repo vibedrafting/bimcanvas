@@ -10,8 +10,10 @@ interface BackgroundTaskOptions {
   agentApiBase: string
   windows: Ref<ChatWindow[]>
   scrollToBottom: (options?: { windowId?: string }) => void
-  /** 注入后台总结气泡（由 useChatStream 提供，走 history 重建同款渲染管线，避免双路径漂移） */
+  /** 注入后台总结单文本气泡（events 为空时的兜底；走 history 重建同款渲染管线） */
   injectBackgroundSummary: (windowId: string | null | undefined, content: string, timestamp?: number) => void
+  /** T2：注入后台总结完整回合（thinking/tool/text envelope 序列），走前台同款 applyNormalizedEventToMessage */
+  injectBackgroundTurn: (windowId: string | null | undefined, events: Record<string, unknown>[], timestamp?: number) => void
 }
 
 export const useBackgroundTask = (options: BackgroundTaskOptions) => {
@@ -34,14 +36,19 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
       sdkSessionId: record.sdkSessionId
     })
 
-    // ② Chat 气泡：仅当主控有原生总结(hasSummary)时注入富总结；generic 占位(hasSummary=false)
-    //    不渲染（承接 Bug4，去掉 'Workflow ... completed' 噪声）。
-    //    渲染委托 useChatStream.injectBackgroundSummary —— 与 history 重建走同一管线（折中重构去双路径）。
+    // ② Chat 气泡。generic 占位(hasSummary=false 且无 events)不渲染（承接 Bug4）。
+    const ts = record.timestamp ? Date.parse(record.timestamp) : Date.now()
+    const stamp = isNaN(ts) ? Date.now() : ts
+    // T2：有完整 envelope 序列 → 渲染成"思考+工具+文本"完整一条回合（走前台同款管线）。
+    if (Array.isArray(record.events) && record.events.length > 0) {
+      options.injectBackgroundTurn(record.windowId, record.events, stamp)
+      return
+    }
+    // 兜底：无 events（旧 Agent / 异常）但有原生总结 → 单文本气泡。
     if (!record.hasSummary) return
     const text = (record.content || record.summary || '').trim()
     if (!text) return
-    const ts = record.timestamp ? Date.parse(record.timestamp) : Date.now()
-    options.injectBackgroundSummary(record.windowId, text, isNaN(ts) ? Date.now() : ts)
+    options.injectBackgroundSummary(record.windowId, text, stamp)
   }
 
   const startListening = () => {

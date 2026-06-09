@@ -1809,6 +1809,35 @@ export const useChatStream = (options: ChatStreamOptions) => {
     void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
   };
 
+  /**
+   * T2：注入「后台 Workflow 完成的主控原生总结回合」——把完整 envelope 序列（thinking/tool/text）
+   * 按序 apply 到一条 AI 消息，渲染成与前台回合等价的"思考气泡+工具气泡+文本气泡"。
+   * 走与 history 重建完全相同的 createRestoredAiMessage + applyNormalizedEventToMessage（零渲染漂移）。
+   * envelope 已由 Agent 端同一个 MainStreamMapper 产出，turnId=bgtask:<taskId>，重载时 history 重建复现同一条。
+   */
+  const injectBackgroundTurn = (
+    windowId: string | null | undefined,
+    events: Record<string, unknown>[],
+    timestamp?: number
+  ): void => {
+    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
+      ?? options.windows.value[0];
+    if (!windowState || !Array.isArray(events) || events.length === 0) return;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+
+    const aiMessage = createRestoredAiMessage(ts);
+    for (const ev of events) {
+      const normalized = normalizeStreamEvent(ev);
+      if (normalized) applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+    }
+    aiMessage.isStreaming = false;
+    aiMessage.endTime = ts;
+    exitWaitingState(aiMessage.waitingState);
+    windowState.messages.push(aiMessage);
+
+    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
+  };
+
   const wait = (ms: number): Promise<void> =>
     new Promise(resolve => setTimeout(resolve, ms));
 
@@ -2154,6 +2183,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     waitForInteractionContinuation,
     interruptMessage,
     injectBackgroundSummary,
+    injectBackgroundTurn,
     checkAgentHealth,
     fetchProjectPath,
     cleanupHealthCheck,

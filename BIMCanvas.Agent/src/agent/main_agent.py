@@ -46,6 +46,7 @@ from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
 from ..runtime import ConfigBundle, StreamChunk, build_config_bundle, materialize_system_prompt_file
+from ..runtime.main_stream import MainStreamMapper
 from ..runtime.launch_context import build_project_bound_context, resolve_launch_context
 from .errors import CLICommandLineTooLongError, SystemPromptFileWriteError
 
@@ -184,6 +185,11 @@ class MainAgent:
         # "_bg_summary_parts 非空"（见 _handle_background_message 的 ResultMessage 分支），
         # 本字段保留仅供诊断、不再参与收口决策。
         self._bg_round_had_tool: bool = False
+        # T2：后台原生总结回合的完整 envelope 序列（thinking/tool/text），随 background_task.completed
+        # 的 events 字段一次性投递前端，由 applyNormalizedEventToMessage 渲染成完整一条回合（不再只剩 text）。
+        self._bg_turn_events: list[dict[str, Any]] = []
+        self._bg_tool_names: dict[str, str] = {}   # tool_use_id → tool_name（跨 Assistant/User 消息配对工具完成）
+        self._bg_stream_mapper: MainStreamMapper | None = None
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -828,6 +834,14 @@ class MainAgent:
                 }
                 self._bg_summary_parts = []
                 self._bg_round_had_tool = False
+                # T2：复位本次后台回合的 envelope 缓冲 + 工具名映射 + per-turn mapper
+                self._bg_turn_events = []
+                self._bg_tool_names = {}
+                ctx = self._last_runtime_context or {}
+                self._bg_stream_mapper = MainStreamMapper(
+                    session_id=ctx.get("sessionId") or "",
+                    turn_id=f"bgtask:{message.task_id}",
+                )
                 # 复位日志状态位，让随后的原生总结回合经 _process_message 干净地打印到 Server 日志
                 self._in_thinking = False
                 self._in_response = False
@@ -842,6 +856,7 @@ class MainAgent:
             text = self._process_message(message)
             if text:
                 self._bg_summary_parts.append(text)
+            self._collect_bg_turn_events(message)   # T2：收 thinking/tool_use/text 的 envelope 序列
         elif isinstance(message, ResultMessage):
             if self._bg_completion_pending is None:
                 # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
@@ -892,6 +907,9 @@ class MainAgent:
             # Task 页运行态全阶段预声明（detach 后 workflow 任务的 TaskStarted 走此路径时也兜底）
             await self._maybe_emit_workflow_phases(message)
             await self._push_background_progress(message)
+        elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
+            # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
+            self._collect_bg_turn_events(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
             # 逐 token 流式增量 / 工具结果 / 系统事件 / 非汇报态的整段回复：
             # 与回合内路径的聚合纪律一致——静默丢弃、不逐条 log，避免刷屏。
@@ -935,6 +953,58 @@ class MainAgent:
         prefix = f"后台任务{status_text}"
         return f"{prefix}\n\n{body}" if body else prefix
 
+    def _collect_bg_turn_events(self, message: Any) -> None:
+        """T2：把后台原生总结回合一条 SDK 消息(Assistant/User)的 block 序列，镜像前台 block→chunk
+        构造，经 per-turn MainStreamMapper 映射成 envelope，按序追加进 self._bg_turn_events。
+        复用前台同一 mapper → envelope 形状零漂移；工具 started/completed 用 SDK tool_use_id 配对。
+        失败只 log、不破坏收口流程。"""
+        mapper = self._bg_stream_mapper
+        if mapper is None:
+            return
+        chunks: list[StreamChunk] = []
+        for block in (getattr(message, "content", None) or []):
+            if isinstance(block, ThinkingBlock):
+                t = self._normalize_visible_content(block.thinking)
+                if t:
+                    chunks.append(StreamChunk(type="thinking_complete", content=t))
+            elif isinstance(block, TextBlock):
+                t = self._filter_assistant_text(block.text)
+                if t:
+                    chunks.append(StreamChunk(type="text_complete", content=t))
+            elif isinstance(block, ToolUseBlock):
+                # 总结回合一般只用普通工具(Read/Glob/load_artifact…)；Task/Workflow/TaskOutput 特例
+                # 在此降级为普通工具气泡（总结回合不派发它们）。
+                inp = block.input if isinstance(block.input, dict) else {}
+                self._bg_tool_names[block.id] = block.name
+                chunks.append(StreamChunk(
+                    type="tool_call_start",
+                    tool_call_id=block.id,
+                    tool_name=block.name,
+                    tool_description=inp.get("description", ""),
+                    tool_params=inp or None,
+                ))
+            elif isinstance(block, ToolResultBlock):
+                tool_use_id = getattr(block, "tool_use_id", None)
+                tool_name = self._bg_tool_names.get(tool_use_id or "", "unknown")
+                is_error = getattr(block, "is_error", False)
+                success, output_text, error_message, error_type, hidden_message = self._resolve_tool_result_state(
+                    tool_name=tool_name, result=block.content, is_error=is_error, output_limit=1000,
+                )
+                chunks.append(StreamChunk(
+                    type="tool_call_complete",
+                    tool_call_id=tool_use_id,
+                    tool_output=output_text,
+                    success=success,
+                    error=error_message,
+                    error_type=error_type,
+                    hidden_content=hidden_message,
+                ))
+        for chunk in chunks:
+            try:
+                self._bg_turn_events.extend(mapper.map_chunk(chunk))
+            except Exception as e:
+                logger.warning(f"[Background] map bg turn chunk failed: {e}")
+
     async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
         """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
 
@@ -951,12 +1021,16 @@ class MainAgent:
         has_summary = bool(content and content.strip())
         body = content.strip() if has_summary else \
             self._compose_background_text(status, pending.get("fallback", ""))
+        # T2：本次后台回合的完整 envelope 序列（thinking/tool/text）。非空时前端据此渲染完整一条回合，
+        # 落 history 也用它（逐 envelope），不再单独落 content（避免重载双文本）。content 仅作无 events 时的兜底。
+        turn_events = self._bg_turn_events
         record = {
             "kind": "background_task",  # 前端通道判别字段（与 interaction record 区分）
             "taskId": pending.get("taskId"),
             "status": status,
             "hasSummary": has_summary,  # 前端/落盘据此区分富总结 vs generic 占位
             "content": body,
+            "events": turn_events,      # T2：完整回合 envelope 序列（可能为空）
             "summary": pending.get("fallback", ""),
             "outputFile": pending.get("outputFile"),
             "windowId": ctx.get("windowId"),
@@ -964,6 +1038,10 @@ class MainAgent:
             "sdkSessionId": pending.get("sdkSessionId"),
             "turnId": ctx.get("turnId"),
         }
+        # 复位本次后台回合缓冲（收口后不再复用）
+        self._bg_turn_events = []
+        self._bg_tool_names = {}
+        self._bg_stream_mapper = None
         try:
             await self._background_push(record)
         except Exception as e:

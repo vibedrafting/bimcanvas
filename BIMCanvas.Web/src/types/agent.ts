@@ -147,7 +147,10 @@ export interface BackgroundTaskRecord {
   status: BackgroundTaskStatus;
   // 主控是否产出原生总结：true→渲染 Chat 气泡+落 history；false→仅 generic 占位，只收口 Task 面板不渲染
   hasSummary?: boolean;
-  // 由 Agent 组装好的展示文本（实时注入气泡与 history 重建复用同一份，保证渲染收敛）
+  // T2：后台原生总结回合的完整 envelope 序列（thinking/tool/text）。非空时前端按序 apply 渲染成完整一条回合；
+  // 空时回退到 content 单文本。每个元素是一条 main-stream envelope（eventType/payload/turnId…）。
+  events?: Record<string, unknown>[];
+  // 由 Agent 组装好的展示文本（events 为空时的兜底文本；实时注入气泡与 history 重建复用同一份）
   content: string;
   summary: string;
   outputFile?: string | null;

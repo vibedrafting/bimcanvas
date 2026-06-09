@@ -516,6 +516,7 @@ const {
   waitForInteractionContinuation,
   interruptMessage,
   injectBackgroundSummary,
+  injectBackgroundTurn,
   checkAgentHealth,
   fetchProjectPath,
   cleanupHealthCheck,
@@ -576,7 +577,8 @@ const {
   agentApiBase: AGENT_API_BASE,
   windows,
   scrollToBottom,
-  injectBackgroundSummary
+  injectBackgroundSummary,
+  injectBackgroundTurn
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);
