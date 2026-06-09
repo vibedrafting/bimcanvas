@@ -459,6 +459,10 @@ namespace BIMCanvas.Server.Services
         public int? Tokens { get; set; }
         public int? ToolCalls { get; set; }
         public long? DurationMs { get; set; }
+        /// <summary>起始时刻(epoch ms)。完成态来自 wf_json 的 startedAt(权威)；运行态来自 agent-*.jsonl 首行 timestamp。</summary>
+        public long? StartedAt { get; set; }
+        /// <summary>结束/最近活动时刻(epoch ms)。完成态=startedAt+durationMs；运行态=agent-*.jsonl 末行 timestamp。供前端按 phase 算跨度。</summary>
+        public long? EndedAt { get; set; }
         public string? Prompt { get; set; }
         public string? Outcome { get; set; }
         public List<WorkflowTranscriptTool> Tools { get; set; } = new();
