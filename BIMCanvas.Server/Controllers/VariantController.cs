@@ -318,15 +318,19 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                // 1) 校验被采纳方案至少一个叶子有非空 modules（读叠 adopted 之前先按显式 slug 读候选）
+                // 1) 校验被采纳方案至少一个叶子有非空 modules。
+                //    必补-1：候选叶子结构必须读**该候选自身**的 {slug}/zones.json（EnumerateSchemeLeaves），
+                //    不能用上面 GetLeafZoneIds —— 后者按设计区当前 adopted slug 解析叶子。首次采纳时 adopted
+                //    为空，topology 回落单叶子占位 [designZoneId]，而候选自身是 AI 多叶子（dz_1/dz_2），
+                //    ResolveModulesPath 据占位拼出的 {slug}/modules.json 顶层路径不存在（真实在 {slug}/{dz}/modules.json）
+                //    → 误判全空（首采纳 chicken-and-egg：用未来 adopted 的结构校验正要采纳的第一个候选）。
                 var hasModules = false;
-                foreach (var leafId in leafZoneIds)
+                foreach (var entry in ModuleFileTopologyService.EnumerateSchemeLeaves(
+                             schemesPath, request.DesignZoneId, request.VariantSlug))
                 {
-                    var variantPath = _modulesWriter.ResolveModulesPath(
-                        projectPath, request.DesignZoneId, leafId, request.VariantSlug);
-                    if (!System.IO.File.Exists(variantPath))
+                    if (!System.IO.File.Exists(entry.FilePath))
                         continue;
-                    var wrapper = _modulesReader.Read(variantPath);
+                    var wrapper = _modulesReader.Read(entry.FilePath);
                     if (wrapper != null && wrapper.Modules.Count > 0) { hasModules = true; break; }
                 }
                 if (!hasModules)
