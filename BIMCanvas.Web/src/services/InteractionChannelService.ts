@@ -1,17 +1,21 @@
 import { AGENT_API } from '../config/api';
 import type {
+  BackgroundTaskRecord,
+  ChannelEventName,
   InteractionEventEnvelope,
-  InteractionEventName,
   InteractionEventListener,
   InteractionQueryResponse,
-  InteractionRecord
+  InteractionRecord,
+  WorkflowProgressRecord
 } from '../types/agent';
 
-const INTERACTION_EVENT_NAMES: InteractionEventName[] = [
+const INTERACTION_EVENT_NAMES: ChannelEventName[] = [
   'interaction.pushed',
   'interaction.resolved',
   'interaction.cancelled',
-  'interaction.expired'
+  'interaction.expired',
+  'background_task.completed',
+  'background_task.progress'
 ];
 
 export class InteractionChannelService {
@@ -111,9 +115,9 @@ export class InteractionChannelService {
     return payload.interaction;
   }
 
-  private dispatchEvent(eventName: InteractionEventName, event: MessageEvent): void {
+  private dispatchEvent(eventName: ChannelEventName, event: MessageEvent): void {
     try {
-      const record = JSON.parse(event.data) as InteractionRecord;
+      const record = JSON.parse(event.data) as InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord;
       const envelope: InteractionEventEnvelope = { event: eventName, record };
       for (const listener of this.listeners) {
         listener(envelope);

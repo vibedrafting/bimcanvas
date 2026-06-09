@@ -1,19 +1,21 @@
-"""core-base plugin MCP 工具入口 (v3.4)。
+"""core-base plugin MCP 工具入口。
 
-9 个工具通过 register(builder) 范式注册:
-- 4 个通用 BIM 能力:request_background_screenshot / register_variant /
-  list_variants / analyze_image
+5 个工具通过 register(builder) 范式注册:
+- 1 个通用视觉能力:canvas_vision（截图 / 识图 / 截图+识图 三模式自动判断；
+  识图后端走 aoment 图像识别 API，主 agent 无 vision 时一次拿到文字结论）
 - 2 个 Git Worktree + 通知:create_job / complete_job
-- 2 个跨 scene 元数据 + 只读 artifact:list_project_scenes / load_scene_artifact
+- 1 个只读 artifact:load_artifact(按物理 zone 读 schemes/;裸设计区经拓扑解析 adopted 指针)
 - 1 个校验 dispatch:validate_layout(包A 迁回平台:本身是通用"触发校验"派发,
   domain 校验逻辑在当前 active plugin 的 validators 脚本里,经 Server 端点委派执行)
 
-合并自旧 BIMCanvas.Agent/src/mcp/{canvas.py, canvas_core.py} (v3.4 前位置)。
+合并自旧 BIMCanvas.Agent/src/mcp/{canvas.py, canvas_core.py}。
 改造要点:
-- 全部走 ctx.session / ctx.server_url (跟 interior-layout 完全对称)
-- list_project_scenes 通过 ctx.scenes 拿 scene 列表 (PluginContext v3.4 D10 新增字段)
+- 全部走 ctx.session / ctx.server_url (跟 domain plugin 完全对称)
 - modules.json 不再有专用写入工具——AI 通过 Write/Edit 直写
-- register_variant 是变体目录的唯一创建入口
+- 变体目录由 AI 用 Write 直接建、Bash mv 转正/翻指针;平台不再提供 register_variant /
+  list_variants(列方案 = Glob schemes/{zoneId}/*/,生效 = 读父 DESIGN.md 的 adopted)。
+- 退役(项目去插件态 + 指针模型):register_variant / list_variants / list_project_scenes
+  已删除;load_scene_artifact 改名 load_artifact 并去掉 sceneId 入参。
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ import base64
 import json
 import mimetypes
 import re
+import time
+import traceback
 from datetime import datetime
 from typing import Any
 
@@ -44,14 +48,11 @@ from bimcanvas_plugin_sdk import McpServerBuilder
 from src.attachments.chat_attachments import (
     AttachmentResolutionError,
     resolve_attachment_local_path,
-    resolve_attachment_mime_type,
 )
-from src.reference_analysis import (
-    ReferenceAnalysisClient,
-    ReferenceAnalysisError,
-    ReferenceSource,
-    build_custom_image_analysis_prompt,
-    load_chatgpt_backend_config,
+# canvas_vision 识图侧:多 provider 后端配置（apiyi / aoment，不复用 reference_analysis）
+from src.image_recognition import (
+    RecognitionConfigError,
+    load_recognition_config,
 )
 
 # ============================================================
@@ -263,21 +264,39 @@ _COMPLETE_JOB_SCHEMA = {
     "additionalProperties": False,
 }
 
-_REQUEST_BACKGROUND_SCREENSHOT_DESC = (
-    "后台截图。调用时必须传入 projectPath,且 projectPath 不可省略、不可为空、不可为 null。"
-    "projectPath 必须是当前 BIMCanvas 项目目录(包含 project.json 的目录),"
-    "必须使用系统提示词中的「项目路径」;禁止使用 skill/plugin 目录、源码仓库目录或 BIMCANVAS_HOME。"
-    "最小合法调用示例:{\"projectPath\":\"<当前项目路径>\"}。"
-    "需要局部截图时,在 projectPath 之外再追加 targetId、targetIds、viewport 或 shots。"
-    "工具会调用 Server 截图 API,直接返回截图图片(同时保存到 screenshots 目录备查)。"
+_CANVAS_VISION_DESC = (
+    "通用视觉工具:截图 / 识图 / 截图+识图 三模式自动判断(无显式 mode 参数)。"
+    "必须传入 projectPath(当前 BIMCanvas 项目目录,含 project.json;逐字用系统提示词中的「项目路径」,"
+    "禁止 skill/plugin 目录、源码仓库目录或 BIMCANVAS_HOME)。"
+    "【模式判定】"
+    "① 不传 prompt → 只截图:用 targetId/targetIds/viewport/shots/variantId 截图,直接返回截图图片(同时保存到 screenshots 目录备查)。"
+    "② 传 prompt + 传图源(attachmentId/path/base64 三选一)→ 只识图:把该图喂 aoment 图像识别,返回纯文字结论。"
+    "③ 传 prompt + 不传图源 + 传截图范围(targetId/viewport 等)→ 截图+识图:先截单图存 bg_*.png,再喂 aoment,返回纯文字结论。"
+    "【约束】图源与截图范围同时给会报错(二选一);识图(②③)只返回文字、不返回图片;截图+识图(③)不支持批量(批量截图仅①可用)。"
 )
-_REQUEST_BACKGROUND_SCREENSHOT_SCHEMA = {
+_CANVAS_VISION_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
     "properties": {
         "projectPath": {
             "type": "string",
             "description": "BIMCanvas 项目目录绝对路径,必填。必须逐字使用系统提示词中的「项目路径」;如果只有「工作目录」且该目录包含 project.json,才可使用工作目录。禁止省略、传空字符串、传 null,禁止使用 BIMCANVAS_HOME、skill/plugin 目录或源码仓库目录。",
+        },
+        "prompt": {
+            "type": "string",
+            "description": "可选。识图要求文本。不传 = 只截图;传入则触发识图(aoment 后端),本文本直接作为识别要求。识图模式只返回文字、不返回图片。",
+        },
+        "attachmentId": {
+            "type": "string",
+            "description": "识图图源之一(仅识图模式)。参考图 attachmentId;attachmentId/path/base64 三选一。与截图范围(targetId/viewport 等)互斥。",
+        },
+        "path": {
+            "type": "string",
+            "description": "识图图源之一(仅识图模式)。本地图片绝对路径;attachmentId/path/base64 三选一。与截图范围互斥。",
+        },
+        "base64": {
+            "type": "string",
+            "description": "识图图源之一(仅识图模式)。图片 base64 或 data URL;attachmentId/path/base64 三选一。与截图范围互斥。",
         },
         "targetId": {
             "type": "string",
@@ -350,139 +369,244 @@ _REQUEST_BACKGROUND_SCREENSHOT_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "variantId": {
+            "type": "string",
+            "description": "可选。指针模型下截指定候选/变体方案 slug(如 \"_cand-a\"),仅多候选/变体评审场景用,常规截图留空(留空=截 adopted 当前生效方案)。非空时必须配 viewport.mode=\"zone\" + viewport.zoneId(批量则每个 shots[].viewport.zoneId)指明目标分区——Server 据此解析该候选的 modules,缺 zoneId 会报错。",
+        },
     },
     "required": ["projectPath"],
     "additionalProperties": False,
 }
 
-_ANALYZE_IMAGE_DESC = (
-    "通用图像分析工具(generic)。调用方负责提供 task 文本(描述本次识图目标);"
-    "domain plugin 通常通过 Read 读自己的 prompt 文件后传入。"
-    "适用场景:Read 看图失败后兜底,或 domain Skill 需要按特定 prompt 分析图像。"
-    "不要在 chat / query / edit / 普通看图 / 风格参考 / free mode planning 调用。"
-)
-_ANALYZE_IMAGE_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "properties": {
-        "projectPath": {
-            "type": "string",
-            "description": "项目绝对路径(attachment manifest 所在目录)",
-        },
-        "attachmentId": {
-            "type": "string",
-            "description": "Reference image attachmentId; provide exactly one of attachmentId/path/base64",
-        },
-        "path": {
-            "type": "string",
-            "description": "Local image path; provide exactly one of attachmentId/path/base64",
-        },
-        "base64": {
-            "type": "string",
-            "description": "Image base64 or data URL; provide exactly one of attachmentId/path/base64",
-        },
-        "task": {
-            "type": "string",
-            "description": (
-                "识图任务描述。可以是简短的目标(如'统计带文字注释的家具'),"
-                "也可以是 domain plugin 通过 Read 读到的完整 prompt 文本(如 indoor-layout 的 reference_analysis_prompt_v1.md)。"
-                "安全外壳由后端固定,调用方不需要写防护语句。"
-            ),
-        },
-    },
-    "required": ["projectPath", "task"],
-    "additionalProperties": False,
-}
+# ============================================================
+# Step1 重试:对截图/识图的瞬时类失败做指数退避重试
+#   - 瞬时(retryable=True):连接失败/超时、HTTP 5xx/429、空结果
+#   - 永久(retryable=False):HTTP 4xx/参数错、模型级 success=False —— 重试无意义,立即返回
+# ============================================================
 
-_REGISTER_VARIANT_DESC = (
-    "申请创建一个或多个变体(variants/{slug}/)。这是变体目录唯一创建入口;"
-    "三种 mode:blank=空白创建、clone-from-canonical=从 canonical 复制、clone-from-variant=从某变体复制。"
-    "Server 会按 zones.json 拓扑创建各叶子子目录,并写入初始 modules.json(含 schemeMetadata.summary)。"
-    "返回 workdir + 各叶子 modules.json 绝对路径供 Agent 用 Write/Edit 后续修改。"
-    "**调用后**用 Write/Edit 修改各叶子 modules.json 的 modules 数组;保留 schemeMetadata 字段不动。"
-)
-_REGISTER_VARIANT_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "properties": {
-        "designZoneId": {
-            "type": "string",
-            "description": "设计区 ID,如 'rz_3'。",
-        },
-        "slugs": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 1,
-            "description": "批量注册的 slug 列表。每个 slug 限定 [a-z0-9_-]。",
-        },
-        "mode": {
-            "type": "string",
-            "enum": ["blank", "clone-from-canonical", "clone-from-variant"],
-            "description": "blank=空白;clone-from-canonical=复制该设计区(canonical)整个子树;clone-from-variant=复制指定变体整个子树。",
-        },
-        "summary": {
-            "type": "string",
-            "description": "设计意图,一句话说明本变体目的。会写到每个叶子 modules.json 的 schemeMetadata.summary 字段。",
-        },
-        "sourceVariant": {
-            "type": "string",
-            "description": "mode=clone-from-variant 时必填的源变体 slug。",
-        },
-        "overwrite": {
-            "type": "boolean",
-            "description": "同名 slug 是否覆盖;默认 false(重名进 errors)。",
-        },
-    },
-    "required": ["designZoneId", "slugs", "mode", "summary"],
-    "additionalProperties": False,
-}
+_VISION_RETRY_ATTEMPTS = 3
+_VISION_RETRY_BASE_DELAY = 1.0  # 退避基数(秒):1s / 2s / 4s
 
-_LIST_VARIANTS_DESC = (
-    "列出指定设计区的所有变体(含 prev-* 降级保留的旧采纳方案)。"
-    "返回每个变体的 slug、createdAt、state(variant / prev-adopted)、summary(设计意图)。"
-    "用于:变体采纳决策、relocation 时找到现有变体、Web 端导航。"
-)
-_LIST_VARIANTS_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "properties": {
-        "designZoneId": {
-            "type": "string",
-            "description": "设计区 ID,如 'rz_3'。",
-        }
-    },
-    "required": ["designZoneId"],
-    "additionalProperties": False,
-}
 
-_LIST_PROJECT_SCENES_DESC = (
-    "列出当前 .bcp 项目内所有 scene 的元数据 (主真理源 v1.1 §3.10)。"
-    "返回数组 JSON,每项含 sceneId / scene / plugin{id,versionRange} / status / "
-    "createdAt / isActive。Phase 1 只返回 status='active' 的 scene。"
-    "未绑定项目时返回 is_error。"
-)
-_LIST_PROJECT_SCENES_SCHEMA = {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": False,
-}
+async def _retry_request(label: str, attempt_fn: Any) -> tuple[Any, str | None]:
+    """对瞬时类失败做指数退避重试,返回 (result, error)。
 
-_LOAD_SCENE_ARTIFACT_DESC = (
-    "读取 artifact(scene-agnostic;持久数据按物理 zone 组织在 schemes/ 下)。"
+    attempt_fn 是无参 async,返回三元组 (result, error, retryable):
+      - error is None      → 成功,立即返回 (result, None)
+      - retryable is False → 永久失败,立即返回 (None, error)
+      - retryable is True  → 瞬时失败,退避后重试,耗尽后返回 (None, error)
+    """
+    last_error: str | None = None
+    for i in range(_VISION_RETRY_ATTEMPTS):
+        result, error, retryable = await attempt_fn()
+        if error is None:
+            return result, None
+        last_error = error
+        if not retryable or i == _VISION_RETRY_ATTEMPTS - 1:
+            return None, error
+        delay = _VISION_RETRY_BASE_DELAY * (2 ** i)
+        print(
+            f"[canvas_vision] {label} 第{i + 1}/{_VISION_RETRY_ATTEMPTS}次失败"
+            f"(可重试,{delay:.0f}s 后重试): {error}",
+            file=sys.stderr,
+            flush=True,
+        )
+        await asyncio.sleep(delay)
+    return None, last_error
+
+
+async def _render_viewport(
+    session: Any,
+    server_url: str,
+    project_dir: Path,
+    viewport: dict[str, Any],
+    variant_id: str,
+    request_timeout: "aiohttp.ClientTimeout",
+) -> tuple[str | None, str | None]:
+    """渲染单个 viewport,返回 (imageData, error)。截图+识图 与 只截图单图共用。
+
+    瞬时失败(连接/超时/5xx/空图)经 _retry_request 指数退避重试。
+    """
+    payload: dict[str, Any] = {
+        "projectPath": str(project_dir),
+        "layerPreset": SCREENSHOT_LAYER_PRESET,
+        "layerDisable": SCREENSHOT_LAYER_DISABLE,
+        "viewport": viewport,
+        "autoFitViewport": SCREENSHOT_AUTO_FIT,
+        "scale": SCREENSHOT_SCALE,
+    }
+    if variant_id:
+        payload["variantId"] = variant_id
+
+    async def _attempt() -> tuple[str | None, str | None, bool]:
+        try:
+            async with session.post(
+                f"{server_url}/api/screenshot/render",
+                json=payload,
+                timeout=request_timeout,
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+                if resp.status != 200:
+                    message = data.get("message") if isinstance(data, dict) else str(data)
+                    retryable = resp.status >= 500 or resp.status == 429
+                    return None, f"后台截图失败: HTTP {resp.status} {message}", retryable
+            image_data = data.get("imageData") if isinstance(data, dict) else None
+            if not image_data:
+                return None, "后台截图失败: imageData 为空", True
+            return image_data, None, False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            return None, f"无法连接 Server(截图): {type(e).__name__}: {e}", True
+
+    return await _retry_request(f"render:{_build_shot_label(viewport, 1)}", _attempt)
+
+
+async def _aoment_recognize(
+    session: Any,
+    cfg: Any,
+    image_path: Path,
+    prompt: str,
+) -> tuple[str | None, str | None]:
+    """multipart 上传单张图到 aoment 识别端点,返回 (resultText, error)。
+
+    瞬时失败(连接/超时/5xx/空结果)经 _retry_request 指数退避重试;
+    4xx 与模型级 success=False 视为永久失败,不重试。
+    """
+    request_timeout = aiohttp.ClientTimeout(total=cfg.timeout_seconds)
+    mime = mimetypes.guess_type(image_path.name)[0] or "image/png"
+    image_bytes = image_path.read_bytes()  # 读一次,重试复用
+
+    async def _attempt() -> tuple[str | None, str | None, bool]:
+        # FormData 单次请求消耗性,每次重试重建
+        form = aiohttp.FormData()
+        form.add_field("prompt", prompt)
+        form.add_field("model", cfg.model)
+        form.add_field("images", image_bytes, filename=image_path.name, content_type=mime)
+        try:
+            async with session.post(
+                cfg.endpoint,
+                data=form,
+                headers={"Authorization": f"Bearer {cfg.api_key}"},
+                timeout=request_timeout,
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+                if resp.status != 200:
+                    message = data.get("message") if isinstance(data, dict) else str(data)[:300]
+                    retryable = resp.status >= 500 or resp.status == 429
+                    return None, f"aoment 识图失败: HTTP {resp.status} {message}", retryable
+                if not isinstance(data, dict):
+                    return None, f"aoment 识图失败: 响应非 JSON ({str(data)[:200]})", True
+                if data.get("success") is False:
+                    return None, f"aoment 识图失败: {data.get('message') or data.get('resultText') or '未知错误'}", False
+                result_text = str(data.get("resultText") or "").strip()
+                if not result_text:
+                    return None, "aoment 识图失败: resultText 为空", True
+                return result_text, None, False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            return None, f"无法连接 aoment: {type(e).__name__}: {e}", True
+
+    return await _retry_request("aoment", _attempt)
+
+
+def _extract_openai_text(content: Any) -> str:
+    """从 OpenAI choices[0].message.content 提取文本（兼容 str 或 content-block 列表）。"""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+        return "\n".join(parts).strip()
+    return ""
+
+
+async def _apiyi_recognize(
+    session: Any,
+    cfg: Any,
+    image_path: Path,
+    prompt: str,
+) -> tuple[str | None, str | None]:
+    """OpenAI Chat Completions 格式识图（apiyi 等 OpenAI 兼容服务），返回 (text, error)。
+
+    图片转 base64 data URL 塞 image_url；取 choices[0].message.content。
+    瞬时失败(连接/超时/5xx/空结果)经 _retry_request 指数退避重试;4xx 不重试。
+    """
+    request_timeout = aiohttp.ClientTimeout(total=cfg.timeout_seconds)
+    mime = mimetypes.guess_type(image_path.name)[0] or "image/png"
+    b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    data_url = f"data:{mime};base64,{b64}"
+    payload: dict[str, Any] = {
+        "model": cfg.model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ],
+    }
+
+    async def _attempt() -> tuple[str | None, str | None, bool]:
+        try:
+            async with session.post(
+                cfg.endpoint,
+                json=payload,
+                headers={"Authorization": f"Bearer {cfg.api_key}"},
+                timeout=request_timeout,
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+                if resp.status != 200:
+                    if isinstance(data, dict):
+                        err = data.get("error")
+                        message = (err.get("message") if isinstance(err, dict) else err) or data.get("message") or str(data)[:300]
+                    else:
+                        message = str(data)[:300]
+                    retryable = resp.status >= 500 or resp.status == 429
+                    return None, f"apiyi 识图失败: HTTP {resp.status} {message}", retryable
+                if not isinstance(data, dict):
+                    return None, f"apiyi 识图失败: 响应非 JSON ({str(data)[:200]})", True
+                choices = data.get("choices")
+                if not isinstance(choices, list) or not choices:
+                    err = data.get("error")
+                    return None, f"apiyi 识图失败: {err or '响应无 choices'}", True
+                message_obj = choices[0].get("message") if isinstance(choices[0], dict) else None
+                content = message_obj.get("content") if isinstance(message_obj, dict) else None
+                text = _extract_openai_text(content)
+                if not text:
+                    return None, "apiyi 识图失败: content 为空", True
+                return text, None, False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            return None, f"无法连接 apiyi: {type(e).__name__}: {e}", True
+
+    return await _retry_request("apiyi", _attempt)
+
+
+async def _recognize_image(
+    session: Any,
+    cfg: Any,
+    image_path: Path,
+    prompt: str,
+) -> tuple[str | None, str | None]:
+    """按 cfg.provider 分发到对应识图后端。"""
+    if cfg.provider == "aoment":
+        return await _aoment_recognize(session, cfg, image_path, prompt)
+    return await _apiyi_recognize(session, cfg, image_path, prompt)
+
+
+_LOAD_ARTIFACT_DESC = (
+    "读取 artifact(持久数据按物理 zone 组织在 schemes/ 下)。"
     "artifactKind 是 plugin-agnostic 的字符串(字符集 ^[a-z][a-z0-9_-]*$),"
     "平台 reserved 通用 kind:modules / zones / readme(对应 baseline 派生 / AI Write 直写);"
     "其他 kind 是 plugin domain 产物,走 schemes/ 下同名文件聚合。"
-    "可选 path 参数精确读单文件 schemes/{path}/{artifactKind}.json(如 path='rz_3' / 'rz_3/variants/abc');"
+    "可选 path 参数精确读单文件 schemes/{path}/{artifactKind}.json"
+    "(如 path='rz_3' 裸设计区经拓扑解析 adopted 指针,或 path='rz_3/cand-c' 显式方案 slug);"
     "留空时走聚合返回(schemes/ 下所有同名文件 + relativePath)。"
 )
-_LOAD_SCENE_ARTIFACT_SCHEMA = {
+_LOAD_ARTIFACT_SCHEMA = {
     "type": "object",
     "properties": {
-        "sceneId": {
-            "type": "string",
-            "minLength": 1,
-            "description": "兼容占位(回退后数据按物理 zone 组织,不再用于落盘路径);传 active plugin id 即可",
-        },
         "artifactKind": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9_-]*$",
@@ -497,14 +621,15 @@ _LOAD_SCENE_ARTIFACT_SCHEMA = {
         "path": {
             "type": "string",
             "description": (
-                "可选。schemes/ 内相对子路径,如 'rz_3' / 'rz_3/variants/abc'。"
+                "可选。schemes/ 内相对子路径,如 'rz_3'(裸设计区,经拓扑解析 adopted 指针)"
+                "或 'rz_3/cand-c'(显式方案 slug)。"
                 "非空时精确读单文件 schemes/{path}/{artifactKind}.json;"
                 "空时走聚合(schemes/ 下所有同名 artifactKind 文件)。"
                 "字符集 [a-zA-Z0-9_/-]+,禁止 .. / \\\\ / 前导斜杠。"
             ),
         },
     },
-    "required": ["sceneId", "artifactKind"],
+    "required": ["artifactKind"],
     "additionalProperties": False,
 }
 
@@ -658,11 +783,18 @@ _VALIDATE_LAYOUT_SCHEMA = {
         "zoneIds": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "可选。仅验证这些分区内的元素(如 [\"rz_1\", \"dz_2\"])。不传则验证全部。",
+            "description": (
+                "可选。仅验证这些分区内的元素(如 [\"rz_1\", \"dz_2\"])。不传则验证全部。"
+                "⚠️ 与 variantId 同时使用时,这里必须传**设计区路径**(如 [\"rz_3\"]),"
+                "不能传候选方案内部的叶子 id(如 dz_1);否则定位不到候选数据,校验会直接报错(不会静默通过)。"
+            ),
         },
         "variantId": {
             "type": "string",
-            "description": "可选。验证非 canonical 变体(仅变体探索场景用,常规验证留空)。非空时必须与非空 zoneIds 同时提供。",
+            "description": (
+                "可选。验证非 canonical 变体(仅变体探索场景用,常规验证留空)。"
+                "取值=候选方案 slug。非空时必须与非空 zoneIds(设计区路径)同时提供。"
+            ),
         },
     },
     "additionalProperties": False,
@@ -674,12 +806,10 @@ _VALIDATE_LAYOUT_SCHEMA = {
 # ============================================================
 
 def register(builder: McpServerBuilder) -> None:
-    """core-base plugin 注册入口 (v3.4)。
+    """core-base plugin 注册入口。
 
     所有工具通过 ctx.session / ctx.server_url 与 BIMCanvas Server 通信,
-    跟 interior-layout plugin 完全对称。
-
-    list_project_scenes 通过 ctx.scenes (D10) 拿当前项目 scene 列表。
+    跟 domain plugin 完全对称。
     """
     ctx = builder.context
 
@@ -783,10 +913,9 @@ def register(builder: McpServerBuilder) -> None:
                 "is_error": True,
             }
 
-    # ---------- request_background_screenshot ----------
-    @builder.tool("request_background_screenshot", _REQUEST_BACKGROUND_SCREENSHOT_DESC, _REQUEST_BACKGROUND_SCREENSHOT_SCHEMA)
-    async def request_background_screenshot(args: dict[str, Any]) -> dict[str, Any]:
-        """请求后台截图并保存到项目目录"""
+    # ---------- canvas_vision（截图 / 识图 / 截图+识图 三模式自动判断）----------
+    async def _canvas_vision_body(args: dict[str, Any]) -> dict[str, Any]:
+        """截图 / 识图 / 截图+识图 三模式自动判断（无显式 mode 参数）。"""
         project_path = str(args.get("projectPath") or "").strip()
         if not project_path:
             return {
@@ -806,31 +935,67 @@ def register(builder: McpServerBuilder) -> None:
                 "is_error": True,
             }
 
-        resolved_viewports, err = _resolve_screenshot_viewports(args)
-        if err:
-            return {
-                "content": [{"type": "text", "text": f"错误: {err}"}],
-                "is_error": True,
-            }
+        prompt = str(args.get("prompt") or "").strip()
+        attachment_id = str(args.get("attachmentId") or "").strip()
+        image_path_arg = str(args.get("path") or "").strip()
+        image_base64 = str(args.get("base64") or "").strip()
+        has_image_source = bool(attachment_id or image_path_arg or image_base64)
+        # 截图范围信号:targetId/targetIds/viewport/shots（variantId 须配 viewport,不单独计为范围）
+        has_shot_range = any(
+            args.get(k) is not None for k in ("targetId", "targetIds", "viewport", "shots")
+        )
 
-        viewports = resolved_viewports or _full_screenshot_viewports()
-
+        variant_id = str(args.get("variantId") or "").strip()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # v3.4 D9:timeout 转单请求级 (ctx.session 是长期复用 session)
         request_timeout = aiohttp.ClientTimeout(total=90)
 
-        try:
-            if len(viewports) == 1:
+        # ===== 模式①:只截图（无 prompt）=====
+        if not prompt:
+            if has_image_source:
+                return {
+                    "content": [{"type": "text", "text": "错误: 只截图模式(未传 prompt)不接受图源参数 attachmentId/path/base64;识图请同时传 prompt。"}],
+                    "is_error": True,
+                }
+            resolved_viewports, err = _resolve_screenshot_viewports(args)
+            if err:
+                return {"content": [{"type": "text", "text": f"错误: {err}"}], "is_error": True}
+            viewports = resolved_viewports or _full_screenshot_viewports()
+
+            try:
+                if len(viewports) == 1:
+                    image_data, serr = await _render_viewport(
+                        ctx.session, ctx.server_url, project_dir, viewports[0], variant_id, request_timeout
+                    )
+                    if serr:
+                        return {"content": [{"type": "text", "text": serr}], "is_error": True}
+                    label = _sanitize_filename(_build_shot_label(viewports[0], 1))
+                    filename = f"bg_{label}_{timestamp}.png"
+                    saved_path = _save_screenshot(image_data, project_dir, filename)
+                    return {"content": [
+                        {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
+                        {"type": "text", "text": f"截图已完成(已保存至 {saved_path})。请先仔细查看上方图片再继续后续步骤。如果看不到图片,请用 Read 工具查看 {saved_path} 。"},
+                    ]}
+
+                items = []
+                for idx, viewport in enumerate(viewports, start=1):
+                    label = _sanitize_filename(_build_shot_label(viewport, idx))
+                    items.append({
+                        "name": label,
+                        "layerPreset": SCREENSHOT_LAYER_PRESET,
+                        "layerDisable": SCREENSHOT_LAYER_DISABLE,
+                        "viewport": viewport,
+                    })
                 payload = {
                     "projectPath": str(project_dir),
-                    "layerPreset": SCREENSHOT_LAYER_PRESET,
-                    "layerDisable": SCREENSHOT_LAYER_DISABLE,
-                    "viewport": viewports[0],
-                    "autoFitViewport": SCREENSHOT_AUTO_FIT,
                     "scale": SCREENSHOT_SCALE,
+                    "autoFitViewport": SCREENSHOT_AUTO_FIT,
+                    "items": items,
                 }
+                if variant_id:
+                    payload["variantId"] = variant_id
                 async with ctx.session.post(
-                    f"{ctx.server_url}/api/screenshot/render",
+                    f"{ctx.server_url}/api/screenshot/render-batch",
                     json=payload,
                     timeout=request_timeout,
                 ) as resp:
@@ -838,350 +1003,179 @@ def register(builder: McpServerBuilder) -> None:
                     if resp.status != 200:
                         message = data.get("message") if isinstance(data, dict) else str(data)
                         return {
-                            "content": [{"type": "text", "text": f"后台截图失败: HTTP {resp.status} {message}"}],
+                            "content": [{"type": "text", "text": f"后台批量截图失败: HTTP {resp.status} {message}"}],
                             "is_error": True,
                         }
-                image_data = data.get("imageData") if isinstance(data, dict) else None
-                if not image_data:
+
+                items_result = data.get("items") if isinstance(data, dict) else None
+                if not isinstance(items_result, list):
                     return {
-                        "content": [{"type": "text", "text": "后台截图失败: imageData 为空"}],
+                        "content": [{"type": "text", "text": "后台批量截图失败: 返回 items 无效"}],
                         "is_error": True,
                     }
-                label = _sanitize_filename(_build_shot_label(viewports[0], 1))
-                filename = f"bg_{label}_{timestamp}.png"
-                saved_path = _save_screenshot(image_data, project_dir, filename)
-                return {"content": [
-                    {"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"},
-                    {"type": "text", "text": f"截图已完成(已保存至 {saved_path})。请先仔细查看上方图片再继续后续步骤。如果看不到图片,请用 Read 工具查看 {saved_path} 。"},
-                ]}
 
-            items = []
-            for idx, viewport in enumerate(viewports, start=1):
-                label = _sanitize_filename(_build_shot_label(viewport, idx))
-                items.append({
-                    "name": label,
-                    "layerPreset": SCREENSHOT_LAYER_PRESET,
-                    "layerDisable": SCREENSHOT_LAYER_DISABLE,
-                    "viewport": viewport,
-                })
-            payload = {
-                "projectPath": str(project_dir),
-                "scale": SCREENSHOT_SCALE,
-                "autoFitViewport": SCREENSHOT_AUTO_FIT,
-                "items": items,
+                content_blocks: list[dict[str, Any]] = []
+                errors: list[str] = []
+                for idx, result in enumerate(items_result):
+                    if result.get("error"):
+                        errors.append(f"{items[idx]['name']}: {result.get('error')}")
+                        continue
+                    image_data = result.get("imageData")
+                    if not image_data:
+                        errors.append(f"{items[idx]['name']}: imageData 为空")
+                        continue
+                    filename = f"bg_{items[idx]['name']}_{timestamp}_{idx + 1:02d}.png"
+                    saved_path = _save_screenshot(image_data, project_dir, filename)
+                    content_blocks.append({"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"})
+                    content_blocks.append({"type": "text", "text": f"[{items[idx]['name']}] 已保存至 {saved_path}"})
+
+                if errors:
+                    return {
+                        "content": [{"type": "text", "text": "后台批量截图部分失败:\n" + "\n".join(errors)}],
+                        "is_error": True,
+                    }
+
+                content_blocks.append({"type": "text", "text": "以上是所有截图。请先仔细查看图片再继续后续步骤。如果你无法直接看到图片,请用 Read 工具逐一查看上述路径。"})
+                return {"content": content_blocks}
+
+            except aiohttp.ClientError as e:
+                return {"content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}], "is_error": True}
+            except Exception as e:
+                return {"content": [{"type": "text", "text": f"后台截图处理失败: {str(e)}"}], "is_error": True}
+
+        # ===== 有 prompt:识图（②/③）=====
+        if has_image_source and has_shot_range:
+            return {
+                "content": [{"type": "text", "text": "错误: 图源(attachmentId/path/base64)与截图范围(targetId/targetIds/viewport/shots)二选一,不可同给。"}],
+                "is_error": True,
             }
-            async with ctx.session.post(
-                f"{ctx.server_url}/api/screenshot/render-batch",
-                json=payload,
-                timeout=request_timeout,
-            ) as resp:
-                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
-                if resp.status != 200:
-                    message = data.get("message") if isinstance(data, dict) else str(data)
-                    return {
-                        "content": [{"type": "text", "text": f"后台批量截图失败: HTTP {resp.status} {message}"}],
-                        "is_error": True,
-                    }
 
-            items_result = data.get("items") if isinstance(data, dict) else None
-            if not isinstance(items_result, list):
+        try:
+            cfg = load_recognition_config()
+        except RecognitionConfigError as exc:
+            return {"content": [{"type": "text", "text": f"识图配置缺失: {exc.message}"}], "is_error": True}
+
+        # ----- 模式②:只识图（有图源）-----
+        if has_image_source:
+            source_count = sum(1 for v in (attachment_id, image_path_arg, image_base64) if v)
+            if source_count != 1:
                 return {
-                    "content": [{"type": "text", "text": "后台批量截图失败: 返回 items 无效"}],
+                    "content": [{"type": "text", "text": "错误: 图源 attachmentId/path/base64 三选一(只能给一个)。"}],
                     "is_error": True,
                 }
 
-            content_blocks: list[dict[str, Any]] = []
-            errors: list[str] = []
-            for idx, result in enumerate(items_result):
-                if result.get("error"):
-                    errors.append(f"{items[idx]['name']}: {result.get('error')}")
-                    continue
-                image_data = result.get("imageData")
-                if not image_data:
-                    errors.append(f"{items[idx]['name']}: imageData 为空")
-                    continue
-                filename = f"bg_{items[idx]['name']}_{timestamp}_{idx + 1:02d}.png"
-                saved_path = _save_screenshot(image_data, project_dir, filename)
-                content_blocks.append({"type": "image", "data": _strip_data_uri_prefix(image_data), "mimeType": "image/png"})
-                content_blocks.append({"type": "text", "text": f"[{items[idx]['name']}] 已保存至 {saved_path}"})
-
-            if errors:
-                return {
-                    "content": [{"type": "text", "text": "后台批量截图部分失败:\n" + "\n".join(errors)}],
-                    "is_error": True,
-                }
-
-            content_blocks.append({"type": "text", "text": "以上是所有截图。请先仔细查看图片再继续后续步骤。如果你无法直接看到图片,请用 Read 工具逐一查看上述路径。"})
-            return {"content": content_blocks}
-
-        except aiohttp.ClientError as e:
-            return {
-                "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-                "is_error": True,
-            }
-        except Exception as e:
-            return {
-                "content": [{"type": "text", "text": f"后台截图处理失败: {str(e)}"}],
-                "is_error": True,
-            }
-
-    # ---------- analyze_image ----------
-    @builder.tool("analyze_image", _ANALYZE_IMAGE_DESC, _ANALYZE_IMAGE_SCHEMA)
-    async def analyze_image(args: dict[str, Any]) -> dict[str, Any]:
-        project_path = str(args.get("projectPath") or "").strip()
-        attachment_id = str(args.get("attachmentId") or "").strip()
-        image_path = str(args.get("path") or "").strip()
-        image_base64 = str(args.get("base64") or "").strip()
-        task = str(args.get("task") or "").strip()
-
-        if not project_path:
-            return {
-                "content": [{"type": "text", "text": "error: projectPath is required"}],
-                "is_error": True,
-            }
-
-        if not task:
-            return {
-                "content": [{"type": "text", "text": "error: task is required"}],
-                "is_error": True,
-            }
-
-        source_count = sum(1 for value in (attachment_id, image_path, image_base64) if value)
-        if source_count != 1:
-            return {
-                "content": [{"type": "text", "text": "error: provide exactly one of attachmentId/path/base64"}],
-                "is_error": True,
-            }
-
-        try:
-            if attachment_id:
-                local_path = resolve_attachment_local_path(project_path, attachment_id)
-                mime_type = resolve_attachment_mime_type(project_path, attachment_id)
-                reference = ReferenceSource(
-                    mode="path",
-                    value=str(local_path),
-                    mime=mime_type,
-                )
-                source_kind = "attachmentId"
-                source_id = attachment_id
-            elif image_path:
-                local_path = Path(image_path).expanduser()
-                if not local_path.is_file():
-                    return {
-                        "content": [{"type": "text", "text": f"path_missing: {image_path}"}],
-                        "is_error": True,
-                    }
-                mime_type = mimetypes.guess_type(local_path.name)[0] or "image/png"
-                if not mime_type.startswith("image/"):
-                    return {
-                        "content": [{"type": "text", "text": f"path_invalid: not an image ({image_path})"}],
-                        "is_error": True,
-                    }
-                reference = ReferenceSource(
-                    mode="path",
-                    value=str(local_path),
-                    mime=mime_type,
-                )
-                source_kind = "path"
-                source_id = str(local_path)
-            else:
-                reference = ReferenceSource(
-                    mode="base64",
-                    value=image_base64,
-                    mime="image/png",
-                )
-                source_kind = "base64"
-                source_id = "inline"
-        except AttachmentResolutionError as exc:
-            return {
-                "content": [{"type": "text", "text": exc.message}],
-                "is_error": True,
-            }
-
-        try:
-            config = load_chatgpt_backend_config()
-        except ReferenceAnalysisError as exc:
-            return {
-                "content": [{"type": "text", "text": f"image_analysis_config_missing: {exc.message}"}],
-                "is_error": True,
-            }
-
-        try:
-            prompt_text = build_custom_image_analysis_prompt(task)
-        except ValueError as exc:
-            return {
-                "content": [{"type": "text", "text": f"error: {exc}"}],
-                "is_error": True,
-            }
-
-        client = ReferenceAnalysisClient(config)
-        try:
-            result = await asyncio.to_thread(
-                client.analyze,
-                reference,
-                prompt_text,
-            )
-        except ReferenceAnalysisError as exc:
-            return {
-                "content": [{"type": "text", "text": exc.message}],
-                "is_error": True,
-            }
-        except Exception as exc:
-            return {
-                "content": [{"type": "text", "text": f"image_analysis_unexpected: {exc}"}],
-                "is_error": True,
-            }
-
-        raw_text = result.raw_text or ""
-        if not raw_text:
-            return {
-                "content": [{"type": "text", "text": "image_analysis_empty: model returned no text (response_id=" + result.response_id + ")"}],
-                "is_error": True,
-            }
-
-        return {
-            "content": [{"type": "text", "text": raw_text}],
-            "structuredContent": {
-                "responseId": result.response_id,
-                "model": result.model,
-                "sourceKind": source_kind,
-                "sourceId": source_id,
-                "task": task,
-                "rawText": raw_text,
-            },
-        }
-
-    # ---------- register_variant ----------
-    @builder.tool("register_variant", _REGISTER_VARIANT_DESC, _REGISTER_VARIANT_SCHEMA)
-    async def register_variant(args: dict[str, Any]) -> dict[str, Any]:
-        """注册一个或多个变体目录"""
-        body: dict[str, Any] = {
-            "designZoneId": args["designZoneId"],
-            "slugs": args["slugs"],
-            "mode": args["mode"],
-            "summary": args.get("summary", ""),
-        }
-        if args.get("sourceVariant"):
-            body["sourceVariant"] = args["sourceVariant"]
-        if args.get("overwrite"):
-            body["overwrite"] = bool(args["overwrite"])
-
-        try:
-            async with ctx.session.post(
-                f"{ctx.server_url}/api/scheme/variant/register",
-                json=body,
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    created = data.get("created", [])
-                    errors = data.get("errors", [])
-                    summary_text = (
-                        f"已注册 {len(created)} 个变体;失败 {len(errors)} 个。\n"
-                        f"详情:{json.dumps(data, ensure_ascii=False, indent=2)}"
-                    )
-                    return {
-                        "content": [{"type": "text", "text": summary_text}],
-                        "structuredContent": data,
-                    }
+            tmp_file: Path | None = None
+            try:
+                if attachment_id:
+                    try:
+                        local_path = Path(resolve_attachment_local_path(project_path, attachment_id))
+                    except AttachmentResolutionError as exc:
+                        return {"content": [{"type": "text", "text": exc.message}], "is_error": True}
+                    if not local_path.is_file():
+                        return {"content": [{"type": "text", "text": f"attachment_missing: {attachment_id}"}], "is_error": True}
+                elif image_path_arg:
+                    local_path = Path(image_path_arg).expanduser()
+                    if not local_path.is_file():
+                        return {"content": [{"type": "text", "text": f"path_missing: {image_path_arg}"}], "is_error": True}
+                    mime_guess = mimetypes.guess_type(local_path.name)[0] or ""
+                    if not mime_guess.startswith("image/"):
+                        return {"content": [{"type": "text", "text": f"path_invalid: not an image ({image_path_arg})"}], "is_error": True}
                 else:
-                    error_text = await resp.text()
-                    return {
-                        "content": [{"type": "text", "text": f"注册失败: HTTP {resp.status} {error_text}"}],
-                        "is_error": True,
-                    }
-        except aiohttp.ClientError as e:
+                    try:
+                        image_bytes = _decode_image_data(image_base64)
+                    except Exception as exc:
+                        return {"content": [{"type": "text", "text": f"base64_invalid: {exc}"}], "is_error": True}
+                    tmp_dir = project_dir / SCREENSHOT_DIR_NAME
+                    tmp_dir.mkdir(parents=True, exist_ok=True)
+                    tmp_file = tmp_dir / f"vision_tmp_{timestamp}.png"
+                    tmp_file.write_bytes(image_bytes)
+                    local_path = tmp_file
+
+                result_text, err = await _recognize_image(ctx.session, cfg, local_path, prompt)
+                if err:
+                    return {"content": [{"type": "text", "text": err}], "is_error": True}
+                return {"content": [{"type": "text", "text": result_text}]}
+            finally:
+                if tmp_file is not None:
+                    try:
+                        tmp_file.unlink()
+                    except OSError:
+                        pass
+
+        # ----- 模式③:截图+识图（有截图范围,不批量）-----
+        if not has_shot_range:
             return {
-                "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
+                "content": [{"type": "text", "text": "错误: 传了 prompt 但既无图源也无截图范围;只识图请传图源(attachmentId/path/base64),截图+识图请传截图范围(targetId/viewport 等)。"}],
                 "is_error": True,
             }
 
-    # ---------- list_variants ----------
-    @builder.tool("list_variants", _LIST_VARIANTS_DESC, _LIST_VARIANTS_SCHEMA)
-    async def list_variants(args: dict[str, Any]) -> dict[str, Any]:
-        """列出指定设计区下的所有变体"""
-        design_zone_id = args["designZoneId"]
+        resolved_viewports, verr = _resolve_screenshot_viewports(args)
+        if verr:
+            return {"content": [{"type": "text", "text": f"错误: {verr}"}], "is_error": True}
+        viewports = resolved_viewports or _full_screenshot_viewports()
+        if len(viewports) != 1:
+            return {
+                "content": [{"type": "text", "text": "错误: 截图+识图不支持批量(targetIds/shots);单图请用 targetId 或 viewport。"}],
+                "is_error": True,
+            }
+
         try:
-            async with ctx.session.get(
-                f"{ctx.server_url}/api/scheme/variants",
-                params={"designZoneId": design_zone_id},
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    variants = data.get("variants", [])
-                    text = (
-                        f"设计区 {design_zone_id} 共 {len(variants)} 个变体。\n"
-                        f"详情:{json.dumps(data, ensure_ascii=False, indent=2)}"
-                    )
-                    return {
-                        "content": [{"type": "text", "text": text}],
-                        "structuredContent": data,
-                    }
-                else:
-                    error_text = await resp.text()
-                    return {
-                        "content": [{"type": "text", "text": f"列出失败: HTTP {resp.status} {error_text}"}],
-                        "is_error": True,
-                    }
-        except aiohttp.ClientError as e:
-            return {
-                "content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}],
-                "is_error": True,
-            }
-
-    # ---------- list_project_scenes ----------
-    @builder.tool("list_project_scenes", _LIST_PROJECT_SCENES_DESC, _LIST_PROJECT_SCENES_SCHEMA)
-    async def list_project_scenes(args: dict[str, Any]) -> dict[str, Any]:
-        """列出当前项目所有 active scene。v3.4 D10:通过 ctx.scenes 拿数据。"""
-        if ctx.scenes is None:
-            return {
-                "content": [{"type": "text", "text": "未绑定项目,无可列举的 scenes"}],
-                "is_error": True,
-            }
-
-        active_scene_id = ctx.active_scene
-        items: list[dict[str, Any]] = []
-        for scene in ctx.scenes.scenes:
-            if scene.status.value != "active":
-                continue
-            items.append(
-                {
-                    "sceneId": scene.scene_id,
-                    "scene": scene.scene,
-                    "plugin": {
-                        "id": scene.plugin.id,
-                        "versionRange": scene.plugin.version_range,
-                    },
-                    "status": scene.status.value,
-                    "createdAt": scene.created_at,
-                    "isActive": scene.scene_id == active_scene_id,
-                }
+            image_data, serr = await _render_viewport(
+                ctx.session, ctx.server_url, project_dir, viewports[0], variant_id, request_timeout
             )
+        except aiohttp.ClientError as e:
+            return {"content": [{"type": "text", "text": f"无法连接 Server: {str(e)}"}], "is_error": True}
+        if serr:
+            return {"content": [{"type": "text", "text": serr}], "is_error": True}
 
-        return {
-            "content": [
-                {"type": "text", "text": json.dumps(items, ensure_ascii=False, indent=2)}
-            ]
-        }
+        label = _sanitize_filename(_build_shot_label(viewports[0], 1))
+        filename = f"bg_{label}_{timestamp}.png"
+        saved_path = _save_screenshot(image_data, project_dir, filename)
+        result_text, aerr = await _recognize_image(ctx.session, cfg, Path(saved_path), prompt)
+        if aerr:
+            return {"content": [{"type": "text", "text": f"{aerr}(截图已存 {saved_path})"}], "is_error": True}
+        return {"content": [{"type": "text", "text": result_text}]}
 
-    # ---------- load_scene_artifact ----------
+    @builder.tool("canvas_vision", _CANVAS_VISION_DESC, _CANVAS_VISION_SCHEMA)
+    async def canvas_vision(args: dict[str, Any]) -> dict[str, Any]:
+        """canvas_vision 入口薄包装(Step0 可观测性)。
+
+        把 _canvas_vision_body 的任何未捕获异常 / 进程级崩溃转成结构化 is_error
+        结果(含异常类型 + 尾部 traceback + 总耗时),消除上层 "Command failed with
+        no output" 黑洞——该消息不是本工具的任何 return 文案,说明此前是裸异常冒泡。
+        """
+        started = time.monotonic()
+        try:
+            return await _canvas_vision_body(args)
+        except Exception as e:  # noqa: BLE001 —— 兜底转结构化错误,不让裸异常冒泡成 "no output"
+            elapsed = time.monotonic() - started
+            tb = traceback.format_exc()
+            return {
+                "content": [{"type": "text", "text": (
+                    f"canvas_vision 未捕获异常(elapsed={elapsed:.1f}s): "
+                    f"{type(e).__name__}: {e}\n--- traceback(尾部) ---\n{tb[-1800:]}"
+                )}],
+                "is_error": True,
+            }
+
+    # ---------- load_artifact ----------
     @builder.tool(
-        "load_scene_artifact",
-        _LOAD_SCENE_ARTIFACT_DESC,
-        _LOAD_SCENE_ARTIFACT_SCHEMA,
+        "load_artifact",
+        _LOAD_ARTIFACT_DESC,
+        _LOAD_ARTIFACT_SCHEMA,
         annotations=ToolAnnotations(maxResultSizeChars=500_000),
     )
-    async def load_scene_artifact(args: dict[str, Any]) -> dict[str, Any]:
-        """读取指定 scene 的 artifact。"""
+    async def load_artifact(args: dict[str, Any]) -> dict[str, Any]:
+        """读取 artifact(按物理 zone 组织在 schemes/ 下)。"""
         if not ctx.server_url:
             return {
                 "content": [{"type": "text", "text": "Server URL 未配置"}],
                 "is_error": True,
             }
 
-        scene_id = args["sceneId"]
         artifact_kind = args["artifactKind"]
         path = args.get("path")
-        # scene-agnostic:数据按物理 zone 组织(schemes/{path}/),URL 不再带 sceneId 段。
+        # 数据按物理 zone 组织(schemes/{path}/);裸设计区 path 由 Server 经拓扑解析 adopted 指针。
         url = f"{ctx.server_url}/api/scheme/artifacts/{artifact_kind}"
         params = {"path": path} if path else None
 
@@ -1191,14 +1185,12 @@ def register(builder: McpServerBuilder) -> None:
                     body = await resp.text()
                     return {"content": [{"type": "text", "text": body}]}
                 if resp.status == 404:
+                    path_part = f", path={path}" if path else ""
                     return {
                         "content": [
                             {
                                 "type": "text",
-                                "text": (
-                                    f"未找到 artifact: sceneId={scene_id}, "
-                                    f"artifactKind={artifact_kind} (HTTP 404)"
-                                ),
+                                "text": f"未找到 artifact: artifactKind={artifact_kind}{path_part} (HTTP 404)",
                             }
                         ],
                         "is_error": True,

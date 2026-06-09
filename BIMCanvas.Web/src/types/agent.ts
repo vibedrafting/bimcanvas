@@ -134,9 +134,69 @@ export interface InteractionRecord {
   cancelReason?: string | null;
 }
 
+// 后台任务（Workflow）完成事件 —— 复用 interaction SSE 通道，事件名独立。
+// kind 字段作为通道判别符：interaction record 用 InteractionKind，背景任务用字面量
+// 'background_task'，让现有 question/screenshot listener 的 `record.kind !== 'xxx'` 守卫
+// 能正确把背景任务记录排除掉（无需改动那两个 service）。
+export type BackgroundTaskStatus = 'completed' | 'failed' | 'stopped' | string;
+export type BackgroundTaskEventName = 'background_task.completed';
+
+export interface BackgroundTaskRecord {
+  kind: 'background_task';
+  taskId: string;
+  status: BackgroundTaskStatus;
+  // 主控是否产出原生总结：true→渲染 Chat 气泡+落 history；false→仅 generic 占位，只收口 Task 面板不渲染
+  hasSummary?: boolean;
+  // T2：后台原生总结回合的完整 envelope 序列（thinking/tool/text）。非空时前端按序 apply 渲染成完整一条回合；
+  // 空时回退到 content 单文本。每个元素是一条 main-stream envelope（eventType/payload/turnId…）。
+  events?: Record<string, unknown>[];
+  // 由 Agent 组装好的展示文本（events 为空时的兜底文本；实时注入气泡与 history 重建复用同一份）
+  content: string;
+  summary: string;
+  outputFile?: string | null;
+  windowId?: string | null;
+  sessionId?: string | null;
+  sdkSessionId?: string | null;
+  turnId?: string | null;
+  timestamp?: string | null;
+}
+
+// 后台 Workflow 进度事件 —— 复用 interaction SSE 通道，detach 后 workflow 进度的唯一实时来源。
+// SDK 实时只给 task 级聚合（usage/last_tool）；per-agent 详情完成后读 transcript。
+export type WorkflowProgressEventName = 'background_task.progress';
+
+export interface WorkflowProgressRecord {
+  kind: 'workflow_progress';
+  taskId?: string | null;
+  status?: string | null;
+  usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
+  lastToolName?: string | null;
+  description?: string | null;
+  windowId?: string | null;
+  sessionId?: string | null;
+  sdkSessionId?: string | null;
+  timestamp?: string | null;
+}
+
+// 后台 Workflow 阶段预声明 —— 复用 background_task.progress 事件，workflow 启动即推完整
+// meta.phases。运行态前端据此立即渲染全部阶段（pending），不再依赖闭源 CLI 写的 per-run
+// 脚本副本（运行态常缺失/runId 错位 → 旧实现降级成单个「阶段 1」）。
+export interface WorkflowPhasesRecord {
+  kind: 'workflow_phases';
+  taskId?: string | null;
+  sdkSessionId?: string | null;
+  workflowName?: string | null;
+  phases: { index: number; title: string; detail?: string | null }[];
+  windowId?: string | null;
+  sessionId?: string | null;
+  timestamp?: string | null;
+}
+
+export type ChannelEventName = InteractionEventName | BackgroundTaskEventName | WorkflowProgressEventName;
+
 export interface InteractionEventEnvelope {
-  event: InteractionEventName;
-  record: InteractionRecord;
+  event: ChannelEventName;
+  record: InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord | WorkflowPhasesRecord;
 }
 
 export type InteractionEventListener = (event: InteractionEventEnvelope) => void;

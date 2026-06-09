@@ -50,6 +50,72 @@ class RuntimeStateStore:
             if queue in self._interaction_subscribers:
                 self._interaction_subscribers.remove(queue)
 
+    async def push_background_task(self, *, record: dict[str, Any]) -> dict[str, Any]:
+        """后台任务（Workflow）完成：① 有主控原生总结(hasSummary)时落 session history
+        （重建可复现气泡，也是实时 SSE 漏达的兜底）；② 复用 interaction SSE 通道实时推送。
+
+        hasSummary=False（主控无原生总结，仅 generic 'Workflow ... completed' 占位）时：
+        跳过 history、不落盘，SSE 仍发出但前端只用于 Task 面板收口、不渲染 Chat 气泡——
+        避免占位噪声/置底错位（承接用户 Bug4）。富总结则正常落盘 + 渲染。
+        """
+        record = dict(record)
+        if not record.get("timestamp"):
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+
+        session_id = record.get("sessionId")
+        window_id = record.get("windowId")
+        task_id = record.get("taskId") or "unknown"
+        content = record.get("content") or record.get("summary") or ""
+        events = record.get("events") or []   # T2：完整回合 envelope 序列
+        bg_turn_id = f"bgtask:{task_id}"
+
+        # ① 落 history（仅定位齐全时）—— 重建可复现 + 实时 SSE 漏达兜底
+        if session_id and window_id:
+            if events:
+                # T2：逐 envelope 落盘（thinking/tool/text），重建时由 restoreHistoryForWindow
+                # 按同一 bgtask turnId 聚合成完整一条回合。不再单独落 content，避免重载双文本。
+                for ev in events:
+                    if not isinstance(ev, dict):
+                        continue
+                    await self.append_event_history(
+                        session_id=session_id,
+                        turn_id=ev.get("turnId") or bg_turn_id,
+                        window_id=window_id,
+                        event_payload=ev,
+                    )
+            elif record.get("hasSummary"):
+                # 兜底：无 events（如旧 Agent）但有原生总结 → 落单条 text.completed
+                await self.append_event_history(
+                    session_id=session_id,
+                    turn_id=bg_turn_id,
+                    window_id=window_id,
+                    event_payload={
+                        "eventId": str(uuid.uuid4()),
+                        "sessionId": session_id,
+                        "turnId": bg_turn_id,
+                        "eventType": "text.completed",
+                        "timestamp": record["timestamp"],
+                        "payload": {"content": content},
+                    },
+                )
+
+        # ② 实时 SSE 推送（驱动 Task 面板收口；hasSummary 时前端同时注入 Chat 气泡）
+        async with self._lock:
+            subscribers = list(self._interaction_subscribers)
+        self._publish(subscribers, "background_task.completed", record)
+        return record
+
+    async def push_background_progress(self, *, record: dict[str, Any]) -> None:
+        """后台 Workflow 进度：仅经 interaction SSE 实时推送，不落 history（瞬时心跳，
+        完成态才由 push_background_task 持久化）。事件名 background_task.progress。
+        """
+        record = dict(record)
+        if not record.get("timestamp"):
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+        async with self._lock:
+            subscribers = list(self._interaction_subscribers)
+        self._publish(subscribers, "background_task.progress", record)
+
     async def create_session(
         self,
         *,

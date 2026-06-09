@@ -460,14 +460,28 @@ const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeScene
     }
     const roomIdKey = roomId.toLowerCase();
     const room = projectData.baseline?.rooms?.find(r => r.id.toLowerCase() === roomIdKey);
-    if (!room) {
-      throw new Error(`Room not found: ${roomId}`);
+    if (room) {
+      const bounds = computeRoomBounds(room);
+      const padding = computePadding(bounds, mode);
+      const targetBounds = expandBounds(bounds, padding);
+      sceneService.fitToBounds(targetBounds);
+      return targetBounds;
     }
-    const bounds = computeRoomBounds(room);
-    const padding = computePadding(bounds, mode);
-    const targetBounds = expandBounds(bounds, padding);
-    sceneService.fitToBounds(targetBounds);
-    return targetBounds;
+    // 纵深兜底（7.2）：room 未命中先按同名 id 回退 zone 索引（设计引擎以 zone 为主，
+    // 传入的 roomId 可能实为 zoneId）；仍无则 warn + 回退 full bounds，不硬 throw 阻断截图。
+    const zone = projectData.activeScheme?.zones?.find(z => z.id.toLowerCase() === roomIdKey);
+    if (zone) {
+      const bounds = computeZoneBounds(zone);
+      const padding = computePadding(bounds, 'zone');
+      const targetBounds = expandBounds(bounds, padding);
+      sceneService.fitToBounds(targetBounds);
+      return targetBounds;
+    }
+    console.warn(`[ScreenshotRenderView] Room not found: ${roomId}，回退 full bounds（已截全屋图）`);
+    const fullBounds = computeProjectBounds(projectData);
+    if (!fullBounds) return null;
+    sceneService.fitToBounds(expandBounds(fullBounds, computePadding(fullBounds, 'full')));
+    return null;
   }
 
   if (mode === 'zone') {

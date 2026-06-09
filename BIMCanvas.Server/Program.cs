@@ -203,6 +203,7 @@ builder.Services.AddControllers()
 
 // v3.0 项目管理服务
 builder.Services.AddSingleton<ManifestService>();
+builder.Services.AddSingleton<WorkflowTranscriptService>();
 builder.Services.AddSingleton<RoomTypeTagMappingService>();
 builder.Services.AddSingleton<ComputedDataService>();
 builder.Services.AddSingleton<PlacementService>();
@@ -234,6 +235,7 @@ builder.Services.AddSingleton<ProjectService>();
 builder.Services.AddSingleton<ProjectContext>();  // 单项目模式上下文
 builder.Services.AddSingleton<ModuleLibraryService>();  // 模块库服务
 builder.Services.AddSingleton<ModuleFileTopologyService>();  // modules.json 拓扑解析服务
+builder.Services.AddSingleton<SchemeDesignDocService>();  // DESIGN.md frontmatter(adopted 指针) 读写（指针模型）
 builder.Services.AddSingleton<ModuleNormalizationService>();  // 模块数据规范化服务
 builder.Services.AddSingleton<ModulesReaderService>();  // modules.json wrapper 读取
 builder.Services.AddSingleton<ModulesWriterService>();  // modules.json wrapper 写入（含 schemeMetadata 派生）
@@ -247,6 +249,8 @@ builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHe
     BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeMetadataSlimCheck>();
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
     BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagValueCheck>();
+builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
+    BIMCanvas.Server.Services.ProjectHealth.Checks.PointerModelMigrateCheck>();  // 指针模型迁移：末位注册=末位执行（依赖前序 wrapper/tag 已就位）；幂等+Web repair 入口有 git 兜底
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IGitCommitter>(sp =>
     new BIMCanvas.Server.Services.ProjectHealth.GitWorktreeServiceCommitter(
         sp.GetRequiredService<GitWorktreeService>()));

@@ -8,7 +8,8 @@
 
 ## 1 · 工具调用底线
 
-- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改业务交付物 JSON 用 `Write` / `Edit`（保留你未改动的外层字段），创建变体目录用 `mcp__canvas__register_variant`，列分区/截图等用对应的 `mcp__canvas__*`。
+- **【必须】**所有平台动作以工具调用方式发起 — 读文件用 `Read`，改业务交付物 JSON 用 `Write` / `Edit`（保留你未改动的外层字段），读 artifact / 截图等用对应的 `mcp__canvas__*`。
+- **【禁止】**用 `Write` / `Edit` / `Bash` 自行做**结构性变更**（新建子方案目录、采纳 / 切换生效版本、翻 `adopted` 指针）— 这类操作不属基座能力，必须经 active plugin 的专用写契约 / 专用 MCP（基座只提供 `mcp__canvas__*`，不提供变体注册工具）。
 - **【禁止】**输出 `<mcp__xxx>` 形式的伪工具调用文本 — 这种文本不会被解析为真实调用，只会让用户误以为你执行了实际并未发生的操作。
 
 ---
@@ -34,14 +35,14 @@
 
 ### 2.3 数据组织
 
-持久业务数据按**物理 zone** 组织在 `schemes/{zoneId}/` 下（同一房间的多专业交付物用文件名区分，符合 BIM 多专业叠加）。`active_scene`（= active plugin id）由 `PluginLaunchContext` 注入，仅作运行时 plugin 标识，**不进数据路径**。读 artifact 用 `mcp__canvas__load_scene_artifact`（按 `schemes/{path}/` 读）。
+持久业务数据按**物理 zone** 组织在 `schemes/{zoneId}/` 下（同一房间的多专业交付物用文件名区分，符合 BIM 多专业叠加）。**当前激活的是哪个 plugin** 见系统提示词顶部的 `## Active Plugin: <id> · namespace: mcp__<ns>__*` 段（由平台确定性注入）——它是运行时事实，**不进数据路径、不需查询 MCP**。读 artifact 用 `mcp__canvas__load_artifact`（按 `schemes/{path}/` 读；裸设计区经拓扑解析 `adopted` 指针）。
 
 ### 2.4 MCP 命名与文件写入
 
 - 平台 MCP：`mcp__canvas__*`（保留命名空间）
 - Plugin MCP：`mcp__<plugin-namespace>__*`
 - **业务交付物 JSON 用 `Write` / `Edit` 工具直接编辑**；Server 不拦截、不派生 metadata。编辑既有交付物时**保留你未改动的外层字段**（具体形态与必留字段由 active plugin 的写契约约定）。
-- **变体目录的创建必须用平台工具 `mcp__canvas__register_variant`**（mode / 初始模板细节见该工具描述）。
+- **方案目录的新建与采纳 / 转正经 active plugin 写契约，不走自助文件操作**：新建子方案目录、采纳 / 切换生效版本、翻 `adopted` 指针均属**结构性变更**，必须由 active plugin 的专用写契约 / 专用 MCP 完成（含其 Server gate / 广播 / 并发锁 / 空方案校验等保护）。**禁止** Agent 自行用 `Write` / `Edit` / `Bash`（如 `mv` 去 `_` 前缀、直接改父 `DESIGN.md` 的 `adopted` 指针）新建方案目录或采纳——绕过写契约会留下孤儿目录、丢失校验、与 Server / Revit 失同步。列方案 / 读生效版本经 active plugin 约定的读路径（如 `mcp__canvas__load_artifact` 按 `schemes/{path}/` 读、裸设计区经拓扑解析 `adopted` 指针）。
 
 ### 2.5 不可越线
 

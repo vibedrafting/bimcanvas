@@ -13,6 +13,7 @@ import { useContextMenu } from '../../composables/aiCommandCenter/useContextMenu
 import { usePanelUI } from '../../composables/aiCommandCenter/usePanelUI';
 import { useScreenshot } from '../../composables/aiCommandCenter/useScreenshot';
 import { useQuestion } from '../../composables/aiCommandCenter/useQuestion';
+import { useBackgroundTask } from '../../composables/aiCommandCenter/useBackgroundTask';
 import { useSelectionContext } from '../../composables/aiCommandCenter/useSelectionContext';
 import { useSpatialMarking } from '../../composables/aiCommandCenter/useSpatialMarking';
 import { useWindowManager } from '../../composables/aiCommandCenter/useWindowManager';
@@ -26,6 +27,8 @@ import QuestionBubble from './QuestionBubble.vue';
 import RateLimitBanner from './RateLimitBanner.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
+import WorkflowProgressPanel from './WorkflowProgressPanel.vue';
+import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress';
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 import ImageLightbox from './ImageLightbox.vue';
@@ -512,6 +515,8 @@ const {
   restoreHistory,
   waitForInteractionContinuation,
   interruptMessage,
+  injectBackgroundSummary,
+  injectBackgroundTurn,
   checkAgentHealth,
   fetchProjectPath,
   cleanupHealthCheck,
@@ -535,7 +540,7 @@ const {
   buildContextSnapshot: (spatialMarks = pendingSpatialMarks.value) => buildContextSnapshot(spatialMarks)
 });
 
-const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value);
+const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value || hasActiveWorkflow.value);
 
 const {
   showScreenshotOverlay,
@@ -563,6 +568,17 @@ const {
   windows,
   scrollToBottom,
   waitForInteractionContinuation
+});
+
+const {
+  startListening: startBackgroundTaskListening,
+  stopListening: stopBackgroundTaskListening
+} = useBackgroundTask({
+  agentApiBase: AGENT_API_BASE,
+  windows,
+  scrollToBottom,
+  injectBackgroundSummary,
+  injectBackgroundTurn
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);
@@ -668,6 +684,14 @@ watch(activeSubAgents, (newAgents, oldAgents) => {
 
 const proposals = ref(proposalMocks);
 
+// Workflow 进度（Task 页可视化）。hasActiveWorkflow 锚到 workflow 工具调用触发信号（见 useChatStream tool.started）。
+const { hasActiveWorkflow, hasCompletedWorkflow } = useWorkflowProgress();
+// 占位 mock 与 workflow 进度面板互补：有 workflow（进行中或已完成留存）→ 隐占位、显进度。
+const hasWorkflowView = computed(() => hasActiveWorkflow.value || hasCompletedWorkflow.value);
+
+// workflow 运行中 → Chat 底部气泡 → 点击跳 Task 页。
+const goToTasks = () => { mode.value = 'tasks'; };
+
 const clearSelection = () => {
   store.clearSelection();
 };
@@ -689,7 +713,8 @@ onMounted(async () => {
 
   await Promise.all([
     startListening(),
-    startQuestionListening()
+    startQuestionListening(),
+    startBackgroundTaskListening()
   ]);
 });
 
@@ -797,6 +822,7 @@ onUnmounted(() => {
   todoProgressResizeObserver = null;
   stopScreenshotListening();
   stopQuestionListening();
+  stopBackgroundTaskListening();
   cleanupHealthCheck();
   cleanupHistoryPolling();
 });
@@ -990,7 +1016,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
       </div>
 
       <!-- Layer 2: Intelligence Stream -->
-      <div class="layer-stream">
+      <div class="layer-stream" :class="{ 'stream-tasks': mode === 'tasks' }">
 
          <!-- View: Chat - Phase 2: 多窗口 v-show 架构 -->
         <div
@@ -1112,6 +1138,13 @@ watch(chatScrollRef, (newEl, oldEl) => {
                   <span class="polling-text">正在等待后台任务...</span>
                 </div>
               </transition>
+              <transition name="slide-down">
+                <div v-if="hasActiveWorkflow" class="workflow-indicator" @click="goToTasks" title="点击查看 Task 页进度">
+                  <span class="workflow-dot"></span>
+                  <span class="workflow-text">Workflow 后台运行中</span>
+                  <span class="workflow-link">查看进度 →</span>
+                </div>
+              </transition>
             </div>
           </transition>
         </div>
@@ -1119,14 +1152,17 @@ watch(chatScrollRef, (newEl, oldEl) => {
         <!-- View: Tasks (formerly Review) -->
         <div v-show="mode === 'tasks'" class="view-tasks">
             <!-- Agent Activity Monitor (SubAgent tracking) -->
-            <TaskSummaryWidget 
+            <TaskSummaryWidget
                 v-if="!hasFallback('hide-subtask-activity-panel')"
                 :sub-agents="activeSubAgents"
                 v-model:expanded="taskWidgetExpanded"
             />
 
-            <!-- Proposal Carousel -->
-            <div class="carousel-section">
+            <!-- Workflow 进度（有活跃/已完成 workflow 时显示，与下方占位 mock 互补） -->
+            <WorkflowProgressPanel v-if="hasWorkflowView" />
+
+            <!-- Proposal Carousel（占位 mock：仅在无 workflow 视图时显示） -->
+            <div class="carousel-section" v-if="!hasWorkflowView">
                 <div class="section-title">Proposals</div>
                 <div class="carousel-track" ref="carouselTrackRef" @wheel="handleWheel">
                     <div class="proposal-card" v-for="p in proposals" :key="p.id">
@@ -1174,8 +1210,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </div>
             </div>
 
-            <!-- Alert Card (Mock) -->
-            <div class="card alert-card">
+            <!-- Alert Card (Mock)：仅在无 workflow 视图时显示 -->
+            <div class="card alert-card" v-if="!hasWorkflowView">
                 <div class="alert-header">
                     <span class="icon">⚠️</span>
                     <span>Conflict Detected</span>
@@ -2704,6 +2740,14 @@ watch(chatScrollRef, (newEl, oldEl) => {
     &::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
 }
 
+/* Task 模式：layer-stream 收口——底部留外边距 + 下边框，不顶到面板底；四角保持直角（不倒角）。
+   Chat 模式下方有 layer-footer(composer)承接底边，故不加；仅 Task 模式生效。 */
+.layer-stream.stream-tasks {
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-dim);
+    border-radius: 0; /* 四角直角，去倒角 */
+}
+
 .view-tasks {
     display: flex;
     flex-direction: column;
@@ -3357,6 +3401,42 @@ watch(chatScrollRef, (newEl, oldEl) => {
 @keyframes pulse-polling {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.4; transform: scale(1.2); }
+}
+
+/* --- Workflow Indicator（仿 polling-indicator，独立信号 hasActiveWorkflow，点击跳 Task 页） --- */
+.workflow-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    margin: 0;
+    background: rgba(79, 172, 254, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(79, 172, 254, 0.3);
+    color: rgba(79, 172, 254, 0.95);
+    font-size: 0.8rem;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background 0.2s;
+
+    &:hover { background: rgba(79, 172, 254, 0.18); }
+
+    .workflow-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(79, 172, 254, 0.95);
+        animation: pulse-polling 1.5s ease-in-out infinite;
+    }
+
+    .workflow-text { font-weight: 500; }
+
+    .workflow-link {
+        margin-left: auto;
+        font-size: 0.72rem;
+        font-weight: 600;
+        opacity: 0.85;
+    }
 }
 
 .slide-down-enter-active,

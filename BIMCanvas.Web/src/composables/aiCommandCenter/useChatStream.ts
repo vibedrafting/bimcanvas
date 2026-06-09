@@ -40,6 +40,11 @@ import {
   findStreamingSubAgents
 } from '../../utils/bubbleManager';
 import { WAITING_VERBS } from '../../constants/aiCommandCenter';
+import { useWorkflowProgress } from './useWorkflowProgress';
+
+// Workflow 进度单例：把已解析的 subtask/tool 事件同步喂给 Task 页 workflow 视图。
+// 复用现有 case 的解析结果，不新增 SSE 解析。
+const workflowProgress = useWorkflowProgress();
 
 interface ChatStreamOptions {
   agentApiBase: string;
@@ -76,7 +81,10 @@ const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
   rate_limit: 'runtime.rate_limit',
   tool_call_start: 'tool.started',
   tool_call_output: 'tool.output',
-  tool_call_complete: 'tool.completed'
+  tool_call_complete: 'tool.completed',
+  // workflow 真后台脱离信号（agent 在回合脱离收尾时发）：标记本回合 workflow 已转后台，
+  // 完成走 background_task.completed 旁路，前端据此跳过前台回合结束的内联收口
+  workflow_detached: 'workflow_detached'
 };
 const ASSISTANT_EVENT_TYPES = new Set([
   'thinking.delta',
@@ -713,11 +721,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
-        currentMsg.bubbles.push(createSubAgentBubble(
-          subtaskId,
-          getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask',
-          getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose'
-        ));
+        const subtaskName = getString(payload.name) ?? getString(raw.subAgentName) ?? 'Subtask';
+        const subtaskType = getString(payload.type) ?? getString(raw.subAgentType) ?? 'general-purpose';
+        currentMsg.bubbles.push(createSubAgentBubble(subtaskId, subtaskName, subtaskType));
+        workflowProgress.onSubtaskStarted(subtaskId, subtaskName, subtaskType);
         break;
       }
       case 'subtask.completed': {
@@ -727,19 +734,20 @@ export const useChatStream = (options: ChatStreamOptions) => {
         }
 
         const subAgentBubble = findBubbleByIdDeep(currentMsg.bubbles, subtaskId);
+        const completedSuccess = getBoolean(payload.success) ?? getBoolean(raw.success);
+        const completedSummary = getString(payload.summary) ?? getString(raw.content);
         if (subAgentBubble) {
-          const success = getBoolean(payload.success) ?? getBoolean(raw.success);
-          if (success === false) {
+          if (completedSuccess === false) {
             failBubble(subAgentBubble, getString(payload.error) ?? getString(raw.error));
           } else {
             completeBubble(subAgentBubble);
           }
 
-          const summary = getString(payload.summary) ?? getString(raw.content);
-          if (summary) {
-            updateSubAgentResult(subAgentBubble, summary);
+          if (completedSummary) {
+            updateSubAgentResult(subAgentBubble, completedSummary);
           }
         }
+        workflowProgress.onSubtaskCompleted(subtaskId, { success: completedSuccess, summary: completedSummary });
 
         if (!hasStreamingSubAgent(currentMsg.bubbles)) {
           enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
@@ -749,6 +757,25 @@ export const useChatStream = (options: ChatStreamOptions) => {
       case 'subtask.progress': {
         // WP-Web: SDK 0.2.87 TaskProgressMessage 进度更新,渲染到 SubAgentBubble 头部 meta-right
         const subtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        const usageRaw = getObject(payload.usage) ?? getObject(raw.usage);
+        const usage = usageRaw ? {
+          totalTokens: typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
+          toolUses: typeof usageRaw.tool_uses === 'number' ? usageRaw.tool_uses : undefined,
+          durationMs: typeof usageRaw.duration_ms === 'number' ? usageRaw.duration_ms : undefined
+        } : undefined;
+        const progressDescription = getString(payload.description) ?? getString(raw.content);
+        const progressLastTool = getString(payload.lastToolName) ?? getString(raw.toolName);
+
+        // Workflow 视图聚合:workflow 内 agent 实时流可能只给 taskId(无 subtaskId),用 subtaskId ?? taskId 作 key。
+        const workflowKey = subtaskId ?? getString(payload.taskId) ?? getString(raw.taskId);
+        if (workflowKey) {
+          workflowProgress.onSubtaskProgress(workflowKey, {
+            description: progressDescription,
+            lastToolName: progressLastTool,
+            usage
+          });
+        }
+
         if (!subtaskId) {
           break;
         }
@@ -756,15 +783,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (!subAgentBubble || subAgentBubble.type !== 'subagent') {
           break;
         }
-        const usageRaw = getObject(payload.usage) ?? getObject(raw.usage);
-        const usage = usageRaw ? {
-          totalTokens: typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
-          toolUses: typeof usageRaw.tool_uses === 'number' ? usageRaw.tool_uses : undefined,
-          durationMs: typeof usageRaw.duration_ms === 'number' ? usageRaw.duration_ms : undefined
-        } : undefined;
         subAgentBubble.subAgentProgress = {
-          description: getString(payload.description) ?? getString(raw.content),
-          lastToolName: getString(payload.lastToolName) ?? getString(raw.toolName),
+          description: progressDescription,
+          lastToolName: progressLastTool,
           usage
         };
         break;
@@ -804,6 +825,19 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (toolName === 'TodoWrite' && updateTodoProgress(windowState, normalizedEvent, toolCallId, toolParams)) {
           enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
           break;
+        }
+
+        // Workflow 触发信号(必修2):主控自身调用 workflow 工具(无 subtaskId,工具名命中触发信号)即开 workflow,
+        // 让 Chat 气泡 + Task 页在"调用 workflow 时"就亮起,不等首个子 agent。
+        const toolStartedSubtaskId = getString(raw.subtaskId) ?? getString(raw.subAgentId);
+        if (!toolStartedSubtaskId && workflowProgress.isWorkflowTool(toolName)) {
+          workflowProgress.startWorkflow({ toolCallId, label: toolName });
+        } else if (toolStartedSubtaskId) {
+          workflowProgress.onToolStarted(toolStartedSubtaskId, {
+            toolCallId,
+            toolName,
+            description: getString(payload.toolDescription) ?? getString(raw.toolDescription)
+          });
         }
 
         const existingBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
@@ -855,6 +889,22 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
+        workflowProgress.onToolCompleted(toolCallId, {
+          success: getBoolean(payload.success) ?? getBoolean(raw.success)
+        });
+
+        // Workflow 工具完成（async_launched）：从结果文本 "Task ID: <id>" 绑定 taskId。
+        // 这是最可靠的 in-turn 来源——实时进度 SSE 可能只带 sdkSessionId 漏传 taskId，
+        // 不绑定则完成后 loadTranscript 无 taskId、服务端只能回退实时态，Task 面板永久卡"运行中"。
+        const wfTool = workflowProgress.workflow.value;
+        if (wfTool && toolCallId === wfTool.toolCallId && !wfTool.taskId) {
+          const wfOut = getString(payload.output) ?? getString(raw.toolOutput) ?? '';
+          const wfMatch = wfOut.match(/Task ID:\s*(\S+)/i);
+          if (wfMatch) {
+            workflowProgress.bindWorkflowIdentity({ toolCallId, taskId: wfMatch[1] });
+          }
+        }
+
         if (windowState?.todoProgress?.toolCallId === toolCallId) {
           const success = getBoolean(payload.success) ?? getBoolean(raw.success);
           if (success === false) {
@@ -896,6 +946,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
           markAsBackground(bubble);
           bubble.subAgentResult = `正在获取结果... (timeout: ${timeout / 1000}s)`;
         }
+        break;
+      }
+      case 'workflow_detached': {
+        // workflow 已脱离到真后台：完成将经 background_task.completed 旁路到达。
+        // 置此标记 → sendMessage 的 finally 跳过"前台回合结束即内联收口"（:1435 守卫），
+        // 避免回合一结束就把仍在后台跑的 workflow 误标 completed。
+        isPollingBackground.value = true;
         break;
       }
       case 'turn.completed': {
@@ -1394,6 +1451,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
       if (isLatestRequest) {
         currentAbortControllers.delete(targetWindowId);
       }
+      // 内联 workflow 收口（7.4）：未 detach 后台的 workflow 在主控回合结束时不会再有
+      // background_task.completed（那是后台路径专属），在此统一收口，避免 Task 面板卡 Running。
+      // detach 到后台的（isPollingBackground）留给 background_task.completed，不在此提前完成。
+      if (isLatestRequest && !isPollingBackground.value
+          && workflowProgress.workflow.value?.status === 'running') {
+        workflowProgress.onWorkflowCompleted({ status: completedSuccessfully ? 'completed' : 'failed' });
+      }
       isPollingBackground.value = false;
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
@@ -1713,6 +1777,65 @@ export const useChatStream = (options: ChatStreamOptions) => {
     await nextTick();
     options.scrollToBottom({ windowId });
     return response.sessionStatus ?? response.session?.status ?? null;
+  };
+
+  /**
+   * 注入「后台 Workflow 完成的主控原生总结」为一条 AI 气泡——走与 history 重建**完全相同**的渲染
+   * 管线（createRestoredAiMessage + applyNormalizedEventToMessage），而非手搓 createTextBubble。
+   * 折中重构：消除 useBackgroundTask 与 history 重建的双渲染路径，二者收敛到同一处。
+   * turnId 语义上对应 store 落盘的 bgtask:<taskId>，重载后由 history 重建复现同一条气泡（不重复）。
+   */
+  const injectBackgroundSummary = (
+    windowId: string | null | undefined,
+    content: string,
+    timestamp?: number
+  ): void => {
+    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
+      ?? options.windows.value[0];
+    if (!windowState) return;
+    const text = (content ?? '').trim();
+    if (!text) return;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+
+    const aiMessage = createRestoredAiMessage(ts);
+    const normalized = normalizeStreamEvent({ eventType: 'text.completed', payload: { content: text } });
+    if (!normalized) return;
+    applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+    aiMessage.isStreaming = false;
+    aiMessage.endTime = ts;
+    exitWaitingState(aiMessage.waitingState);
+    windowState.messages.push(aiMessage);
+
+    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
+  };
+
+  /**
+   * T2：注入「后台 Workflow 完成的主控原生总结回合」——把完整 envelope 序列（thinking/tool/text）
+   * 按序 apply 到一条 AI 消息，渲染成与前台回合等价的"思考气泡+工具气泡+文本气泡"。
+   * 走与 history 重建完全相同的 createRestoredAiMessage + applyNormalizedEventToMessage（零渲染漂移）。
+   * envelope 已由 Agent 端同一个 MainStreamMapper 产出，turnId=bgtask:<taskId>，重载时 history 重建复现同一条。
+   */
+  const injectBackgroundTurn = (
+    windowId: string | null | undefined,
+    events: Record<string, unknown>[],
+    timestamp?: number
+  ): void => {
+    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
+      ?? options.windows.value[0];
+    if (!windowState || !Array.isArray(events) || events.length === 0) return;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+
+    const aiMessage = createRestoredAiMessage(ts);
+    for (const ev of events) {
+      const normalized = normalizeStreamEvent(ev);
+      if (normalized) applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+    }
+    aiMessage.isStreaming = false;
+    aiMessage.endTime = ts;
+    exitWaitingState(aiMessage.waitingState);
+    windowState.messages.push(aiMessage);
+
+    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
   };
 
   const wait = (ms: number): Promise<void> =>
@@ -2059,6 +2182,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     restoreHistory,
     waitForInteractionContinuation,
     interruptMessage,
+    injectBackgroundSummary,
+    injectBackgroundTurn,
     checkAgentHealth,
     fetchProjectPath,
     cleanupHealthCheck,

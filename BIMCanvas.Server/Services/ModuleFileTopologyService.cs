@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using BIMCanvas.Core.Converters.Json;
 using BIMCanvas.Core.Models.Computed;
+using BIMCanvas.Core.Models.Geometry;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
@@ -12,7 +13,19 @@ using Newtonsoft.Json.Serialization;
 namespace BIMCanvas.Server.Services
 {
     /// <summary>
-    /// Resolves the canonical modules.json file topology from schemes/zones.json.
+    /// Zone 递归嵌套模型的单一拓扑解析器（唯一主人）。
+    ///
+    /// 状态机（契约-①，蓝图 §2.2）：走到某节点 zonePath →
+    ///   · 存在 {zonePath}/zones.json → 该节点是【容器】（用户给定分区，共享层）：不在本级布置，递归下钻每个子 dz_*；
+    ///   · 不存在                     → 该节点是【设计区】（本级跑①）：读 {zonePath}/DESIGN.md 的 adopted slug，
+    ///       再看 {zonePath}/{slug}/zones.json 有无 —— 有 = 该方案内部 AI 分区（叶子在 {slug}/{dz}/modules.json）；
+    ///       无 = 单叶子方案（{slug}/modules.json）。
+    /// 容器/设计区判据**只看 {node}/zones.json 存在与否**，绝不为 rz_/dz_ 写特例。
+    ///
+    /// 全局 schemes/zones.json 退化为**纯 baseline 房间拓扑**（rz_*，Revit 导出），**不再承载 subZones**——
+    /// 所有 subZones（用户给定 / AI 产生）都在 scheme 树内由本解析器按需读取。
+    ///
+    /// 不回头看：无 legacy / _unzoned / 迁移兜底；无 adopted 的设计区不产 canonical 路径。
     /// </summary>
     public class ModuleFileTopologyService
     {
@@ -32,16 +45,10 @@ namespace BIMCanvas.Server.Services
         public static ModuleFileTopology BuildFromSchemesPath(string schemesPath)
         {
             var zonesPath = Path.Combine(schemesPath, "zones.json");
-            if (!File.Exists(zonesPath))
-            {
-                return ModuleFileTopology.CreateLegacy(schemesPath);
-            }
-
-            var zones = ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>();
-            if (zones.Count == 0)
-            {
-                return ModuleFileTopology.CreateLegacy(schemesPath);
-            }
+            // 全局 zones.json 缺失 / 空 → 空拓扑（不再 CreateLegacy）。
+            var zones = File.Exists(zonesPath)
+                ? ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>()
+                : new List<Zone>();
 
             var builder = new TopologyBuilder(schemesPath, zones);
             return builder.Build();
@@ -60,8 +67,37 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
+        /// 带 variantId 静态重载：variantId 为空 → 解析 adopted 当前生效方案；
+        /// 非空 → 解析**指定候选 slug 自身的** per-scheme 叶子结构（读该候选自己的 {slug}/zones.json），须显式 requestedZoneIds。
+        /// </summary>
+        public static IReadOnlyList<ModuleFileEntry> FindExistingCanonicalModuleFiles(
+            string schemesPath,
+            IReadOnlyCollection<string>? requestedZoneIds,
+            string? variantId)
+        {
+            var topology = BuildFromSchemesPath(schemesPath);
+            return topology.GetExistingCanonicalModuleFiles(requestedZoneIds, variantId);
+        }
+
+        /// <summary>
+        /// 把叶子 zoneId 反查为其设计区祖先**路径**（多段，如 rz_6/dz_客厅）——统一"递归向上找设计区祖先"helper，
+        /// 收口原 SchemeDataService / ProjectController 各自内嵌的 segments[0] 单段反推（二者逐字相同）。
+        /// 容器嵌套叶子也正确：rz_6/dz_客厅/{slug}/dz_1 的祖先 = rz_6/dz_客厅（非 rz_6）。
+        /// </summary>
+        public static string ResolveDesignZoneIdForLeaf(string schemesPath, string leafZoneId)
+        {
+            if (string.IsNullOrWhiteSpace(leafZoneId))
+                return leafZoneId;
+
+            var topology = BuildFromSchemesPath(schemesPath);
+            return topology.ResolveDesignZoneId(leafZoneId);
+        }
+
+        /// <summary>
         /// 构建叶子分区的 modules JSON 文件名。variantId 为空 → canonical "modules.json"；
-        /// 非空 → "modules-{variantId}.json"，仅 module-relocation-agent 生成的变体使用。
+        /// 非空 → "modules-{variantId}.json"。
+        /// 【残留登记】仅服务于场景④ module-relocation 的变体文件命名（MVP 不迁移、当前无调用方）；
+        /// 不属递归拓扑 legacy，§2.7-6 嘱勿擅删场景④读路径，保留待场景④立项时处置。
         /// </summary>
         public static string BuildVariantFilename(string? variantId)
         {
@@ -89,163 +125,215 @@ namespace BIMCanvas.Server.Services
             }
         }
 
-        public static IReadOnlyList<ModuleFileEntry> FindLegacyModuleFiles(string schemesPath)
-        {
-            if (!Directory.Exists(schemesPath))
-                return Array.Empty<ModuleFileEntry>();
-
-            var zoneFiles = Directory.GetFiles(schemesPath, "modules.json", SearchOption.AllDirectories)
-                .Where(f =>
-                {
-                    var dir = Path.GetFileName(Path.GetDirectoryName(f) ?? "");
-                    return dir.StartsWith("rz_", StringComparison.OrdinalIgnoreCase) ||
-                           dir.StartsWith("dz_", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(dir, "_unzoned", StringComparison.OrdinalIgnoreCase);
-                })
-                .Select(f => ModuleFileEntry.FromFile(schemesPath, f))
-                .ToList();
-
-            if (zoneFiles.Count > 0)
-                return zoneFiles;
-
-            var legacyPath = Path.Combine(schemesPath, "modules.json");
-            return File.Exists(legacyPath)
-                ? new[] { ModuleFileEntry.FromFile(schemesPath, legacyPath, "legacy") }
-                : Array.Empty<ModuleFileEntry>();
-        }
-
         private static T? ReadJson<T>(string path)
         {
             var json = File.ReadAllText(path, Encoding.UTF8);
             return JsonConvert.DeserializeObject<T>(json, JsonSettings);
         }
 
+        /// <summary>
+        /// 枚举某设计区某 slug（adopted 或显式候选 variantId）**自身**的叶子 modules 文件路径。
+        /// 必补-1：候选叶子结构永远读该 slug 自己的 {designZonePath}/{slug}/zones.json，绝不复用 adopted 叶子集
+        /// （分区思维候选得 2+ 叶子、线性思维候选得单文件，各按自身结构），否则 2 叶子候选被当单文件 → 验证静默漏检。
+        /// </summary>
+        internal static IEnumerable<ModuleFileEntry> EnumerateSchemeLeaves(
+            string schemesPath, string designZonePath, string slug)
+        {
+            var schemeDir = ResolveSchemeDir(schemesPath, designZonePath, slug);
+            var schemeZonesJson = Path.Combine(schemeDir, "zones.json");
+            if (File.Exists(schemeZonesJson))
+            {
+                var leafZones = ReadJson<List<Zone>>(schemeZonesJson) ?? new List<Zone>();
+                foreach (var lz in leafZones)
+                {
+                    if (string.IsNullOrWhiteSpace(lz.Id))
+                        continue;
+                    yield return ModuleFileEntry.FromFile(
+                        schemesPath, Path.Combine(schemeDir, lz.Id, "modules.json"), lz.Id);
+                }
+            }
+            else
+            {
+                var selfLeaf = LastSegment(designZonePath);
+                yield return ModuleFileEntry.FromFile(
+                    schemesPath, Path.Combine(schemeDir, "modules.json"), selfLeaf);
+            }
+        }
+
+        /// <summary>
+        /// 解析候选/方案 slug 的实际落盘目录。候选目录恒带 `_` 前缀（隐藏候选），但部分调用方传不带 `_`
+        /// 的 slug（normalize 用转正名、主控试 dressing-axis），winner 转正前后前缀也可能不一致。
+        /// 故按 [原样, 切换 `_` 前缀] 取首个存在目录命中实际落盘；都不存在返回原样
+        /// （下游 File.Exists 过滤/降级，不在此 throw）。
+        /// 注：GetPathIssues 的 ClassifyModulesLocation 传入的 slug = 真实磁盘目录段，exact 必存在 →
+        /// 不触发切换，行为不变；本容错只惠及 variantId 调用方（截图 / GetResolvedLeaves）传错前缀的情形。
+        /// </summary>
+        internal static string ResolveSchemeDir(string schemesPath, string designZonePath, string slug)
+        {
+            var exact = CombineSegments(schemesPath, designZonePath, slug);
+            if (Directory.Exists(exact))
+                return exact;
+            if (!string.IsNullOrEmpty(slug))
+            {
+                var toggled = slug[0] == '_' ? slug.Substring(1) : "_" + slug;
+                var toggledDir = CombineSegments(schemesPath, designZonePath, toggled);
+                if (Directory.Exists(toggledDir))
+                    return toggledDir;
+            }
+            return exact;
+        }
+
+        internal static string CombineSegments(string root, params string[] multiSegmentParts)
+        {
+            var result = root;
+            foreach (var part in multiSegmentParts)
+            {
+                foreach (var seg in (part ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries))
+                    result = Path.Combine(result, seg);
+            }
+            return result;
+        }
+
+        internal static string LastSegment(string zonePath)
+        {
+            var segs = (zonePath ?? string.Empty).Split('/', StringSplitOptions.RemoveEmptyEntries);
+            return segs.Length > 0 ? segs[^1] : (zonePath ?? string.Empty);
+        }
+
         private sealed class TopologyBuilder
         {
             private readonly string _schemesPath;
             private readonly List<Zone> _zones;
-            private readonly Dictionary<string, Zone> _zonesById;
-            private readonly HashSet<string> _referencedZoneIds;
             private readonly Dictionary<string, ModuleFileEntry> _canonicalByZoneId = new Dictionary<string, ModuleFileEntry>(ZoneComparer);
-            private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId = new Dictionary<string, List<string>>(ZoneComparer);
-            private readonly HashSet<string> _containerZoneIds = new HashSet<string>(ZoneComparer);
-            private readonly HashSet<string> _designZoneIds = new HashSet<string>(ZoneComparer);
+            // 节点路径（设计区 or 容器，多段）→ 其当前生效叶子 id 集
+            private readonly Dictionary<string, List<string>> _leafZoneIdsByNode = new Dictionary<string, List<string>>(ZoneComparer);
+            private readonly HashSet<string> _containerZoneIds = new HashSet<string>(ZoneComparer);   // 容器节点路径集
+            private readonly HashSet<string> _designZoneIds = new HashSet<string>(ZoneComparer);      // 设计区节点路径集
+            // 叶子 id → 其设计区祖先路径（多段）；供统一祖先 helper + resolvedLeaves
+            private readonly Dictionary<string, string> _designZoneIdByLeafId = new Dictionary<string, string>(ZoneComparer);
+            // 叶子 id → RawBoundary（供 GetLeafGeometrySource；几何源，叉口-1 P1 只出 RawBoundary）
+            private readonly Dictionary<string, Polygon2D?> _rawBoundaryByLeafId = new Dictionary<string, Polygon2D?>(ZoneComparer);
+            private readonly List<ResolvedLeaf> _resolvedLeaves = new List<ResolvedLeaf>();
+            // 一次 Build 内每设计区 adopted slug 只读一次 DESIGN.md
+            private readonly Dictionary<string, string?> _adoptedSlugCache = new Dictionary<string, string?>(ZoneComparer);
 
             public TopologyBuilder(string schemesPath, List<Zone> zones)
             {
                 _schemesPath = schemesPath;
                 _zones = zones;
-                _zonesById = zones
-                    .Where(z => !string.IsNullOrWhiteSpace(z.Id))
-                    .GroupBy(z => z.Id, ZoneComparer)
-                    .ToDictionary(g => g.Key, g => g.First(), ZoneComparer);
-                _referencedZoneIds = new HashSet<string>(ZoneComparer);
-                CollectReferencedZoneIds(_zones);
             }
 
             public ModuleFileTopology Build()
             {
+                // 全局 zones.json 仅取 rz_* baseline 顶层 zone 作递归入口（不再读其 subZones）。
                 foreach (var zone in _zones)
                 {
-                    if (string.IsNullOrWhiteSpace(zone.Id) || _referencedZoneIds.Contains(zone.Id))
+                    if (string.IsNullOrWhiteSpace(zone.Id))
                         continue;
-
-                    _designZoneIds.Add(zone.Id);
-                    RegisterZone(zone, new List<string> { zone.Id }, new HashSet<string>(ZoneComparer));
+                    Walk(zone.Id, zone);
                 }
-
-                var unzonedEntry = ModuleFileEntry.FromCanonical(_schemesPath, "_unzoned", new[] { "_unzoned" });
-                _canonicalByZoneId["_unzoned"] = unzonedEntry;
 
                 return new ModuleFileTopology(
                     _schemesPath,
-                    hasZoneTopology: true,
                     _canonicalByZoneId,
-                    _leafZoneIdsByContainerId,
+                    _leafZoneIdsByNode,
                     _containerZoneIds,
-                    _designZoneIds);
+                    _designZoneIds,
+                    _designZoneIdByLeafId,
+                    _rawBoundaryByLeafId,
+                    _resolvedLeaves);
             }
 
-            private List<string> RegisterZone(Zone zoneRef, List<string> pathSegments, HashSet<string> activeStack)
+            /// <summary>递归状态机：解析节点 zonePath（多段）；node 携带该节点的 RawBoundary（单叶子设计区几何源）。</summary>
+            private List<string> Walk(string zonePath, Zone node)
             {
-                if (string.IsNullOrWhiteSpace(zoneRef.Id))
-                    return new List<string>();
+                var nodeDir = CombineSegments(_schemesPath, zonePath);
+                var nodeZonesJson = Path.Combine(nodeDir, "zones.json");
 
-                var zone = ResolveFullZone(zoneRef);
-                if (!activeStack.Add(zone.Id))
-                    return new List<string>();
-
-                try
+                if (File.Exists(nodeZonesJson))
                 {
-                    var subZones = GetSubZones(zoneRef, zone);
-                    if (subZones.Count > 0)
+                    // ── 容器（用户给定分区，共享层）：递归下钻每个子 dz_*
+                    _containerZoneIds.Add(zonePath);
+                    var children = ReadJson<List<Zone>>(nodeZonesJson) ?? new List<Zone>();
+                    var leaves = new List<string>();
+                    foreach (var child in children)
                     {
-                        _containerZoneIds.Add(zone.Id);
-                        var leafIds = new List<string>();
-                        foreach (var subZoneRef in subZones)
-                        {
-                            if (string.IsNullOrWhiteSpace(subZoneRef.Id))
-                                continue;
-
-                            var childPath = new List<string>(pathSegments) { subZoneRef.Id };
-                            leafIds.AddRange(RegisterZone(subZoneRef, childPath, activeStack));
-                        }
-
-                        _leafZoneIdsByContainerId[zone.Id] = leafIds;
-                        return leafIds;
+                        if (string.IsNullOrWhiteSpace(child.Id))
+                            continue;
+                        leaves.AddRange(Walk(zonePath + "/" + child.Id, child));
                     }
+                    _leafZoneIdsByNode[zonePath] = leaves;
+                    return leaves;
+                }
 
-                    if (!_canonicalByZoneId.ContainsKey(zone.Id))
+                // ── 设计区（本级跑①）
+                _designZoneIds.Add(zonePath);
+                var slug = ResolveAdoptedCached(zonePath);
+                if (string.IsNullOrEmpty(slug))
+                {
+                    // 无 adopted：登记设计区为单叶子占位（叶子=自身），不产 canonical 路径（不回落 legacy）。
+                    var selfLeaf = LastSegment(zonePath);
+                    _designZoneIdByLeafId[selfLeaf] = zonePath;
+                    _rawBoundaryByLeafId[selfLeaf] = node.RawBoundary;
+                    var only = new List<string> { selfLeaf };
+                    _leafZoneIdsByNode[zonePath] = only;
+                    return only;
+                }
+
+                var resolved = RegisterSchemeLeaves(zonePath, node, slug);
+                _leafZoneIdsByNode[zonePath] = resolved;
+                return resolved;
+            }
+
+            /// <summary>读该设计区 adopted slug 自身的 {slug}/zones.json，登记叶子（canonical 路径 + 祖先 + 几何）。</summary>
+            private List<string> RegisterSchemeLeaves(string zonePath, Zone node, string slug)
+            {
+                var schemeDir = CombineSegments(_schemesPath, zonePath, slug);
+                var schemeZonesJson = Path.Combine(schemeDir, "zones.json");
+                var ids = new List<string>();
+
+                if (File.Exists(schemeZonesJson))
+                {
+                    // 该方案内部 AI 分区：叶子在 {slug}/{dz}/modules.json，几何取各叶子自身 RawBoundary
+                    var leafZones = ReadJson<List<Zone>>(schemeZonesJson) ?? new List<Zone>();
+                    foreach (var lz in leafZones)
                     {
-                        _canonicalByZoneId[zone.Id] = ModuleFileEntry.FromCanonical(_schemesPath, zone.Id, pathSegments);
-                    }
-
-                    return new List<string> { zone.Id };
-                }
-                finally
-                {
-                    activeStack.Remove(zone.Id);
-                }
-            }
-
-            private Zone ResolveFullZone(Zone zoneRef)
-            {
-                if (!string.IsNullOrWhiteSpace(zoneRef.Id) &&
-                    _zonesById.TryGetValue(zoneRef.Id, out var fullZone))
-                {
-                    return fullZone;
-                }
-
-                return zoneRef;
-            }
-
-            private static List<Zone> GetSubZones(Zone zoneRef, Zone fullZone)
-            {
-                if (zoneRef.SubZones is { Count: > 0 })
-                    return zoneRef.SubZones;
-
-                if (fullZone.SubZones is { Count: > 0 })
-                    return fullZone.SubZones;
-
-                return new List<Zone>();
-            }
-
-            private void CollectReferencedZoneIds(IEnumerable<Zone> zones)
-            {
-                foreach (var zone in zones)
-                {
-                    if (zone.SubZones == null)
-                        continue;
-
-                    foreach (var subZone in zone.SubZones)
-                    {
-                        if (!string.IsNullOrWhiteSpace(subZone.Id))
-                            _referencedZoneIds.Add(subZone.Id);
-
-                        if (subZone.SubZones is { Count: > 0 })
-                            CollectReferencedZoneIds(subZone.SubZones);
+                        if (string.IsNullOrWhiteSpace(lz.Id))
+                            continue;
+                        RegisterLeaf(lz.Id, zonePath, Path.Combine(schemeDir, lz.Id, "modules.json"), lz.RawBoundary);
+                        ids.Add(lz.Id);
                     }
                 }
+                else
+                {
+                    // 单叶子方案：{slug}/modules.json，叶子=设计区自身，几何取设计区 RawBoundary
+                    var selfLeaf = LastSegment(zonePath);
+                    RegisterLeaf(selfLeaf, zonePath, Path.Combine(schemeDir, "modules.json"), node.RawBoundary);
+                    ids.Add(selfLeaf);
+                }
+
+                return ids;
+            }
+
+            private void RegisterLeaf(string leafId, string designZonePath, string absModulesPath, Polygon2D? raw)
+            {
+                if (!_canonicalByZoneId.ContainsKey(leafId))
+                    _canonicalByZoneId[leafId] = ModuleFileEntry.FromFile(_schemesPath, absModulesPath, leafId);
+
+                _designZoneIdByLeafId[leafId] = designZonePath;
+                _rawBoundaryByLeafId[leafId] = raw;
+                _resolvedLeaves.Add(new ResolvedLeaf(
+                    leafId, _canonicalByZoneId[leafId].RelativePath, designZonePath, isContainer: false));
+            }
+
+            private string? ResolveAdoptedCached(string designZonePath)
+            {
+                if (!_adoptedSlugCache.TryGetValue(designZonePath, out var slug))
+                {
+                    slug = SchemeDesignDocService.ResolveAdoptedSlug(_schemesPath, designZonePath);
+                    _adoptedSlugCache[designZonePath] = slug;
+                }
+                return slug;
             }
         }
 
@@ -263,44 +351,38 @@ namespace BIMCanvas.Server.Services
     public sealed class ModuleFileTopology
     {
         private readonly Dictionary<string, ModuleFileEntry> _canonicalByZoneId;
-        private readonly Dictionary<string, List<string>> _leafZoneIdsByContainerId;
+        private readonly Dictionary<string, List<string>> _leafZoneIdsByNode;
         private readonly HashSet<string> _containerZoneIds;
         private readonly HashSet<string> _designZoneIds;
+        private readonly Dictionary<string, string> _designZoneIdByLeafId;
+        private readonly Dictionary<string, Polygon2D?> _rawBoundaryByLeafId;
+        private readonly List<ResolvedLeaf> _resolvedLeaves;
 
         internal ModuleFileTopology(
             string schemesPath,
-            bool hasZoneTopology,
             Dictionary<string, ModuleFileEntry> canonicalByZoneId,
-            Dictionary<string, List<string>> leafZoneIdsByContainerId,
+            Dictionary<string, List<string>> leafZoneIdsByNode,
             HashSet<string> containerZoneIds,
-            HashSet<string> designZoneIds)
+            HashSet<string> designZoneIds,
+            Dictionary<string, string> designZoneIdByLeafId,
+            Dictionary<string, Polygon2D?> rawBoundaryByLeafId,
+            List<ResolvedLeaf> resolvedLeaves)
         {
             SchemesPath = schemesPath;
-            HasZoneTopology = hasZoneTopology;
             _canonicalByZoneId = canonicalByZoneId;
-            _leafZoneIdsByContainerId = leafZoneIdsByContainerId;
+            _leafZoneIdsByNode = leafZoneIdsByNode;
             _containerZoneIds = containerZoneIds;
             _designZoneIds = designZoneIds;
+            _designZoneIdByLeafId = designZoneIdByLeafId;
+            _rawBoundaryByLeafId = rawBoundaryByLeafId;
+            _resolvedLeaves = resolvedLeaves;
         }
 
         public string SchemesPath { get; }
 
-        public bool HasZoneTopology { get; }
-
-        public static ModuleFileTopology CreateLegacy(string schemesPath)
-        {
-            return new ModuleFileTopology(
-                schemesPath,
-                hasZoneTopology: false,
-                new Dictionary<string, ModuleFileEntry>(StringComparer.OrdinalIgnoreCase),
-                new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        }
-
         /// <summary>
-        /// 判定 zoneId 是否为 design zone（zones.json 中的顶层 zone，对应 schemes/{zoneId}/ 一级目录）。
-        /// 顶层叶子（无 subZones 的 design zone）与容器（有 subZones）都返回 true。
+        /// 判定 zonePath 是否为设计区（本级跑①的节点）。容器返回 false。
+        /// MVP 顶层设计区单段（rz_3）；递归容器子设计区多段（rz_6/dz_客厅）。
         /// </summary>
         public bool IsDesignZoneId(string zoneId)
         {
@@ -308,21 +390,17 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 列出 designZoneId 下所有叶子分区的 zoneId。
-        /// 顶层叶子（design zone 自身就是叶子）→ 返回 [designZoneId]。
-        /// 容器分区 → 返回其登记的叶子列表。
-        /// 非 design zone 或拓扑缺失 → 空列表。
+        /// 列出设计区/容器节点下当前生效（adopted）叶子分区 id。
+        /// 设计区单叶子 → [自身]；设计区 AI 分区 → [dz_1..n]；容器 → 其全部子设计区叶子。
+        /// 无 adopted 的设计区 → [自身]（占位，无 modules 文件）。未知节点 → 空。
         /// </summary>
         public IReadOnlyList<string> GetLeafZoneIds(string designZoneId)
         {
-            if (string.IsNullOrWhiteSpace(designZoneId) || !HasZoneTopology)
+            if (string.IsNullOrWhiteSpace(designZoneId))
                 return Array.Empty<string>();
 
-            if (_leafZoneIdsByContainerId.TryGetValue(designZoneId, out var leaves))
+            if (_leafZoneIdsByNode.TryGetValue(designZoneId, out var leaves))
                 return leaves;
-
-            if (_canonicalByZoneId.ContainsKey(designZoneId))
-                return new[] { designZoneId };
 
             return Array.Empty<string>();
         }
@@ -334,24 +412,37 @@ namespace BIMCanvas.Server.Services
 
         /// <summary>
         /// 解析 modules JSON 文件路径列表。
-        /// variantId 为空 → 解析 canonical "modules.json"（与单参数重载行为一致）。
-        /// variantId 非空 → 解析 "modules-{variantId}.json"，专供 module-relocation-agent 生成的变体使用；
-        /// 调用方必须显式指定 requestedZoneIds（不允许全分区扫描变体）。
+        /// variantId 为空 → adopted 当前生效方案（_canonicalByZoneId）。
+        /// variantId 非空 → 按**该候选 slug 自身**的 per-scheme zones.json 枚举叶子（必补-1，废弃 SwapToVariant 式换段复用）；
+        /// 须显式 requestedZoneIds（设计区路径），不允许全分区扫描候选。
         /// </summary>
         public IReadOnlyList<ModuleFileEntry> GetExistingCanonicalModuleFiles(
             IReadOnlyCollection<string>? requestedZoneIds,
             string? variantId)
         {
-            if (!HasZoneTopology)
-                return ModuleFileTopologyService.FindLegacyModuleFiles(SchemesPath);
-
             if (!string.IsNullOrWhiteSpace(variantId))
             {
                 ModuleFileTopologyService.EnsureSafeVariantId(variantId);
                 if (requestedZoneIds == null || requestedZoneIds.Count == 0)
                     throw new ArgumentException(
-                        "variantId 非空时必须显式指定 requestedZoneIds；不允许全分区变体扫描",
+                        "variantId 非空时必须显式指定 requestedZoneIds（设计区路径）；不允许全分区候选扫描",
                         nameof(requestedZoneIds));
+
+                // N7：requestedZoneIds 可能是叶子 id（如 dz_1）；反查设计区路径后再枚举候选叶子。
+                var designZonePaths = ResolveVariantDesignZonePaths(requestedZoneIds);
+                var result = designZonePaths
+                    .SelectMany(dz => ModuleFileTopologyService.EnumerateSchemeLeaves(SchemesPath, dz, variantId!))
+                    .Where(entry => File.Exists(entry.FilePath))
+                    .GroupBy(entry => entry.FilePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+                // 不再对空列表 throw：本方法的活调用方是后台候选截图
+                // （ProjectSnapshotService.LoadAllZoneModules → ProjectService.FindAllLeafModuleFiles）。
+                // 候选 modules 可能因 workflow 运行中未写完 / winner 转正前后前缀不一致 / 候选被删而不存在；
+                // 截图拿空应“空截/跳过”（与下方 canonical 分支返空同构、上游已能处理），不应中断整个截图请求（HTTP 500）。
+                // validate_layout 的“0 模块不算验证通过”假报防护由 active 路径 GetResolvedLeaves 的存在性守卫独立承重，
+                // 与本方法无关（active validate/normalize 经 PluginValidatorOrchestrator → GetResolvedLeaves，不走本方法）。
+                return result;
             }
 
             var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
@@ -361,9 +452,6 @@ namespace BIMCanvas.Server.Services
                     .Where(zoneId => _canonicalByZoneId.ContainsKey(zoneId))
                     .Select(zoneId => _canonicalByZoneId[zoneId]);
 
-            if (!string.IsNullOrWhiteSpace(variantId))
-                candidates = candidates.Select(entry => SwapToVariant(entry, variantId));
-
             return candidates
                 .Where(entry => File.Exists(entry.FilePath))
                 .GroupBy(entry => entry.FilePath, StringComparer.OrdinalIgnoreCase)
@@ -372,94 +460,180 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 把 canonical entry 替换成指定 variantId 的变体 entry。
-        /// 优先尝试组 B/C 新协议（与 ModulesWriterService.ResolveModulesPath 的 VariantPathMode.New 字节级一致）：
-        ///   顶层叶子（dz == leaf）→ schemes/{dz}/variants/{slug}/modules.json（省略 leaf 段，镜像 canonical）
-        ///   嵌套叶子（dz != leaf）→ schemes/{dz}/variants/{slug}/{leaf}/modules.json
-        /// 若新协议文件不存在，回退到旧 sibling 路径 schemes/{dz}/[{leaf}/]modules-{slug}.json
-        /// （Phase 7 下线前保留 Legacy 兼容；Agent 仍只走新路径写入）。
+        /// 契约-② resolvedLeaves 视图（纯文件映射 + pathIssues，§6-3 去冗余：不含几何）。
+        /// variantId 非空 → 按该候选自身分区结构产出（P3 采纳前逐个验证候选 _cand-x 时传，必补-1）。
+        /// 几何（computedBoundary/exclusionZones）由 P3 在 ValidationController 合并（叉口-1 裁定）。
         /// </summary>
-        private ModuleFileEntry SwapToVariant(ModuleFileEntry canonical, string variantId)
+        public ResolvedTopologyView GetResolvedLeaves(
+            IReadOnlyCollection<string>? requestedZoneIds,
+            string? variantId = null)
         {
-            var canonicalDir = Path.GetDirectoryName(canonical.FilePath) ?? SchemesPath;
-            var relativeDir = Path.GetRelativePath(SchemesPath, canonicalDir).Replace('\\', '/');
-            var segments = relativeDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length == 0)
-                return ModuleFileEntry.FromFile(SchemesPath, canonical.FilePath, canonical.ZoneId);
+            List<ResolvedLeaf> leaves;
+            if (!string.IsNullOrWhiteSpace(variantId))
+            {
+                ModuleFileTopologyService.EnsureSafeVariantId(variantId);
+                if (requestedZoneIds == null || requestedZoneIds.Count == 0)
+                    throw new ArgumentException(
+                        "variantId 非空时必须显式指定 requestedZoneIds（设计区路径）",
+                        nameof(requestedZoneIds));
 
-            var designZoneId = segments[0];
-            // 叶子 zoneId 取自登记的 canonical entry（顶层叶子时 == designZoneId），
-            // 不依赖 segments 反推，自动正确处理 2+ 层嵌套（中间容器存在时 ResolveModulesPath 也压平到叶子）。
-            var isTopLevelLeaf = string.Equals(designZoneId, canonical.ZoneId, StringComparison.OrdinalIgnoreCase);
-            var newPath = isTopLevelLeaf
-                ? Path.Combine(SchemesPath, designZoneId, "variants", variantId, "modules.json")
-                : Path.Combine(SchemesPath, designZoneId, "variants", variantId, canonical.ZoneId, "modules.json");
+                // N7（active 承重）：requestedZoneIds 可能是叶子 id；反查设计区路径后枚举候选叶子。
+                var designZonePaths = ResolveVariantDesignZonePaths(requestedZoneIds);
+                var entries = designZonePaths
+                    .SelectMany(dz => ModuleFileTopologyService.EnumerateSchemeLeaves(SchemesPath, dz, variantId!)
+                        .Select(entry => (dz, entry)))
+                    .ToList();
+                // 存在性守卫：本方法不做 File.Exists 过滤，路径错时 EnumerateSchemeLeaves 仍返回指向不存在
+                // 文件的“坏叶子”（列表非空），故守卫判“无一文件真实存在”而非“列表空”，否则 validator
+                // 读不到文件 → 0 模块假报通过。throw 经 orchestrator → 500 → MCP 短路报错（normalize 步同样先拦）。
+                if (!entries.Any(t => File.Exists(t.entry.FilePath)))
+                    throw new InvalidOperationException(
+                        $"variantId='{variantId}' 在设计区 [{string.Join(", ", designZonePaths)}] 下未找到任何真实 modules 文件；" +
+                        "不视为验证通过。variantId 校验时 zoneIds 须传设计区路径（如 rz_3）而非叶子/候选内部 id。");
+                leaves = entries
+                    .Select(t => new ResolvedLeaf(t.entry.ZoneId, t.entry.RelativePath, t.dz, isContainer: false))
+                    .ToList();
+            }
+            else
+            {
+                var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
+                leaves = targetZoneIds == null
+                    ? _resolvedLeaves.ToList()
+                    : _resolvedLeaves.Where(l => targetZoneIds.Contains(l.LeafZoneId)).ToList();
+            }
 
-            if (File.Exists(newPath))
-                return ModuleFileEntry.FromFile(SchemesPath, newPath, canonical.ZoneId);
+            return new ResolvedTopologyView(leaves, GetPathIssues(requestedZoneIds, variantId));
+        }
 
-            // Legacy 兜底（旧 modules-{variantId}.json sibling）
-            var legacyPath = Path.Combine(
-                canonicalDir,
-                ModuleFileTopologyService.BuildVariantFilename(variantId));
-            return ModuleFileEntry.FromFile(SchemesPath, legacyPath, canonical.ZoneId);
+        /// <summary>
+        /// 叶子几何源（§2.2 / 叉口-1：P1 只出叶子 RawBoundary 源 + sibling）。
+        /// 供 P3 passage 派生与 zoneGeometry 富化（computedBoundary/exclusionZones 由 P3 合并）。
+        /// 入参 = 设计区/容器节点路径；返回该节点下当前生效叶子集，各带 RawBoundary 与同节点 sibling。
+        /// </summary>
+        public IReadOnlyList<LeafGeometry> GetLeafGeometrySource(string zonePath)
+        {
+            if (string.IsNullOrWhiteSpace(zonePath) || !_leafZoneIdsByNode.TryGetValue(zonePath, out var leaves))
+                return Array.Empty<LeafGeometry>();
+
+            return leaves.Select(leafId => new LeafGeometry(
+                leafId,
+                _designZoneIdByLeafId.TryGetValue(leafId, out var dz) ? dz : zonePath,
+                _rawBoundaryByLeafId.TryGetValue(leafId, out var rb) ? rb : null,
+                leaves.Where(other => !ZoneEquals(other, leafId)).ToList())).ToList();
+        }
+
+        /// <summary>
+        /// 叶子 zoneId → 设计区祖先路径（多段）。未登记则回退 leafZoneId 本身。
+        /// 统一"递归向上找设计区祖先"helper（收口 SchemeDataService / ProjectController 重复实现）。
+        /// </summary>
+        public string ResolveDesignZoneId(string leafZoneId)
+        {
+            if (!string.IsNullOrWhiteSpace(leafZoneId)
+                && _designZoneIdByLeafId.TryGetValue(leafZoneId, out var designZonePath))
+                return designZonePath;
+            return leafZoneId;
+        }
+
+        /// <summary>
+        /// N7：把 requestedZoneIds（可能含叶子 id，如 dz_1）统一反查成设计区路径并去重。
+        /// 叶子 → 其设计区祖先（重设计场景把候选定位到正确目录）；设计区/未登记 → 原样返回。
+        /// 供 variantId 分支（GetExistingCanonicalModuleFiles / GetResolvedLeaves）共用。
+        /// </summary>
+        private List<string> ResolveVariantDesignZonePaths(IReadOnlyCollection<string> requestedZoneIds)
+        {
+            return requestedZoneIds
+                .Where(z => !string.IsNullOrWhiteSpace(z))
+                .Select(ResolveDesignZoneId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         public IReadOnlyList<ModuleFilePathIssue> GetPathIssues(IReadOnlyCollection<string>? requestedZoneIds)
         {
-            if (!HasZoneTopology || !Directory.Exists(SchemesPath))
+            return GetPathIssues(requestedZoneIds, variantId: null);
+        }
+
+        /// <summary>
+        /// 路径完整性校验（E013/E014）。盯防-3 判据（递归模型，不再靠 FromFile 派生 zoneId 判候选）：
+        ///   合法 modules.json = {designZonePath}/{slug}/modules.json 或 {designZonePath}/{slug}/{leaf}/modules.json
+        ///   （slug 任意——adopted 或隐藏候选 _cand-x 都合法；候选另行按 variantId 验证）。
+        ///   非法 E013 = 设计区直落 {dz}/modules.json（缺 slug 层 legacy-spot）/ schemes 根直落 / 容器直落 / 层级过深。
+        /// 设计区前缀靠 _designZoneIds（已知设计区路径集）匹配，故 _cand-x 与 {slug}/{leaf} 嵌套不会被误报。
+        /// E014（重复）在干净递归模型下结构性不可能（同 canonical 路径物理唯一、跨候选非重复），不主动扫描。
+        /// </summary>
+        public IReadOnlyList<ModuleFilePathIssue> GetPathIssues(
+            IReadOnlyCollection<string>? requestedZoneIds, string? variantId)
+        {
+            if (!Directory.Exists(SchemesPath))
                 return Array.Empty<ModuleFilePathIssue>();
 
-            var targetZoneIds = ExpandTargetZoneIds(requestedZoneIds);
-            var records = Directory.GetFiles(SchemesPath, "modules.json", SearchOption.AllDirectories)
-                .Where(path => !IsInVariantsSubtree(path))
-                .Select(path => ModuleFileEntry.FromFile(SchemesPath, path))
-                .Where(entry => IsInTarget(entry.ZoneId, targetZoneIds))
-                .ToList();
+            var requested = (requestedZoneIds == null || requestedZoneIds.Count == 0)
+                ? null
+                : new HashSet<string>(requestedZoneIds.Where(id => !string.IsNullOrWhiteSpace(id)), StringComparer.OrdinalIgnoreCase);
 
             var issues = new List<ModuleFilePathIssue>();
-
-            foreach (var record in records)
+            foreach (var file in Directory.GetFiles(SchemesPath, "modules.json", SearchOption.AllDirectories))
             {
-                if (IsCanonical(record))
+                var dirRel = Path.GetRelativePath(SchemesPath, Path.GetDirectoryName(file) ?? SchemesPath).Replace('\\', '/');
+                var dirSegs = dirRel == "." ? Array.Empty<string>() : dirRel.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+                var (valid, designZonePath) = ClassifyModulesLocation(dirSegs);
+                if (valid)
                     continue;
 
+                // requestedZoneIds 过滤：只报落在请求设计区子树下的问题
+                if (requested != null && !dirSegs.Any(seg => requested.Contains(seg)) &&
+                    (designZonePath == null || !requested.Contains(designZonePath)))
+                    continue;
+
+                var entry = ModuleFileEntry.FromFile(SchemesPath, file);
                 issues.Add(ModuleFilePathIssue.InvalidPath(
-                    record,
-                    GetExpectedPathDescription(record.ZoneId),
-                    CountModulesBestEffort(record.FilePath)));
-            }
-
-            foreach (var group in records.GroupBy(r => r.ZoneId, StringComparer.OrdinalIgnoreCase))
-            {
-                if (group.Count() <= 1)
-                    continue;
-
-                var expected = GetExpectedPathDescription(group.Key);
-                issues.Add(ModuleFilePathIssue.DuplicateFiles(
-                    group.Key,
-                    group.Select(g => g.RelativePath).ToList(),
-                    expected));
+                    entry,
+                    GetExpectedPathDescription(designZonePath, dirSegs),
+                    CountModulesBestEffort(file)));
             }
 
             return issues;
         }
 
         /// <summary>
-        /// 判定路径是否落在 variants/ 子树内。
-        /// 变体子树是组 B/C 后的合法路径（schemes/{dz}/variants/{slug}/{leaf}/modules.json），
-        /// 不属于 canonical 路径完整性校验范围；扫描时显式排除，避免被误报 E013/E014。
-        /// 注：variants 子树自身的路径错误校验不在本次范围（已知留白）。
+        /// 分类某 modules.json 所在目录段：是否合法 + 命中的设计区路径（如有）。
+        /// 纵深防御（F2）：命中设计区前缀后，不再仅按"余 1~2 段"放行——而是按该候选 slug
+        /// **自身** {slug}/zones.json 声明的叶子结构核验：实际相对路径必须命中
+        /// EnumerateSchemeLeaves(prefix, slug) 产出的某条规范叶子路径，否则判非法（报 E013）。
+        ///   · 单叶子方案（无 {slug}/zones.json）→ 仅 {slug}/modules.json 命中；多套一层即非法。
+        ///   · 多叶子方案（有 {slug}/zones.json）→ 仅 {slug}/{声明叶子}/modules.json 命中；
+        ///     末段不在声明叶子集、或把 modules 写在 slug 根（{slug}/modules.json）均非法。
+        /// slug 任意（adopted / 隐藏候选 _cand-x 都合法）；候选按自身 zones.json 解析，故不误伤。
         /// </summary>
-        private static bool IsInVariantsSubtree(string absolutePath)
+        private (bool valid, string? designZonePath) ClassifyModulesLocation(string[] dirSegs)
         {
-            var normalized = absolutePath.Replace('\\', '/');
-            return normalized.IndexOf("/variants/", StringComparison.OrdinalIgnoreCase) >= 0;
+            // 找最长的、属于已知设计区的前缀
+            for (var len = dirSegs.Length; len >= 1; len--)
+            {
+                var prefix = string.Join("/", dirSegs.Take(len));
+                if (!_designZoneIds.Contains(prefix))
+                    continue;
+
+                var remainder = dirSegs.Length - len; // slug=1，slug/leaf=2
+                if (remainder < 1 || remainder > 2)
+                    return (false, prefix); // 设计区直落 / 层级过深，维持原判
+
+                // 该候选 slug 自身声明的规范叶子路径集（相对 schemes、posix，与 actualRel 同基准）
+                var slug = dirSegs[len];
+                var actualRel = string.Join("/", dirSegs) + "/modules.json";
+                var canonicalRels = new HashSet<string>(
+                    ModuleFileTopologyService.EnumerateSchemeLeaves(SchemesPath, prefix, slug)
+                        .Select(entry => entry.RelativePath),
+                    StringComparer.OrdinalIgnoreCase);
+                return (canonicalRels.Contains(actualRel), prefix);
+            }
+            return (false, null);
         }
 
         public bool TryResolveZoneDirectory(string zoneId, out string zoneDirectory)
         {
-            if (HasZoneTopology && _canonicalByZoneId.TryGetValue(zoneId, out var entry))
+            if (_canonicalByZoneId.TryGetValue(zoneId, out var entry))
             {
                 zoneDirectory = Path.GetDirectoryName(entry.FilePath)!;
                 return true;
@@ -482,7 +656,8 @@ namespace BIMCanvas.Server.Services
             var result = new HashSet<string>(requestedZoneIds.Where(id => !string.IsNullOrWhiteSpace(id)), StringComparer.OrdinalIgnoreCase);
             foreach (var zoneId in requestedZoneIds)
             {
-                if (zoneId != null && _leafZoneIdsByContainerId.TryGetValue(zoneId, out var leafIds))
+                // 容器/设计区 → 展开为其叶子（叶子才是 canonical key）
+                if (zoneId != null && _leafZoneIdsByNode.TryGetValue(zoneId, out var leafIds))
                 {
                     foreach (var leafId in leafIds)
                         result.Add(leafId);
@@ -492,42 +667,24 @@ namespace BIMCanvas.Server.Services
             return result;
         }
 
-        private static bool IsInTarget(string zoneId, HashSet<string>? targetZoneIds)
+        private string GetExpectedPathDescription(string? designZonePath, string[] dirSegs)
         {
-            return targetZoneIds == null || targetZoneIds.Contains(zoneId);
+            if (designZonePath != null && _containerZoneIds.Contains(designZonePath))
+                return "容器分区不承载 modules.json；请写入其叶子设计区的方案目录";
+
+            if (dirSegs.Length == 0)
+                return "schemes 根不承载 modules.json；请写入 {designZone}/{slug}/[{leaf}/]modules.json";
+
+            var dz = designZonePath ?? dirSegs[0];
+            return $"应位于方案目录：schemes/{dz}/{{slug}}/[{{leaf}}/]modules.json（缺 slug 层或层级不符）";
         }
 
-        private bool IsCanonical(ModuleFileEntry entry)
-        {
-            return _canonicalByZoneId.TryGetValue(entry.ZoneId, out var canonical) &&
-                   ModuleFileTopologyService.PathsEqual(canonical.FilePath, entry.FilePath);
-        }
-
-        private string GetExpectedPathDescription(string zoneId)
-        {
-            if (_canonicalByZoneId.TryGetValue(zoneId, out var canonical))
-                return canonical.RelativePath;
-
-            if (_containerZoneIds.Contains(zoneId))
-            {
-                var leaves = _leafZoneIdsByContainerId.TryGetValue(zoneId, out var leafIds)
-                    ? leafIds
-                        .Where(leafId => _canonicalByZoneId.ContainsKey(leafId))
-                        .Select(leafId => _canonicalByZoneId[leafId].RelativePath)
-                        .ToList()
-                    : new List<string>();
-
-                return leaves.Count > 0
-                    ? $"容器分区不承载 modules.json；请写入叶子分区：{string.Join(", ", leaves)}"
-                    : "容器分区不承载 modules.json";
-            }
-
-            return "zones.json 中未定义此叶子分区";
-        }
+        private static bool ZoneEquals(string a, string b)
+            => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
         private static int? CountModulesBestEffort(string filePath)
         {
-            // Phase 0b: 仅认 wrapper {schemeMetadata, modules}；裸数组返回 null（不再支持）
+            // 仅认 wrapper {schemeMetadata, modules}；裸数组返回 null（不再支持）
             try
             {
                 var token = JToken.Parse(File.ReadAllText(filePath, Encoding.UTF8));
@@ -540,6 +697,55 @@ namespace BIMCanvas.Server.Services
                 return null;
             }
         }
+    }
+
+    /// <summary>契约-② resolvedLeaves 单元：纯文件映射（§6-3 去冗余，不含几何）。</summary>
+    public sealed class ResolvedLeaf
+    {
+        public ResolvedLeaf(string leafZoneId, string modulesPath, string designZoneId, bool isContainer)
+        {
+            LeafZoneId = leafZoneId;
+            ModulesPath = modulesPath;
+            DesignZoneId = designZoneId;
+            IsContainer = isContainer;
+        }
+
+        public string LeafZoneId { get; }
+        /// <summary>相对 schemes、posix（/ 分隔）。</summary>
+        public string ModulesPath { get; }
+        /// <summary>设计区路径（多段，如 rz_6/dz_客厅）。</summary>
+        public string DesignZoneId { get; }
+        public bool IsContainer { get; }
+    }
+
+    /// <summary>契约-② 注入视图：resolvedLeaves[] + pathIssues[]（供 P3 序列化进 validator stdin 请求）。</summary>
+    public sealed class ResolvedTopologyView
+    {
+        public ResolvedTopologyView(IReadOnlyList<ResolvedLeaf> resolvedLeaves, IReadOnlyList<ModuleFilePathIssue> pathIssues)
+        {
+            ResolvedLeaves = resolvedLeaves;
+            PathIssues = pathIssues;
+        }
+
+        public IReadOnlyList<ResolvedLeaf> ResolvedLeaves { get; }
+        public IReadOnlyList<ModuleFilePathIssue> PathIssues { get; }
+    }
+
+    /// <summary>叶子几何源（叉口-1：P1 只出 RawBoundary 源 + sibling；computedBoundary/exclusions 由 P3 合并）。</summary>
+    public sealed class LeafGeometry
+    {
+        public LeafGeometry(string leafZoneId, string designZoneId, Polygon2D? rawBoundary, IReadOnlyList<string> siblingLeafIds)
+        {
+            LeafZoneId = leafZoneId;
+            DesignZoneId = designZoneId;
+            RawBoundary = rawBoundary;
+            SiblingLeafIds = siblingLeafIds;
+        }
+
+        public string LeafZoneId { get; }
+        public string DesignZoneId { get; }
+        public Polygon2D? RawBoundary { get; }
+        public IReadOnlyList<string> SiblingLeafIds { get; }
     }
 
     public sealed class ModuleFileEntry
@@ -557,22 +763,13 @@ namespace BIMCanvas.Server.Services
 
         public string ZoneId { get; }
 
-        public static ModuleFileEntry FromCanonical(string schemesPath, string zoneId, IReadOnlyList<string> pathSegments)
-        {
-            var zoneDir = pathSegments.Aggregate(schemesPath, Path.Combine);
-            var filePath = Path.Combine(zoneDir, "modules.json");
-            return FromFile(schemesPath, filePath, zoneId);
-        }
-
         public static ModuleFileEntry FromFile(string schemesPath, string filePath, string? zoneIdOverride = null)
         {
             var relativePath = Path.GetRelativePath(schemesPath, filePath).Replace('\\', '/');
             var zoneId = zoneIdOverride;
             if (string.IsNullOrWhiteSpace(zoneId))
             {
-                zoneId = relativePath.Equals("modules.json", StringComparison.OrdinalIgnoreCase)
-                    ? "legacy"
-                    : Path.GetFileName(Path.GetDirectoryName(filePath) ?? "");
+                zoneId = Path.GetFileName(Path.GetDirectoryName(filePath) ?? "");
             }
 
             return new ModuleFileEntry(filePath, relativePath, zoneId);

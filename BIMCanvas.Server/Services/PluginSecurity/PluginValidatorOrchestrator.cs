@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BIMCanvas.Core.Converters.Json;
+using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Server.Models;
 using BIMCanvas.Server.Services;
 using Microsoft.Extensions.Logging;
@@ -26,6 +27,7 @@ public sealed class PluginValidatorOrchestrator
     private readonly PluginValidatorRuntime _runtime;
     private readonly ModulesWriterService _writer;
     private readonly ProjectContext _projectContext;
+    private readonly ModuleFileTopologyService _topologyService;
     private readonly ILogger<PluginValidatorOrchestrator> _logger;
     private readonly JsonSerializerSettings _settings;
 
@@ -33,11 +35,13 @@ public sealed class PluginValidatorOrchestrator
         PluginValidatorRuntime runtime,
         ModulesWriterService writer,
         ProjectContext projectContext,
+        ModuleFileTopologyService topologyService,
         ILogger<PluginValidatorOrchestrator> logger)
     {
         _runtime = runtime;
         _writer = writer;
         _projectContext = projectContext;
+        _topologyService = topologyService;
         _logger = logger;
         _settings = new JsonSerializerSettings
         {
@@ -63,9 +67,46 @@ public sealed class PluginValidatorOrchestrator
             ["variantId"] = variantId,
         };
 
+        // §2.8 整合：拓扑解析只在 C# 这一处跑，把"已解析视图"注入 stdin 请求；
+        // Python 验证器删掉自建拓扑层、纯消费这三块（resolvedLeaves/zoneGeometry/pathIssues）。
+        var topology = _topologyService.Build(projectPath);
+        var resolved = topology.GetResolvedLeaves(zoneIds, variantId);   // 纯文件映射 + pathIssues（§6-3 去几何）
+        request["resolvedLeaves"] = JArray.FromObject(resolved.ResolvedLeaves, JsonSerializer.Create(_settings));
+        request["pathIssues"] = JArray.FromObject(resolved.PathIssues, JsonSerializer.Create(_settings));
+        // 几何只 validate 需要（normalize 仅按 resolvedLeaves 选文件做 facing 写回，不碰几何）。
+        if (mode == "validate")
+            request["zoneGeometry"] = BuildZoneGeometry(projectPath, topology);
+
         var result = await _runtime.InvokeAsync(mode, request, ct);
         await PersistWritebackAsync(projectPath, result["writeback"] as JArray);
         return result["report"] as JObject ?? new JObject();
+    }
+
+    /// <summary>
+    /// 组 validate 的 zoneGeometry（契约-②，叉口-1：几何由 C# 在边界处合并）。
+    /// designZones = room_zones.json 的 Room（带 computedBoundary）＋ per-scheme 叶子（Designable，RawBoundary 来自解析器）；
+    /// exclusionZones = exclusions.json。镜像旧 _load_zone_data（room_zones + scheme leaves），叶子源升级为解析器（adopted-aware）。
+    /// 用本服务 _settings（含 Polygon2DConverter）序列化 → 边界形态与 Python 过去从盘读到的逐字一致。
+    /// </summary>
+    private JObject BuildZoneGeometry(string projectPath, ModuleFileTopology topology)
+    {
+        var designZones = new List<Zone>();
+        designZones.AddRange(ReadZones(Path.Combine(projectPath, "computed", "room_zones.json")));
+        designZones.AddRange(PerSchemeZoneTreeBuilder.AllLeafZones(projectPath, topology));
+        var exclusionZones = ReadZones(Path.Combine(projectPath, "computed", "exclusions.json"));
+
+        return new JObject
+        {
+            ["designZones"] = JArray.FromObject(designZones, JsonSerializer.Create(_settings)),
+            ["exclusionZones"] = JArray.FromObject(exclusionZones, JsonSerializer.Create(_settings)),
+        };
+    }
+
+    private List<Zone> ReadZones(string path)
+    {
+        if (!File.Exists(path))
+            return new List<Zone>();
+        return JsonConvert.DeserializeObject<List<Zone>>(File.ReadAllText(path), _settings) ?? new List<Zone>();
     }
 
     /// <summary>

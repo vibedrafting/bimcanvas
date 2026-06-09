@@ -17,12 +17,9 @@ import type {
   SetActiveRequest,
   SetActiveResponse,
   PluginErrorResponse,
-  BindSceneRequest,
-  BindSceneResult,
 } from '../types/plugin';
 
 const PLUGINS_BASE = `${SERVER_API}/plugins`;
-const PROJECT_BASE = `${SERVER_API}/project`;
 
 /**
  * 统一错误返回结构,供 Pinia store 透传给 UI 显示
@@ -148,41 +145,4 @@ export class PluginService {
     }
   }
 
-  // ─── Scene 绑定 (用于 SceneBindingDialog) ──────────────────────────────
-
-  /**
-   * POST /api/project/scenes
-   *
-   * 给当前已加载项目追加 scene 绑定 (主真理源 §2.2 步骤 6 / §4.2)。
-   * Server 内部:
-   *   1. JObject patch 写 project.json.scenes[]
-   *   2. MountSceneScaffold(R10 唯一物化入口)
-   *   3. 写 plugins.lock.json
-   *   4. 生成 LaunchContext + SetBound
-   *   5. 写 LaunchContext 文件给 Agent
-   */
-  static async bindScene(
-    request: BindSceneRequest
-  ): Promise<PluginServiceResult<BindSceneResult>> {
-    try {
-      const response = await axios.post<BindSceneResult>(
-        `${PROJECT_BASE}/scenes`,
-        request
-      );
-      return { ok: true, data: response.data };
-    } catch (error: any) {
-      // BindScene 失败时 Server 返回 BindSceneResult { success: false, message }
-      // 包成统一错误结构
-      const data = error?.response?.data as BindSceneResult | undefined;
-      if (data && typeof data === 'object' && 'success' in data) {
-        return {
-          ok: false,
-          code: 'bind_scene_failed',
-          message: data.message || 'scene 绑定失败',
-          httpStatus: error?.response?.status,
-        };
-      }
-      return toError(error, 'bind_scene_failed');
-    }
-  }
 }

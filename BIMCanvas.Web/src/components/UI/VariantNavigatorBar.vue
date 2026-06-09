@@ -42,12 +42,30 @@ const variantContext = computed<{ designZoneId: string } | null>(() => {
     return { designZoneId };
 });
 
+// 临时显示隐藏候选（_ 前缀，state=hidden）的开关；默认关，刷新即重置。
+const showHidden = ref(false);
+const hasHidden = computed(() => variants.value.some(v => v.state === 'hidden'));
+
+// 指针模型：隐藏候选（_ 前缀，state=hidden）默认不进导航条，showHidden 开启时临时纳入；
+// adopted 方案由位置0 canonical 槽（clearActiveVariant 渲染父指针指向的方案；标签显示其 slug、
+// 动作区显示灰色「已采纳」）代表，不在列表里再重复出现一条 —— 避免采纳后同一方案显示两次。
+const visibleVariants = computed(() =>
+    variants.value.filter(v =>
+        v.state !== 'adopted' && (showHidden.value || v.state !== 'hidden')
+    )
+);
 // server 已按 createdAt 排序，保留原顺序即可；后续如需稳定排序可在此扩展
-const sortedVariants = computed(() => [...variants.value]);
+const sortedVariants = computed(() => [...visibleVariants.value]);
+
+// 纯指针平级模型：仅当确有 adopted 方案时才存在「已采纳方案」canonical 槽（clearActiveVariant
+// 渲染父指针指向的已采纳方案）；无 adopted 时不再恒插空槽，导航条只列 peer 变体。
+const hasAdopted = computed(() => variants.value.some(v => v.state === 'adopted'));
 
 const CANONICAL_SLOT = '__canonical__';
 const sequence = computed<string[]>(() =>
-    [CANONICAL_SLOT, ...sortedVariants.value.map(v => v.slug)]
+    hasAdopted.value
+        ? [CANONICAL_SLOT, ...sortedVariants.value.map(v => v.slug)]
+        : sortedVariants.value.map(v => v.slug)
 );
 
 const activeVariantSlug = computed(() =>
@@ -55,33 +73,45 @@ const activeVariantSlug = computed(() =>
 );
 
 const currentIndex = computed(() => {
-    const id = activeVariantSlug.value ?? CANONICAL_SLOT;
+    const fallback = hasAdopted.value ? CANONICAL_SLOT : (sequence.value[0] ?? CANONICAL_SLOT);
+    const id = activeVariantSlug.value ?? fallback;
     const i = sequence.value.indexOf(id);
     return i >= 0 ? i : 0;
 });
 
+// 当前 slot 是否为 canonical（已采纳方案）——按 slot 值判定，不依赖「canonical 恒在 0」的索引偏移，
+// 兼容有/无 canonical 两种 sequence 形态。
+const currentSlot = computed(() => sequence.value[currentIndex.value] ?? null);
+const isCanonicalCurrent = computed(() => currentSlot.value === CANONICAL_SLOT);
+
 const currentVariant = computed<VariantDescriptor | null>(() =>
-    currentIndex.value === 0 ? null : sortedVariants.value[currentIndex.value - 1] ?? null
+    isCanonicalCurrent.value
+        ? null
+        : sortedVariants.value.find(v => v.slug === currentSlot.value) ?? null
 );
 
+// 已采纳方案不进 visibleVariants 列表，但仍需取其 slug/summary 用于 canonical 槽的标签与 tooltip。
+const adoptedVariant = computed<VariantDescriptor | null>(() =>
+    variants.value.find(v => v.state === 'adopted') ?? null);
+
+// canonical 槽直接显示被采纳方案的 slug（而非笼统的「已采纳方案」）；adoptedVariant 缺失时兜底。
 const currentLabel = computed(() =>
-    currentIndex.value === 0 ? '已采纳方案' : currentVariant.value?.slug ?? '');
+    isCanonicalCurrent.value
+        ? (adoptedVariant.value?.slug ?? '已采纳方案')
+        : currentVariant.value?.slug ?? '');
 
 const currentSummary = computed(() => {
-    const v = currentVariant.value;
+    const v = isCanonicalCurrent.value ? adoptedVariant.value : currentVariant.value;
     return (v?.summary && v.summary.trim()) || '';
 });
 
-const currentState = computed(() => currentVariant.value?.state ?? '');
-const isPrevAdopted = computed(() => currentState.value === 'prev-adopted');
-
-const showAdopt = computed(() => currentIndex.value !== 0);
+const showAdopt = computed(() => !isCanonicalCurrent.value);
+// 当前停在的是否为隐藏候选——用于 label 视觉标记（slug 本身带 _ 前缀，这里再加色提示）。
+const isHiddenCurrent = computed(() =>
+    !isCanonicalCurrent.value && currentVariant.value?.state === 'hidden');
 const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.length}`);
-const barTitle = computed(() => {
-    const tag = isPrevAdopted.value ? '历史' : '';
-    const base = tag ? `[${tag}] ${currentLabel.value}` : currentLabel.value;
-    return currentSummary.value ? `${base}：${currentSummary.value}` : base;
-});
+const barTitle = computed(() =>
+    currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value);
 
 async function gotoIndex(nextIndex: number) {
     const ctx = variantContext.value;
@@ -98,6 +128,19 @@ async function gotoIndex(nextIndex: number) {
 const onPrev = () => gotoIndex(currentIndex.value - 1);
 const onNext = () => gotoIndex(currentIndex.value + 1);
 
+function toggleHidden() {
+    showHidden.value = !showHidden.value;
+    // 关闭时若当前正停在某隐藏候选上，该 slug 会从 sequence 移除，导致 bar 索引回落却仍渲染隐藏方案——
+    // 主动回退到 canonical，保持 bar 角标与画布一致。
+    if (!showHidden.value) {
+        const ctx = variantContext.value;
+        const active = activeVariantSlug.value;
+        if (ctx && active && variants.value.find(v => v.slug === active)?.state === 'hidden') {
+            void canvasStore.clearActiveVariant(ctx.designZoneId);
+        }
+    }
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
     const tagName = target.tagName.toLowerCase();
@@ -110,7 +153,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function onKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     if (isEditableTarget(event.target)) return;
-    if (!variantContext.value || variants.value.length === 0 || busy.value) return;
+    if (!variantContext.value || sequence.value.length === 0 || busy.value) return;
 
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -213,7 +256,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
 <template>
     <Transition name="vnav-fade">
         <div
-            v-if="variantContext && variants.length > 0"
+            v-if="variantContext && sequence.length > 0"
             class="variant-navigator-bar"
             role="group"
             aria-label="布置变体切换"
@@ -232,9 +275,8 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
             </button>
-            <div class="vnav-center" :class="{ 'is-prev-adopted': isPrevAdopted }" :title="barTitle">
-                <span v-if="isPrevAdopted" class="vnav-state-badge">历史</span>
-                <span class="vnav-label">{{ currentLabel }}</span>
+            <div class="vnav-center" :title="barTitle">
+                <span class="vnav-label" :class="{ 'is-adopted': isCanonicalCurrent, 'is-hidden-variant': isHiddenCurrent }">{{ currentLabel }}</span>
                 <span class="vnav-indicator">{{ indicator }}</span>
             </div>
             <button
@@ -257,11 +299,17 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                     type="button"
                     :disabled="busy"
                     @click="onAdopt"
-                    title="采纳此变体（晋升为已采纳方案；如 canonical 已有方案则降级为 prev-{时间戳}）"
+                    title="采纳此方案（翻转 adopted 指针使其生效；原方案保留、不删除、可回溯）"
                 >
                     {{ adoptingSlug ? '采纳中' : '采纳' }}
                 </button>
-                <span v-else class="vnav-status">基准</span>
+                <button
+                    v-else
+                    class="vnav-adopted"
+                    type="button"
+                    disabled
+                    title="此方案为当前已采纳方案"
+                >已采纳</button>
             </div>
             <button
                 v-if="showAdopt"
@@ -276,6 +324,28 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                     <path d="M9 3h6m-9 4h12m-1 0l-1 12a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2L5 7m4 4v6m4-6v6"
                           fill="none" stroke="currentColor"
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+            <button
+                v-if="hasHidden"
+                class="vnav-toggle-hidden"
+                :class="{ active: showHidden }"
+                type="button"
+                :disabled="busy"
+                :aria-pressed="showHidden"
+                @click="toggleHidden"
+                :title="showHidden ? '收起「_」前缀的废弃/隐藏方案' : '临时显示「_」前缀的废弃/隐藏方案'"
+            >
+                <svg v-if="showHidden" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.8M9.4 5.2A9.4 9.4 0 0112 5c5 0 9 4.5 10 7-.4 1-1.2 2.3-2.4 3.5M6.1 6.2C3.8 7.6 2.4 9.8 2 12c1 2.5 5 7 10 7 1 0 2-.2 2.9-.5"
+                          fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
+                          fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
                 </svg>
             </button>
             <div v-if="errorMessage" class="vnav-error" :title="errorMessage">{{ errorMessage }}</div>
@@ -372,6 +442,16 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     text-overflow: ellipsis;
 }
 
+/* label 三态着色（均不用斜体）：
+ * 采纳态 → 琥珀高亮；普通变体 → 默认色（无类）；隐藏候选 → 浅蓝。 */
+.vnav-label.is-adopted {
+    color: rgba(255, 205, 130, 1);
+}
+
+.vnav-label.is-hidden-variant {
+    color: rgba(130, 190, 255, 0.95);
+}
+
 .vnav-indicator {
     font-size: 10px;
     color: var(--text-secondary);
@@ -379,21 +459,41 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     white-space: nowrap;
 }
 
-/* prev-adopted 变体：整个 center 区域降低饱和度 + 在 label 前缀显示"历史"角标 */
-.vnav-center.is-prev-adopted {
-    opacity: 0.7;
+/* 临时显示隐藏候选的切换按钮：尺寸/交互对齐 .vnav-arrow；active（已开启）时高亮琥珀色。 */
+.vnav-toggle-hidden {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
-.vnav-state-badge {
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    padding: 1px 5px;
-    border-radius: 4px;
+.vnav-toggle-hidden:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: var(--text-secondary);
-    white-space: nowrap;
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+}
+
+.vnav-toggle-hidden.active {
+    background: rgba(255, 190, 100, 0.16);
+    border-color: rgba(255, 190, 100, 0.42);
+    color: rgba(255, 205, 130, 1);
+}
+
+.vnav-toggle-hidden:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.vnav-toggle-hidden:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .vnav-arrow {
@@ -463,7 +563,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
 }
 
 .vnav-adopt,
-.vnav-status {
+.vnav-adopted {
     width: 58px;
     height: 26px;
     padding: 0 8px;
@@ -496,10 +596,11 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     cursor: progress;
 }
 
-.vnav-status {
+.vnav-adopted {
     background: rgba(255, 255, 255, 0.045);
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
+    cursor: default;
 }
 
 .vnav-error {

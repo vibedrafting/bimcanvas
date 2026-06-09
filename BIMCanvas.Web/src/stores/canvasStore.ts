@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
-import type { ProjectData, Module, Wall, Column, Opening, SceneId, SceneLayer } from '../types/canvas';
+import type { ProjectData, Module, Zone, Wall, Column, Opening } from '../types/canvas';
 import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
 import { useDebugStore } from './debugStore';
@@ -35,84 +35,6 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     // === 多选支持 ===
     const selectedIds = ref<string[]>([]);
-
-    // ========================================================================
-    // 组 5 §5.C.3: Scene 数据层(主真理源 v1.1 §3.9 / §3.10)
-    // ========================================================================
-    // .bcp 项目多 scene 容器化后,Web 端需要 sceneId 感知:
-    // - activeSceneId:当前激活 scene id(从 OpenProject 响应 / LaunchContext 填,
-    //   填充逻辑由组 4 接管,本组只暴露 state slot)
-    // - referenceScenes:跨 scene 只读叠加层(灰色显示,UI 切换显隐)
-    //   渲染层(ThreeSceneService / SceneBuilder)订阅本字段实现叠加显示;
-    //   组 5 不实现渲染层,留 hook 给组 4 或后续。
-    // ========================================================================
-    const activeSceneId = ref<SceneId | null>(null);
-    const referenceScenes = ref<SceneLayer[]>([]);
-
-    /**
-     * 加载指定 scene 的 modules 作为只读叠加层(组 5 §5.C.3)。
-     * 已存在则刷新,不存在则追加。默认 visible=true、readOnly=true。
-     *
-     * 调用方:Web UI 在用户选择"显示其他 scene 底图"时调用。
-     * 数据源:SchemeService.getSceneArtifact(sceneId, 'modules')
-     *   → 后端聚合返回 schemes/ 下所有叶子 modules.json。
-     */
-    const loadReferenceScene = async (
-        sceneId: SceneId,
-        pluginId: string,
-        scene: string,
-        versionRange: string,
-    ): Promise<void> => {
-        const payload = await SchemeService.getSceneArtifact(sceneId, 'modules');
-        // payload 结构: { artifactKind: 'modules', files: [{ relativePath, content }] }
-        const modules: Module[] = [];
-        if (payload && Array.isArray(payload.files)) {
-            for (const file of payload.files) {
-                try {
-                    const parsed = typeof file.content === 'string'
-                        ? JSON.parse(file.content)
-                        : file.content;
-                    // modules.json 可能是数组,也可能是 wrapper(含 modules 字段)
-                    const fileModules = Array.isArray(parsed)
-                        ? parsed
-                        : (parsed && Array.isArray(parsed.modules) ? parsed.modules : []);
-                    for (const m of fileModules) modules.push(m as Module);
-                } catch {
-                    // 单文件解析失败不阻断整体加载
-                }
-            }
-        }
-        const existing = referenceScenes.value.findIndex(l => l.sceneId === sceneId);
-        const layer: SceneLayer = {
-            sceneId, scene, pluginId, versionRange,
-            visible: true, readOnly: true, modules,
-        };
-        if (existing >= 0) {
-            referenceScenes.value.splice(existing, 1, layer);
-        } else {
-            referenceScenes.value.push(layer);
-        }
-    };
-
-    /** 切换某 scene 叠加层显隐(组 5 §5.C.3,渲染层订阅本字段) */
-    const toggleReferenceSceneVisibility = (sceneId: SceneId): void => {
-        const layer = referenceScenes.value.find(l => l.sceneId === sceneId);
-        if (layer) layer.visible = !layer.visible;
-    };
-
-    /** 移除某 scene 叠加层 */
-    const removeReferenceScene = (sceneId: SceneId): void => {
-        const idx = referenceScenes.value.findIndex(l => l.sceneId === sceneId);
-        if (idx >= 0) referenceScenes.value.splice(idx, 1);
-    };
-
-    /** 清空所有 scene 叠加层(项目切换 / 关闭时调用) */
-    const clearReferenceScenes = (): void => {
-        referenceScenes.value = [];
-    };
-
-    // TODO 渲染层(组 4 或后续):订阅 referenceScenes,
-    //      为 layer.visible=true 的 scene 在 Three.js 场景内渲染灰色只读底图 + 标签。
 
     // 兼容层：selectedObject 返回第一个选中对象
     const selectedObject = computed(() => {
@@ -229,6 +151,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     // 切换/取消变体时基于该快照重组 projectData.activeScheme.modules，避免反复打服务端。
     const canonicalModulesSnapshot = ref<Module[] | null>(null);
 
+    // canonical zones 快照（含 subZones）：同 canonicalModulesSnapshot，供来源② 切换时 patch / 还原 adopted 分区线。
+    const canonicalZonesSnapshot = ref<Zone[] | null>(null);
+
     // variantInfoByDesignZone：项目级缓存"哪些设计区有几份变体 + slug 列表"。
     // 键为 designZoneId。Zone label 上 (current/total) 分页号——
     // current 通过 active variantSlug 在 variantSlugs 列表里的 index 反算而来。
@@ -286,6 +211,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     function getVariantSlot(zoneId: string): { current: number; total: number } | null {
         const dz = resolveDesignZoneId(zoneId);
         if (!dz) return null;
+        // 角标只在设计区根（rz_*/单叶子 dz）出；叶子 subZone 不挂（判据=自身是否设计区，不为 rz_/dz_ 写特例，
+        // 天然兼容场景②来源①——届时叶子本身是设计区会自动显示叶子级角标）。
+        if (dz !== zoneId) return null;
         const info = variantInfoByDesignZone.value.get(dz);
         if (!info || info.count <= 0) return null;
         const total = info.count + 1;
@@ -382,12 +310,21 @@ export const useCanvasStore = defineStore('canvas', () => {
     async function recomputeDisplayModules(): Promise<void> {
         if (!projectData.value || !projectData.value.activeScheme) return;
 
+        // 来源②：先按候选刷新分区线/叶子，模块再按"正确的方案叶子"拉取（避免按 adopted 叶子取错）。
+        await recomputeDisplayZones();
+
         const activeMap = activeVariantByDesignZone.value;
         const baseSnapshot = canonicalModulesSnapshot.value ?? [];
 
-        // 构建 leafZoneId → designZoneId 反查表（含顶层叶子自映射）
+        // 构建 leafZoneId → designZoneId 反查表（含顶层叶子自映射）。
+        // 关键：必须用 canonical zones 快照，而非已被 recomputeDisplayZones 改写成「变体拓扑」的 live zones。
+        // baseSnapshot 是 canonical 模块，其 zoneId 是 canonical 叶子 id；若用变体拓扑的 live zones 建表，
+        // canonical 与所切变体叶子 id 不一致的设计区会映射失败（get→undefined→dz=''），该设计区的 canonical
+        // 模块漏过下方过滤、与变体模块叠加渲染（切换变体重叠 bug）。拉变体模块那一步仍用 live 拓扑（见下方
+        // getLeafZoneIdsForDesignZone），两处拓扑需求相反，不要混用。
+        const filterZones = canonicalZonesSnapshot.value ?? projectData.value.activeScheme.zones ?? [];
         const leafToDesignZone = new Map<string, string>();
-        for (const z of (projectData.value.activeScheme.zones ?? [])) {
+        for (const z of filterZones) {
             if (!z.id) continue;
             if (z.subZones && z.subZones.length > 0) {
                 for (const sz of z.subZones) {
@@ -435,6 +372,30 @@ export const useCanvasStore = defineStore('canvas', () => {
     }
 
     /**
+     * 来源②：按当前 active 变体刷新各设计区 subZones（分区线跟随候选方案），从 adopted 快照重建后逐个 patch。
+     * 复用 Server GetVariantZones（内部 BuildEffectiveZoneView 同一塑形源，不另造解析）；
+     * 单叶子候选返回空 subZones→该设计区按"无内部分区"渲染；拉取失败保留 adopted 分区线、不撤激活；
+     * 切回 canonical（active 删除）→ 不 patch，自然还原 adopted。
+     */
+    async function recomputeDisplayZones(): Promise<void> {
+        if (!projectData.value?.activeScheme) return;
+        const snapshot = canonicalZonesSnapshot.value;
+        if (!snapshot) return;
+        const nextZones: Zone[] = JSON.parse(JSON.stringify(snapshot));
+        for (const [designZoneId, variantSlug] of Array.from(activeVariantByDesignZone.value.entries())) {
+            try {
+                const resp = await SchemeService.getVariantZones(designZoneId, variantSlug);
+                const root = nextZones.find(z => z.id === designZoneId);
+                if (root) root.subZones = (resp.subZones ?? []) as Zone[];
+            } catch (err: any) {
+                debugStore.warn(
+                    `[Store] 变体分区加载失败 dz=${designZoneId} slug=${variantSlug}: ${err?.message ?? err}`);
+            }
+        }
+        projectData.value.activeScheme.zones = nextZones;
+    }
+
+    /**
      * Legacy 变体侧链文件名判定（modules-alt-*.json）。
      * 与 server 端 trigger=variant-files-changed 信号互补——后者覆盖 New 路径 variants/ 子树。
      */
@@ -476,7 +437,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                     activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
                     debugStore.log(`[Store] 变体已采纳 dz=${adoptedDz}，清空 active 并重载 canonical`);
                 }
-                // 采纳会删除该变体目录、可能新增 prev-*；刷新计数字典让 Canvas 摘掉/换角标
+                // 采纳=翻指针（不删目录、不生成 prev-*）；刷新计数字典让 Canvas 更新角标
                 void refetchVariantCounts();
             }
 
@@ -619,7 +580,11 @@ export const useCanvasStore = defineStore('canvas', () => {
             ? JSON.parse(JSON.stringify(canonicalModules)) as Module[]
             : [];
 
-        // 如果还有活跃变体（in-session SignalR 重载场景），重新应用
+        // 来源②：同样快照 adopted zones（含 subZones），切换候选时基于它 patch、切回 canonical 时还原分区线。
+        const canonicalZones = data.activeScheme?.zones ?? [];
+        canonicalZonesSnapshot.value = JSON.parse(JSON.stringify(canonicalZones)) as Zone[];
+
+        // 如果还有活跃变体（in-session SignalR 重载场景），重新应用（recomputeDisplayModules 内部会先刷 zones）
         if (activeVariantByDesignZone.value.size > 0) {
             await recomputeDisplayModules();
         }
@@ -1198,13 +1163,5 @@ export const useCanvasStore = defineStore('canvas', () => {
         cacheVariantMetadata,
         getVariantSlot,
         refetchVariantCounts,
-
-        // 组 5 §5.C.3: Scene 数据层
-        activeSceneId,
-        referenceScenes,
-        loadReferenceScene,
-        toggleReferenceSceneVisibility,
-        removeReferenceScene,
-        clearReferenceScenes,
     };
 });

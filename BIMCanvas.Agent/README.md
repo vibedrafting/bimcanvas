@@ -810,7 +810,7 @@ elif not msg_parent_id:
 ## 与 Server 集成
 
 Agent 通过两种方式与 .NET Server 通信：
-- **MCP 工具调用**：`mcp__canvas__create_job`、`mcp__canvas__request_background_screenshot` 等，通过进程内 MCP Server 调用 .NET REST API
+- **MCP 工具调用**：`mcp__canvas__create_job`、`mcp__canvas__canvas_vision` 等，通过进程内 MCP Server 调用 .NET REST API
 - **文件驱动**：Agent 直接读写项目目录下的 JSON 文件，Server 的 FileWatcher 检测变化并通过 SignalR 推送给 Web 前端
 
 ## 开发指南
@@ -832,33 +832,11 @@ curl -X POST http://127.0.0.1:8765/api/chat \
   -d '{"message": "你好"}'
 ```
 
-### 独立图片生成调试
-
-第一阶段新增了一个独立的图片处理客户端，不依赖 Agent/Server/Web 运行时，可直接用两张本地图测试 API：
-
-```bash
-cd BIMCanvas.Agent
-python -m src.image_generation.cli ^
-  --source "E:\工作文档\开发类\MyCode\BIMCanvas\references\凤栖湖127主卧.png" ^
-  --style "E:\工作文档\开发类\MyCode\BIMCanvas\references\参考图.png" ^
-  --output "E:\工作文档\开发类\MyCode\BIMCanvas\references\outputs\phase1_result.png"
-```
-
-如需临时覆盖默认 Key，可额外传入 `--api-key "..."`
-
-当前 CLI 默认 prompt 已重构为 8 条规则、三级优先级（结构保真 > 家具保真 > 视觉风格）的精简版本：结构保真 + 家具矩形化 + 色彩键值映射 + 零幻觉优先；方向箭头规则已完全移除（旧版箭头规则导致方向幻觉）。同时 API 请求的 parts 顺序已调整为 `[source_image, style_image, text]`，与 Gemini 官方图像编辑示例一致，让模型先建立视觉锚点再阅读指令。
-
-核心实现位于：
-
-- `src/image_generation/nano_banana_client.py`
-- `src/image_generation/cli.py`
-
 ### MCP 工具开发指南
 
 #### 已集成 MCP 工具（canvas）
 
-- `mcp__canvas__request_background_screenshot`：后台截图
-- `mcp__canvas__analyze_image`：大模型图像理解工具（ChatGPT 后端）；`analysisMode=reference_layout` 仅用于 `generate-reference-analysis` Stage A，为“参考图分析 + 设计”工作流形成 A/B/C 素材；默认 `custom` 仅允许在 `Read` 同一图片失败并出现 `image result suppressed` 后作为兜底识图使用
+- `mcp__canvas__canvas_vision`：截图 / 识图 / 截图+识图 三模式自动判断（无显式 mode）。无 `prompt`=只截图（返回图片）；`prompt`+图源（attachmentId/path/base64 三选一）=只识图（识图后端，返回文字）；`prompt`+截图范围（targetId/viewport 等）=截图+识图（截 bg_*.png 喂识图后端，返回文字）。图源与截图范围同给报错；识图只返文字、不支持批量。识图后端多 provider 可配（`agent.imageRecognition.provider`，默认 `apiyi`=OpenAI 格式，可选 `aoment`=multipart）
 
 #### 已迁至 interior-layout plugin 命名空间（`mcp__interior-layout__*`）
 
@@ -871,9 +849,9 @@ python -m src.image_generation.cli ^
 - `mcp__interior-layout__save_reference_analysis`：保存独立 `reference_analysis.json` 完整版本快照
 - `mcp__interior-layout__load_reference_analysis`：读取最新或指定版本的参考分析
 
-#### 后台截图 MCP 工具（request_background_screenshot）
+#### 通用视觉 MCP 工具（canvas_vision）
 
-- **用途**：调用后台截图 API，保存到 `projectPath/screenshots`，返回保存后的完整路径。
+- **用途**：三模式自动判断（截图 / 识图 / 截图+识图）。只截图（无 `prompt`）调后台截图 API 存到 `projectPath/screenshots` 并返回图片；识图（传 `prompt`）走识图后端（多 provider 可配：默认 `apiyi`=OpenAI Chat Completions 格式，可配 `aoment`=multipart），把图源或新截的 bg_*.png 喂识图后端，返回纯文字结论（绕开主 agent 无 vision）。后端配置在 `agent.imageRecognition`（`provider` + `providers.{apiyi,aoment}.{apiKey,endpoint,model}`）。下文参数为只截图侧；识图加 `prompt` + 图源/截图范围。
 - **必填**：`projectPath` 必须传入，且必须是当前 BIMCanvas 项目目录（包含 `project.json` 的目录）；禁止传空字符串、`null`、skill/plugin 目录、源码仓库目录或 `BIMCANVAS_HOME`。
 - **参数**：常用入口为 `projectPath`、`targetId`、`targetIds`；高级入口继续支持 `viewport`（单张）和 `shots`（批量）。`targetId`、`targetIds`、`viewport`、`shots` 都必须与 `projectPath` 一起传。
 - **默认**：`layerPreset=Agent`、`autoFitViewport=true`、`scale=2`。

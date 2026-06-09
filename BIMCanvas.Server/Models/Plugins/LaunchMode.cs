@@ -19,8 +19,8 @@ public enum LaunchMode
     Projectless,
 
     /// <summary>
-    /// 项目已打开 + scene 已绑定 + writable。
-    /// Agent 拥有完整能力;Server 按 ActiveSceneId 强制写入隔离 (V12b)。
+    /// 项目已打开 + writable。Agent 拥有完整能力;
+    /// Server 写入 gate 仅保 baseline/ 与 computed/ 只读(项目去插件态后无 sceneId 路径隔离)。
     /// </summary>
     ProjectBound,
 }

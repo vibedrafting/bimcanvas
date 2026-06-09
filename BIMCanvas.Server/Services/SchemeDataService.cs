@@ -209,9 +209,11 @@ namespace BIMCanvas.Server.Services
 
                 if (string.IsNullOrEmpty(zoneId))
                 {
+                    // 不回头看：删 _unzoned 假桶。孤儿模块（bounds 中心不落任何分区）不落盘到黑洞目录
+                    // （递归模型下解析器不登记 _unzoned，写后不可读）；仅计数 + 日志，不持久化。
                     orphanCount++;
-                    zoneId = "_unzoned";
-                    _logger.LogWarning("[SaveAllModules] 模块 {ModuleId} 不在任何分区内，归入 _unzoned", module.Id);
+                    _logger.LogWarning("[SaveAllModules] 模块 {ModuleId} 不在任何分区内，未落盘（孤儿丢弃）", module.Id);
+                    continue;
                 }
 
                 if (!modulesByZone.ContainsKey(zoneId))
@@ -231,7 +233,7 @@ namespace BIMCanvas.Server.Services
                 var designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
                 await _modulesWriter.WriteAsync(
                     basePath, designZoneId, leafZoneId,
-                    variantId: null, pathMode: VariantPathMode.New, modules: kvp.Value);
+                    variantId: null, modules: kvp.Value);
                 savedCount += kvp.Value.Count;
             }
 
@@ -241,17 +243,12 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 把叶子 zoneId 反查为其设计区祖先 ID（与 ProjectController 同款逻辑）。
+        /// 把叶子 zoneId 反查为其设计区祖先路径——收口到拓扑解析器统一"递归向上找设计区祖先"helper
+        /// （递归模型下祖先不必是 segments[0]：容器嵌套叶子 rz_6/dz_客厅/{slug}/dz_1 的祖先 = rz_6/dz_客厅）。
         /// </summary>
         private static string ResolveDesignZoneIdForLeaf(string schemesPath, string leafZoneId)
         {
-            if (string.Equals(leafZoneId, "_unzoned", StringComparison.OrdinalIgnoreCase))
-                return leafZoneId;
-
-            var zoneDir = ProjectService.ResolveZoneDirectory(schemesPath, leafZoneId);
-            var relative = Path.GetRelativePath(schemesPath, zoneDir).Replace('\\', '/');
-            var segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            return segments.Length > 0 ? segments[0] : leafZoneId;
+            return ModuleFileTopologyService.ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
         }
 
         /// <summary>

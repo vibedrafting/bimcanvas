@@ -4,6 +4,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using BIMCanvas.Core.Converters.Json;
+using BIMCanvas.Core.Models.Computed;
 using BIMCanvas.Core.Models.Project;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -228,6 +230,10 @@ namespace BIMCanvas.Server.Services
                 projectPath,
                 refreshProjectMetadata: true);
 
+            // 按当前激活 domain 插件初始化其 projectMount 到项目全局(modules/、references/)。
+            // 仅缺失补齐,绝不覆盖用户改动(保留 R10 不静默覆盖的核心防御)。
+            _projectFixedFilesBootstrapService.EnsureProjectMountInitialized(projectPath);
+
             var result = new ProjectLoadExecutionResult(projectPath);
             AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);
 
@@ -307,9 +313,91 @@ namespace BIMCanvas.Server.Services
         /// <returns>(modulesFilePath, zoneId) 列表</returns>
         internal static List<(string FilePath, string ZoneId)> FindAllLeafModuleFiles(string schemesPath)
         {
-            return ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath)
+            return FindAllLeafModuleFiles(schemesPath, requestedZoneIds: null, variantId: null);
+        }
+
+        /// <summary>
+        /// 带 variantId 重载：解析指定方案 slug（候选/变体）的叶子 modules 文件。
+        /// variantId 为空 → 与单参重载行为一致（解析 adopted 当前生效方案，零回归）。
+        /// variantId 非空 → 解析 schemes/{dz}/{variantId}/[{leaf}/]modules.json，调用方必须显式给 requestedZoneIds
+        /// （拓扑层不允许全分区变体扫描）。指针解析一律走 ModuleFileTopologyService，不裸拼路径。
+        /// </summary>
+        internal static List<(string FilePath, string ZoneId)> FindAllLeafModuleFiles(
+            string schemesPath,
+            IReadOnlyCollection<string>? requestedZoneIds,
+            string? variantId)
+        {
+            return ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath, requestedZoneIds, variantId)
                 .Select(entry => (entry.FilePath, entry.ZoneId))
                 .ToList();
+        }
+
+        private static readonly JsonSerializerSettings ZoneJsonSettings = new JsonSerializerSettings
+        {
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+            Converters = { new Polygon2DConverter(), new Point2DConverter() }
+        };
+
+        /// <summary>
+        /// 构建「有效拓扑视图」(读时聚合，对齐总纲领原则 2 读时叠加；非焊死、架构预留)：
+        ///   · 根 = 全局 schemes/zones.json 的纯 baseline rz_*（P1 后已无 subZones）；
+        ///   · 每个设计区节点用 P1 解析器定 adopted slug，读该方案 {slug}/zones.json 的**完整 Zone 对象**
+        ///     作为其 SubZones（Name/Type/Tags/ComputedBoundary 全保留，前端零退化）；
+        ///   · 单叶子方案（无 {slug}/zones.json）→ 设计区自身即叶子，不挂 SubZones。
+        /// variantId 非空 → 渲染候选方案（scope 内设计区用该 variantId，否则用 adopted）。
+        /// 容器/多分区嵌套下钻 = 架构预留，MVP（单设计区）不处理（与叉口-2 同口径，不蔓延）。
+        /// </summary>
+        internal static List<Zone> BuildEffectiveZoneView(
+            string schemesPath,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
+        {
+            var zonesPath = Path.Combine(schemesPath, "zones.json");
+            if (!File.Exists(zonesPath))
+                return new List<Zone>();
+
+            var roots = ReadZonesJson(zonesPath);
+            if (roots.Count == 0)
+                return roots;
+
+            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
+            var scope = (variantZoneScope != null && variantZoneScope.Count > 0)
+                ? new HashSet<string>(variantZoneScope, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+            foreach (var root in roots)
+            {
+                // 容器/未知节点 = 架构预留，MVP 不下钻；只对设计区聚合 adopted 叶子分区。
+                if (string.IsNullOrWhiteSpace(root.Id) || !topology.IsDesignZoneId(root.Id))
+                    continue;
+
+                var useVariant = !string.IsNullOrWhiteSpace(variantId)
+                    && (scope == null || scope.Contains(root.Id));
+                var slug = useVariant
+                    ? variantId
+                    : SchemeDesignDocService.ResolveAdoptedSlug(schemesPath, root.Id);
+                if (string.IsNullOrWhiteSpace(slug))
+                    continue;   // 无 adopted 方案 → 不挂 SubZones（设计区单叶子占位）
+
+                var schemeZonesPath = Path.Combine(
+                    ModuleFileTopologyService.CombineSegments(schemesPath, root.Id, slug),
+                    "zones.json");
+                if (File.Exists(schemeZonesPath))
+                {
+                    var leafZones = ReadZonesJson(schemeZonesPath);
+                    if (leafZones.Count > 0)
+                        root.SubZones = leafZones;   // 该方案 AI 分区叶子作 SubZones
+                }
+                // 否则单叶子方案：设计区自身即叶子，保持无 SubZones。
+            }
+
+            return roots;
+        }
+
+        private static List<Zone> ReadZonesJson(string path)
+        {
+            var json = File.ReadAllText(path, Encoding.UTF8);
+            return JsonConvert.DeserializeObject<List<Zone>>(json, ZoneJsonSettings) ?? new List<Zone>();
         }
 
         /// <summary>
@@ -622,6 +710,10 @@ namespace BIMCanvas.Server.Services
             var bootstrapResult = _projectDerivedBootstrapService.EnsureInitialized(
                 folderPath,
                 refreshProjectMetadata: false);
+
+            // 按当前激活 domain 插件初始化其 projectMount 到项目全局(modules/、references/)。
+            // 仅缺失补齐,绝不覆盖用户改动(保留 R10 不静默覆盖的核心防御)。
+            _projectFixedFilesBootstrapService.EnsureProjectMountInitialized(folderPath);
 
             var result = new ProjectLoadExecutionResult(folderPath);
             AddZoneBaselineWarningIfNeeded(result.Warnings, bootstrapResult);

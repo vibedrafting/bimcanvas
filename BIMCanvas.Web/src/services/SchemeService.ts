@@ -25,8 +25,8 @@ export interface SaveSchemeModulesResponse {
 }
 
 /**
- * Server 派生的 variant 元数据（GET /api/scheme/variants 载荷元素）。Web 仅消费。
- * state: variant / prev-adopted / unknown
+ * Server 派生的方案元数据（GET /api/scheme/variants 载荷元素）。Web 仅消费。
+ * state: adopted / hidden / variant
  */
 export interface VariantDescriptor {
     slug: string;
@@ -61,6 +61,16 @@ export interface VariantSummaryEntry {
 }
 
 /**
+ * GET /api/scheme/variants/{dz}/{slug}/zones 的返回结构。
+ * subZones：该方案 slug 的有效分区（与 GetVariantModules 对称）；单叶子候选为空数组。
+ */
+export interface VariantZonesResponse {
+    designZoneId: string;
+    variantSlug: string;
+    subZones: any[];
+}
+
+/**
  * 方案数据服务 - 支持跨分支/Worktree 的模块数据读写
  *
  * source 参数格式：
@@ -90,6 +100,20 @@ export class SchemeService {
     }
 
     /**
+     * 获取指定 design zone + 方案 slug 的有效分区（SubZones），供实时切换候选方案时刷新分区线。
+     * 与 getModules 的变体路径对称；Server 复用 BuildEffectiveZoneView(by variantId) 同一塑形源。
+     */
+    static async getVariantZones(
+        designZoneId: string,
+        variantSlug: string
+    ): Promise<VariantZonesResponse> {
+        const response = await axios.get<VariantZonesResponse>(
+            `${API_BASE}/variants/${encodeURIComponent(designZoneId)}/${encodeURIComponent(variantSlug)}/zones`
+        );
+        return response.data;
+    }
+
+    /**
      * 保存模块数据（接受 Agent 修改）
      */
     static async saveModules(
@@ -108,7 +132,7 @@ export class SchemeService {
     }
 
     /**
-     * 列出指定 design zone 下所有变体（含 prev-* 降级目录）。
+     * 列出指定 design zone 下所有方案（按 schemes/{dz}/ 子目录枚举；state: adopted/hidden/variant）。
      */
     static async listVariants(designZoneId: string): Promise<VariantDescriptor[]> {
         const response = await axios.get<VariantListResponse>(
@@ -130,7 +154,7 @@ export class SchemeService {
     }
 
     /**
-     * 采纳变体：检测 canonical → 降级（如非空，生成 prev-{ts}）→ 晋升被采纳变体 → 删除原 variant 目录。
+     * 采纳方案：翻转父 {dz}/DESIGN.md 的 adopted 指针使其生效（零复制 / 零删除 / 零降级、可逆）。
      */
     static async adoptVariant(request: AdoptVariantRequest): Promise<{
         success: boolean;

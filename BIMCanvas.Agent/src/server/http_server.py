@@ -70,6 +70,22 @@ def _build_runtime_context(window_id: str, session_id: str, turn_id: str) -> dic
     }
 
 
+async def _background_task_pusher(record: dict[str, Any]) -> None:
+    """Agent 注入回调：把后台任务（Workflow）完成事件经 runtime_store 带外推送给前端。
+
+    复用 interaction SSE 通道（/api/interaction/events），事件名 background_task.completed。
+    """
+    await runtime_store.push_background_task(record=record)
+
+
+async def _background_progress_pusher(record: dict[str, Any]) -> None:
+    """Agent 注入回调：把后台 Workflow 进度经 runtime_store 带外实时推送给前端。
+
+    复用 interaction SSE 通道，事件名 background_task.progress（只实时、不落 history）。
+    """
+    await runtime_store.push_background_progress(record=record)
+
+
 def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "session_ready",
@@ -660,6 +676,13 @@ async def get_agent(
                 window_seq=seq,
             )
             agents[window_id] = agent
+
+            # 注入后台任务完成推送回调（Claude 路径用；其余 runtime 无此方法即跳过）
+            if hasattr(agent, "set_background_push"):
+                agent.set_background_push(_background_task_pusher)
+            # 注入后台 Workflow 进度推送回调（Task 页实时可视化）
+            if hasattr(agent, "set_background_progress_push"):
+                agent.set_background_progress_push(_background_progress_pusher)
 
             prefix = _get_window_prefix(seq)
             print(f"{prefix} [Server] ========== Agent 实例创建 ==========")
@@ -1862,7 +1885,6 @@ async def _startup_register_web_actions(app: web.Application) -> None:
                     server_url=server_url,
                     project_path=None,
                     active_plugin_id=plugin_id,
-                    active_scene=plugin_id,
                     logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
                     session=None,  # web_action 用自己的 aiohttp session，不依赖长连接
                 )

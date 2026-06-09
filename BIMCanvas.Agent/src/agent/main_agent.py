@@ -5,7 +5,8 @@ import json
 import logging
 import os
 import re
-from typing import Any, AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 import aiohttp
 
@@ -45,6 +46,8 @@ from .agent_logger import get_agent_logger
 from .worktree_manager import WorktreeManager, WorktreeContext
 # 组3 改造: 不再硬编码 canvas_mcp; bundle.mcp_servers_spec 动态构造
 from ..runtime import ConfigBundle, StreamChunk, build_config_bundle, materialize_system_prompt_file
+from ..runtime.main_stream import MainStreamMapper
+from ..runtime.launch_context import build_project_bound_context, resolve_launch_context
 from .errors import CLICommandLineTooLongError, SystemPromptFileWriteError
 
 logger = logging.getLogger(__name__)
@@ -54,6 +57,19 @@ logger = logging.getLogger(__name__)
 _claudecode_warned: bool = False
 
 _UNKNOWN_MODEL_VALUES = {"", "unknown"}
+
+
+@dataclass
+class _TurnChannel:
+    """单个用户回合的消息通道。
+
+    常驻 _drain_loop 把属于当前活跃回合的 SDK 消息投递到 queue；
+    chat / chat_stream 从 queue 消费，直到取到 ResultMessage（或异常）为止。
+    queue 中若取到 BaseException 实例，表示常驻 reader 异常退出，消费方应抛出它，
+    避免 await queue.get() 永久挂起。
+    """
+
+    queue: asyncio.Queue = field(default_factory=asyncio.Queue)
 
 
 class MainAgent:
@@ -110,7 +126,7 @@ class MainAgent:
         self._connected = False
         self._lock = asyncio.Lock()
 
-        # 组3: long-lived aiohttp.ClientSession,供 PluginContext / load_scene_artifact 共享。
+        # 组3: long-lived aiohttp.ClientSession,供 PluginContext / load_artifact 共享。
         # 在首次 _require_bundle (fallback 路径) 时 lazy 创建;disconnect 时关闭。
         # 注:host 外部通过 configure(bundle) 注入 bundle 时,session 生命周期由 host 自管。
         self._owned_session: aiohttp.ClientSession | None = None
@@ -129,6 +145,10 @@ class MainAgent:
         self._pending_tool_calls: dict[str, str] = {}  # tool_use_id -> tool_call_id 映射
         # 跟踪每个工具调用所属的 SubAgent：tool_use_id → subagent_id
         self._tool_to_subagent: dict[str, str] = {}
+        # Workflow 阶段预声明（Task 页运行态全阶段可视化）：拦截 Workflow tool_use 时解析脚本
+        # meta.phases 暂存（key=tool_use_id=block.id），TaskStarted 拿到 task_id 后再推前端。
+        # 不依赖闭源 CLI 写的 per-run 脚本副本/wf_*.json（运行态常缺失/runId 错位）。
+        self._pending_workflow_meta: dict[str, dict[str, Any]] = {}
         # 并行工具调用安全的工具名跟踪：tool_use_id → tool_name（解决 _current_tool_name 单值覆盖问题）
         self._tool_name_by_id: dict[str, str] = {}
 
@@ -140,6 +160,38 @@ class MainAgent:
         # Worktree 管理器（用于并行布置）
         self._worktree_manager: WorktreeManager | None = None
         self._runtime_context: dict[str, str] | None = None
+        # 跨回合保留的 runtime context，仅在 disconnect 时清空。
+        # 后台任务（Workflow）完成的带外推送靠它定位目标窗口/会话。
+        self._last_runtime_context: dict[str, str] | None = None
+
+        # 常驻消息排空（SDK 0.2.87 后台 Workflow 适配）：
+        # _drain_loop 独占 client.receive_messages()，按是否有活跃回合分发消息：
+        #   有活跃回合 → 投递到 turn.queue（chat/chat_stream 消费）
+        #   无活跃回合 → 走 _handle_background_message（后台任务完成等带外消息）
+        # 由此 receive_response() 的"首个 ResultMessage 即停"语义被移出回合路径，
+        # 后台续写回合的多余 ResultMessage 不再污染下一回合（修复消息错位/吞答 bug）。
+        self._drain_task: asyncio.Task | None = None
+        self._active_turn: _TurnChannel | None = None
+        # 后台任务完成推送回调（host 注入；Claude 路径用，OpenAI/protocol 路径不设即 no-op）
+        self._background_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        # 后台 Workflow 进度推送回调（host 注入）：detach 后 workflow 进度走带外通道实时推前端
+        self._background_progress_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        # 后台 Workflow 完成：收集"主控原生总结回合"的状态。
+        # CLI 收到 <task-notification> 会把它当 user 消息注入会话、让主控自动唤醒生成总结回合；
+        # drain loop 据此把【原生总结文本】投递给前端，而非丢弃（修复 detach 后总结被吞）。
+        self._bg_completion_pending: dict[str, Any] | None = None
+        self._bg_summary_parts: list[str] = []
+        # 后台原生总结回合内是否出现过工具调用（仅作日志诊断）。
+        # 注意：SDK 一个 response 只有一个 ResultMessage（response 内多次 tool-call 是
+        # AssistantMessage↔UserMessage 往返、不产生额外 RM）。R4-3 起收口判据已由本标记改为
+        # "_bg_summary_parts 非空"（见 _handle_background_message 的 ResultMessage 分支），
+        # 本字段保留仅供诊断、不再参与收口决策。
+        self._bg_round_had_tool: bool = False
+        # T2：后台原生总结回合的完整 envelope 序列（thinking/tool/text），随 background_task.completed
+        # 的 events 字段一次性投递前端，由 applyNormalizedEventToMessage 渲染成完整一条回合（不再只剩 text）。
+        self._bg_turn_events: list[dict[str, Any]] = []
+        self._bg_tool_names: dict[str, str] = {}   # tool_use_id → tool_name（跨 Assistant/User 消息配对工具完成）
+        self._bg_stream_mapper: MainStreamMapper | None = None
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -157,10 +209,25 @@ class MainAgent:
     def set_runtime_context(self, runtime_context: dict[str, str] | None) -> None:
         """Set host-provided runtime context for the current turn."""
         self._runtime_context = dict(runtime_context) if runtime_context else None
+        # 同步刷新跨回合保留的副本，供后台任务带外推送定位窗口（回合结束 clear 后仍可用）
+        if self._runtime_context:
+            self._last_runtime_context = dict(self._runtime_context)
 
     def clear_runtime_context(self) -> None:
         """Clear host-provided runtime context after the current turn."""
         self._runtime_context = None
+
+    def set_background_push(
+        self, callback: Callable[[dict[str, Any]], Awaitable[None]] | None
+    ) -> None:
+        """注入后台任务完成的带外推送回调（host → runtime_store 发布）。"""
+        self._background_push = callback
+
+    def set_background_progress_push(
+        self, callback: Callable[[dict[str, Any]], Awaitable[None]] | None
+    ) -> None:
+        """注入后台 Workflow 进度的带外推送回调（host → runtime_store 发布，只实时不落盘）。"""
+        self._background_progress_push = callback
 
     @staticmethod
     def _normalize_response_model(model: Any) -> str | None:
@@ -209,10 +276,17 @@ class MainAgent:
 
     def _require_bundle(self) -> ConfigBundle:
         if self._bundle is None:
-            # 组3: lazy 创建 long-lived aiohttp session,供 load_scene_artifact / plugin 工具共享
+            # 组3: lazy 创建 long-lived aiohttp session,供 load_artifact / plugin 工具共享
             if self._owned_session is None:
                 self._owned_session = aiohttp.ClientSession()
-            self.configure(build_config_bundle(session=self._owned_session))
+            # 接线总开关:此懒加载路径(未经 factory.create_agent 预 configure)同样用
+            # self.project_path 构造 ProjectBound,杜绝无参 build 得 projectless。
+            lc = (
+                build_project_bound_context(self.project_path)
+                if self.project_path
+                else resolve_launch_context()
+            )
+            self.configure(build_config_bundle(launch_context=lc, session=self._owned_session))
         assert self._bundle is not None
         return self._bundle
 
@@ -243,7 +317,16 @@ class MainAgent:
         working_directory = self.working_directory or self.project_path or "（unknown）"
         system_prompt = system_prompt + f"\n\n项目路径: {project_path}\n工作目录: {working_directory}"
 
-        # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/cache/system_prompt.window_{seq}.runtime.md,
+        # 追加 active domain plugin 绝对根，供主控构造 Workflow scriptPath 绝对路径。
+        # SDK 把相对 scriptPath 按 cwd=项目目录解析（在项目目录下找不到插件 workflows/，报
+        # "Workflow script file not found"），故 plugin BIMCANVAS.md 要求
+        # scriptPath = {此处注入的插件根}/workflows/*.workflow.js。统一正斜杠，避免 Windows
+        # 反斜杠在主控拼出的 JSON scriptPath 里成为非法转义。None（无 domain plugin）时不注入。
+        if bundle.active_plugin_root is not None:
+            plugin_root_posix = str(bundle.active_plugin_root).replace("\\", "/")
+            system_prompt = system_prompt + f"\n插件根: {plugin_root_posix}"
+
+        # WP-2 M2.1: 落盘到 BIMCANVAS_HOME/.runtime/system-prompt/system_prompt.window_{seq}.runtime.md,
         # 走 SDK --system-prompt-file(0.1.51+)绕过 Windows CreateProcess 32767 字符上限。
         system_prompt_file = materialize_system_prompt_file(system_prompt, self.window_seq)
 
@@ -597,12 +680,33 @@ class MainAgent:
                 raise
             self._connected = True
             self._current_model = resolved_model
+            # 启动常驻消息排空任务（必须在 client 同一 async 上下文内创建，见 SDK caveat）
+            self._active_turn = None
+            self._drain_task = asyncio.create_task(self._drain_loop())
             if self.verbose:
                 self._agent_logger.log_info(f"Connected to project: {self.project_path or 'default'}")
 
     async def disconnect(self) -> None:
         """Disconnect from the agent with force-kill fallback."""
         async with self._lock:
+            # 先停常驻排空任务，避免它在 client 关闭时撞上 receive_messages 异常
+            if self._drain_task is not None:
+                self._drain_task.cancel()
+                try:
+                    await self._drain_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Drain task await error during disconnect: {e}")
+                finally:
+                    self._drain_task = None
+            # drain 已停，若仍有回合在 await queue.get()，投终止异常唤醒它避免挂死
+            self._fail_active_turn(CLIConnectionError("Agent disconnected"))
+            self._active_turn = None
+            # N1 兜底：断开前 flush 残留后台 pending（趁 _last_runtime_context 未清，仍能定位窗口）
+            await self._flush_pending_background()
+            self._last_runtime_context = None
+
             if self._client and self._connected:
                 try:
                     await self._client.disconnect()
@@ -639,6 +743,422 @@ class MainAgent:
                 logger.info("Force-killed claude.exe subprocess")
         except Exception as e:
             logger.error(f"Force-kill subprocess failed: {e}")
+
+    # ─────────────────────────────────────────────────────
+    # 常驻消息排空（demux）：回合消息 vs 后台带外消息
+    # ─────────────────────────────────────────────────────
+
+    async def _drain_loop(self) -> None:
+        """独占 client.receive_messages()，把消息分发到活跃回合或后台处理器。
+
+        这是修复"后台 Workflow 完成消息错位/吞答"的核心：回合不再各自调用
+        receive_response()（其语义是"首个 ResultMessage 即停"），而由本任务统一读流。
+        - 有活跃回合：消息进 turn.queue；ResultMessage 标记回合结束并清空 _active_turn。
+        - 无活跃回合：交给 _handle_background_message（后台任务通知 + 续写 ResultMessage 丢弃）。
+        """
+        try:
+            async for message in self._client.receive_messages():
+                turn = self._active_turn
+                if turn is not None:
+                    turn.queue.put_nowait(message)
+                    if isinstance(message, ResultMessage):
+                        self._active_turn = None
+                else:
+                    try:
+                        await self._handle_background_message(message)
+                    except Exception as e:
+                        logger.warning(f"Background message handling error: {e}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # reader 异常退出：唤醒等待中的回合，避免 chat_stream 永久挂起
+            logger.warning(f"Drain loop terminated with error: {e}")
+            self._fail_active_turn(e)
+        else:
+            # receive_messages() 正常结束（stream 关闭）：同样唤醒等待中的回合
+            self._fail_active_turn(
+                CLIConnectionError("SDK message stream closed unexpectedly")
+            )
+
+    def _fail_active_turn(self, exc: BaseException) -> None:
+        """把异常投递给当前活跃回合的队列，让其消费方抛出（防止挂死）。"""
+        turn = self._active_turn
+        if turn is not None:
+            self._active_turn = None
+            try:
+                turn.queue.put_nowait(exc)
+            except Exception:
+                pass
+
+    async def _iter_turn_messages(self, turn: _TurnChannel) -> AsyncIterator[Any]:
+        """从回合队列消费消息，直到 ResultMessage（含）为止；遇异常对象则抛出。"""
+        while True:
+            message = await turn.queue.get()
+            if isinstance(message, BaseException):
+                raise message
+            yield message
+            if isinstance(message, ResultMessage):
+                return
+
+    async def _handle_background_message(self, message: Any) -> None:
+        """处理无活跃回合时到达的带外消息（后台 Workflow 完成 + 主控原生总结回合）。
+
+        关键：CLI 收到 <task-notification> 会注入会话并让主控**原生自动唤醒生成一条总结回合**
+        （THINK + AssistantMessage 文本 + ResultMessage）。本方法的职责是把这条**原生总结**收集起来、
+        在其收尾时经带外通道投递给前端——而不是把它当噪音丢弃（那正是 detach 后"总结被吞"的根因）。
+        """
+        if isinstance(message, TaskNotificationMessage):
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
+                    f"output_file={message.output_file}, "
+                    f"summary_len={len(message.summary or '')} (background)"
+                )
+            if self._bg_completion_pending is not None:
+                # N1 防覆写：上一后台原生总结回合的 pending 尚未收口（多轮 agentic 仍在进行）。
+                # 新 TaskNotification 不得覆写——否则最终 emit 会误归属前端陌生的新 task_id（次生 bug）。
+                # 保留首个 task_id（前端可识别），忽略新通知身份。
+                if self.verbose:
+                    self._agent_logger.log_info(
+                        f"[Background] pending 未收口，忽略 TaskNotification 覆写 "
+                        f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
+                        f"new task_id={message.task_id}, new status={message.status})"
+                    )
+            else:
+                # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
+                # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
+                self._bg_completion_pending = {
+                    "taskId": message.task_id,
+                    "status": str(message.status),
+                    "outputFile": message.output_file or None,
+                    "sdkSessionId": message.session_id,
+                    "fallback": message.summary or "",
+                }
+                self._bg_summary_parts = []
+                self._bg_round_had_tool = False
+                # T2：复位本次后台回合的 envelope 缓冲 + 工具名映射 + per-turn mapper
+                self._bg_turn_events = []
+                self._bg_tool_names = {}
+                ctx = self._last_runtime_context or {}
+                self._bg_stream_mapper = MainStreamMapper(
+                    session_id=ctx.get("sessionId") or "",
+                    turn_id=f"bgtask:{message.task_id}",
+                )
+                # 复位日志状态位，让随后的原生总结回合经 _process_message 干净地打印到 Server 日志
+                self._in_thinking = False
+                self._in_response = False
+                if self.verbose:
+                    self._agent_logger.log_info("[Background] ↓ 主控原生完成总结回合（自动唤醒）")
+        elif isinstance(message, AssistantMessage) and self._bg_completion_pending is not None:
+            # 原生总结/绕行回合：可能多轮 agentic（每 tool-call 一个 ResultMessage）。
+            # 记录本轮是否含工具调用（方案①据此判定收口）；复用正常日志路径（_process_message
+            # 打印 THINK/AI/工具调用），同时返回文本块内容用于投递（工具/思考块不计入文本）。
+            if any(isinstance(b, ToolUseBlock) for b in message.content):
+                self._bg_round_had_tool = True
+            text = self._process_message(message)
+            if text:
+                self._bg_summary_parts.append(text)
+            self._collect_bg_turn_events(message)   # T2：收 thinking/tool_use/text 的 envelope 序列
+        elif isinstance(message, ResultMessage):
+            if self._bg_completion_pending is None:
+                # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
+                if self.verbose:
+                    self._agent_logger.log_info("[Background] discarded out-of-turn ResultMessage")
+            else:
+                # R4-3 收口判据：had_tool → content 非空。
+                # SDK 一个 response 只有一个 ResultMessage（response 内多次 tool-call 是
+                # AssistantMessage↔UserMessage 往返、不产生额外 RM；旧注释"每 tool-call 一个 RM"是错的）。
+                # ResultMessage = 该 response 完全结束 = 此前所有 AssistantMessage（含汇报文本）已到达收齐，
+                # 故此刻合并 emit 的文本必然完整不截断。
+                content = "\n".join(self._bg_summary_parts).strip()
+                if not content:
+                    # content 为空 = detach 启动回合的尾随 RM / 主控纯工具无文本响应：汇报文本尚未到达。
+                    # 不收口、保留 pending 继续收集（替代原 had_tool 中间轮分支的"防误清丢汇报"职责），
+                    # 由兜底 flush（下次前台回合 / disconnect）兜底。
+                    self._bg_round_had_tool = False
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            "[Background] 无汇报文本的 ResultMessage → 保持收集，不收口"
+                        )
+                else:
+                    # 已收集到汇报文本（含"汇报+截图同轮"，had_tool=True 也照样收口）→ 把跨多轮收集的
+                    # 全部文本合并后经带外通道投递前端（落 history + 实时 SSE）。
+                    if self.verbose and self._in_response:
+                        self._agent_logger.log_response_end()
+                        self._in_response = False
+                    pending = self._bg_completion_pending
+                    self._bg_completion_pending = None
+                    self._bg_summary_parts = []
+                    self._bg_round_had_tool = False
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            f"[Background] 原生总结回合收口（content 非空，含工具轮亦收口）→ 投递完成汇报 "
+                            f"(task_id={pending.get('taskId')}, chars={len(content)})"
+                        )
+                    await self._emit_background_completion(pending, content)
+        elif isinstance(message, TaskProgressMessage):
+            # 高频进度心跳：只经带外通道推前端（Task 页实时可视化），不打 Server 控制台。
+            # 单条仅 task_id、无 usage/last_tool，逐 tick 刷屏且无 console 价值；实时进度看 Task 页。
+            await self._push_background_progress(message)
+        elif isinstance(message, TaskStartedMessage):
+            # 子任务启动：低频，留一行 console 便于观测；同样推前端。
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Background] TaskStarted task_id={getattr(message, 'task_id', None)}"
+                )
+            # Task 页运行态全阶段预声明（detach 后 workflow 任务的 TaskStarted 走此路径时也兜底）
+            await self._maybe_emit_workflow_phases(message)
+            await self._push_background_progress(message)
+        elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
+            # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
+            self._collect_bg_turn_events(message)
+        elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
+            # 逐 token 流式增量 / 工具结果 / 系统事件 / 非汇报态的整段回复：
+            # 与回合内路径的聚合纪律一致——静默丢弃、不逐条 log，避免刷屏。
+            pass
+        else:
+            # 仅对真正未知的新消息类型留一行（与顶层 [UnknownMessage] 同源的"勿静默吞未知"纪律）
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Background] ignored out-of-turn {type(message).__name__}"
+                )
+
+    async def _flush_pending_background(self) -> None:
+        """N1 方案①兜底 flush：若后台原生总结回合的 pending 仍未收口（主信号"无 tool_use 轮"
+        未命中——罕见，如主控以带工具调用的轮收尾），在前台新回合开始 / disconnect 前合并 emit
+        已收集文本并清空，保证可观测性不丢消息（N1 底线）。pending 为空时为 no-op。
+
+        必须在 set_runtime_context 覆写 _last_runtime_context **之前**调用——这样 emit 用的是
+        launching 回合的窗口/会话定位，而非新回合的。
+        """
+        if self._bg_completion_pending is None:
+            return
+        pending = self._bg_completion_pending
+        content = "\n".join(self._bg_summary_parts).strip()
+        self._bg_completion_pending = None
+        self._bg_summary_parts = []
+        self._bg_round_had_tool = False
+        if self.verbose:
+            self._agent_logger.log_info(
+                f"[Background] 兜底 flush 残留 pending → 投递完成汇报 "
+                f"(task_id={pending.get('taskId')}, chars={len(content)})"
+            )
+        await self._emit_background_completion(pending, content)
+
+    @staticmethod
+    def _compose_background_text(status: str, summary: str) -> str:
+        """组装后台任务完成的展示文本（实时气泡与 history 重建共用同一份，保证渲染收敛）。"""
+        body = (summary or "").strip()
+        if status == "completed":
+            return body or "后台任务已完成"
+        status_text = "已停止" if status == "stopped" else "执行失败"
+        prefix = f"后台任务{status_text}"
+        return f"{prefix}\n\n{body}" if body else prefix
+
+    def _collect_bg_turn_events(self, message: Any) -> None:
+        """T2：把后台原生总结回合一条 SDK 消息(Assistant/User)的 block 序列，镜像前台 block→chunk
+        构造，经 per-turn MainStreamMapper 映射成 envelope，按序追加进 self._bg_turn_events。
+        复用前台同一 mapper → envelope 形状零漂移；工具 started/completed 用 SDK tool_use_id 配对。
+        失败只 log、不破坏收口流程。"""
+        mapper = self._bg_stream_mapper
+        if mapper is None:
+            return
+        chunks: list[StreamChunk] = []
+        for block in (getattr(message, "content", None) or []):
+            if isinstance(block, ThinkingBlock):
+                t = self._normalize_visible_content(block.thinking)
+                if t:
+                    chunks.append(StreamChunk(type="thinking_complete", content=t))
+            elif isinstance(block, TextBlock):
+                t = self._filter_assistant_text(block.text)
+                if t:
+                    chunks.append(StreamChunk(type="text_complete", content=t))
+            elif isinstance(block, ToolUseBlock):
+                # 总结回合一般只用普通工具(Read/Glob/load_artifact…)；Task/Workflow/TaskOutput 特例
+                # 在此降级为普通工具气泡（总结回合不派发它们）。
+                inp = block.input if isinstance(block.input, dict) else {}
+                self._bg_tool_names[block.id] = block.name
+                chunks.append(StreamChunk(
+                    type="tool_call_start",
+                    tool_call_id=block.id,
+                    tool_name=block.name,
+                    tool_description=inp.get("description", ""),
+                    tool_params=inp or None,
+                ))
+            elif isinstance(block, ToolResultBlock):
+                tool_use_id = getattr(block, "tool_use_id", None)
+                tool_name = self._bg_tool_names.get(tool_use_id or "", "unknown")
+                is_error = getattr(block, "is_error", False)
+                success, output_text, error_message, error_type, hidden_message = self._resolve_tool_result_state(
+                    tool_name=tool_name, result=block.content, is_error=is_error, output_limit=1000,
+                )
+                chunks.append(StreamChunk(
+                    type="tool_call_complete",
+                    tool_call_id=tool_use_id,
+                    tool_output=output_text,
+                    success=success,
+                    error=error_message,
+                    error_type=error_type,
+                    hidden_content=hidden_message,
+                ))
+        for chunk in chunks:
+            try:
+                self._bg_turn_events.extend(mapper.map_chunk(chunk))
+            except Exception as e:
+                logger.warning(f"[Background] map bg turn chunk failed: {e}")
+
+    async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
+        """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
+
+        content 为空（极少数无原生总结回合的情形）时回退到 TaskNotification.summary（标题级）。
+        sessionId 用 runtime context 的 store session id（与 _window_sessions 同源），SDK 子进程的
+        session_id 另存 sdkSessionId 仅作诊断。实时推送与 host 落 history 复用这同一份 content。
+        """
+        if self._background_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        status = pending.get("status", "completed")
+        # has_summary：主控是否产出了原生总结文本。True → Chat 渲染气泡 + 落 history；
+        # False → 仅 generic 占位（'Workflow ... completed'），前端只收口 Task 面板、不渲染气泡、不落盘。
+        has_summary = bool(content and content.strip())
+        body = content.strip() if has_summary else \
+            self._compose_background_text(status, pending.get("fallback", ""))
+        # T2：本次后台回合的完整 envelope 序列（thinking/tool/text）。非空时前端据此渲染完整一条回合，
+        # 落 history 也用它（逐 envelope），不再单独落 content（避免重载双文本）。content 仅作无 events 时的兜底。
+        turn_events = self._bg_turn_events
+        record = {
+            "kind": "background_task",  # 前端通道判别字段（与 interaction record 区分）
+            "taskId": pending.get("taskId"),
+            "status": status,
+            "hasSummary": has_summary,  # 前端/落盘据此区分富总结 vs generic 占位
+            "content": body,
+            "events": turn_events,      # T2：完整回合 envelope 序列（可能为空）
+            "summary": pending.get("fallback", ""),
+            "outputFile": pending.get("outputFile"),
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+            "sdkSessionId": pending.get("sdkSessionId"),
+            "turnId": ctx.get("turnId"),
+        }
+        # 复位本次后台回合缓冲（收口后不再复用）
+        self._bg_turn_events = []
+        self._bg_tool_names = {}
+        self._bg_stream_mapper = None
+        try:
+            await self._background_push(record)
+        except Exception as e:
+            logger.warning(f"background_push callback failed: {e}")
+
+    async def _push_background_progress(self, message: Any) -> None:
+        """把后台 Workflow 进度（TaskStarted/TaskProgress）组装成 record 带外推送给前端。
+
+        只实时推送、不落 history（瞬时心跳；完成态由 _push_background_task 持久化）。
+        SDK 实时只给 task 级聚合：usage(total_tokens/tool_uses/duration_ms) + last_tool_name + description，
+        无 per-agent 模型/prompt（完成后读 transcript 补，见 Task 页 tier C）。
+        """
+        if self._background_progress_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        usage = getattr(message, "usage", None)
+        record = {
+            "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
+            "taskId": getattr(message, "task_id", None),
+            "status": "running",
+            "usage": dict(usage) if usage else None,
+            "lastToolName": getattr(message, "last_tool_name", None),
+            "description": getattr(message, "description", None),
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+            "sdkSessionId": getattr(message, "session_id", None),
+        }
+        try:
+            await self._background_progress_push(record)
+        except Exception as e:
+            logger.warning(f"background_progress_push callback failed: {e}")
+
+    @staticmethod
+    def _parse_workflow_meta(script: str) -> dict[str, Any]:
+        """从 workflow 脚本源码解析 meta.name + meta.phases（Task 页运行态全阶段预声明）。
+
+        镜像 .NET WorkflowTranscriptService.ParseScriptPhases 的正则：phases 块内逐个
+        `{ title:'...', detail:'...' }` 抽取。detail 含 ] / } 会截断（与 .NET 同限，真实脚本不触发）。
+        失败一律返回空，绝不破坏回合。
+        """
+        name: str | None = None
+        phases: list[dict[str, Any]] = []
+        try:
+            nm = re.search(r"name:\s*['\"]([^'\"]+)['\"]", script)
+            if nm:
+                name = nm.group(1)
+            block = re.search(r"phases:\s*\[(.*?)\]", script, re.DOTALL)
+            if block:
+                idx = 1
+                for obj in re.finditer(r"\{[^}]*\}", block.group(1)):
+                    seg = obj.group(0)
+                    tm = re.search(r"title:\s*['\"]([^'\"]+)['\"]", seg)
+                    if not tm:
+                        continue
+                    dm = re.search(r"detail:\s*['\"]([^'\"]+)['\"]", seg)
+                    phases.append({"index": idx, "title": tm.group(1),
+                                   "detail": dm.group(1) if dm else None})
+                    idx += 1
+        except Exception as e:
+            logger.warning(f"_parse_workflow_meta failed: {e}")
+        return {"workflowName": name, "phases": phases}
+
+    def _stash_workflow_meta(self, block: Any) -> None:
+        """拦截 Workflow tool_use：读 scriptPath 指向的插件源脚本（稳定常在）或 inline script，
+        解析 meta 暂存（key=block.id=tool_use_id），待 TaskStarted 拿到 task_id 再推前端。
+        """
+        try:
+            inp = getattr(block, "input", None) or {}
+            script_path = inp.get("scriptPath")
+            script = inp.get("script")
+            if script_path and not script:
+                with open(script_path, encoding="utf-8") as f:
+                    script = f.read()
+            if not script:
+                return
+            meta = self._parse_workflow_meta(script)
+            if meta["phases"]:
+                self._pending_workflow_meta[block.id] = meta
+        except Exception as e:
+            logger.warning(f"_stash_workflow_meta failed: {e}")
+
+    async def _push_workflow_phases(self, task_id: str | None, session_id: str | None,
+                                    workflow_name: str | None, phases: list[dict[str, Any]]) -> None:
+        """把预声明的全阶段经现有 SSE 带外通道推前端（kind=workflow_phases），只实时不落盘。"""
+        if self._background_progress_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        record = {
+            "kind": "workflow_phases",  # 前端通道判别字段（与 workflow_progress / background_task 区分）
+            "taskId": task_id,
+            "sdkSessionId": session_id,
+            "workflowName": workflow_name,
+            "phases": phases,
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+        }
+        try:
+            await self._background_progress_push(record)
+        except Exception as e:
+            logger.warning(f"workflow_phases push failed: {e}")
+
+    async def _maybe_emit_workflow_phases(self, message: Any) -> None:
+        """TaskStarted 命中暂存的 Workflow meta（按 tool_use_id）→ 以 task_id 为 key 推前端。"""
+        tool_use_id = getattr(message, "tool_use_id", None)
+        if not tool_use_id:
+            return
+        meta = self._pending_workflow_meta.pop(tool_use_id, None)
+        if not meta:
+            return
+        await self._push_workflow_phases(
+            getattr(message, "task_id", None),
+            getattr(message, "session_id", None),
+            meta.get("workflowName"),
+            meta.get("phases", []),
+        )
 
     async def set_model(self, model: str) -> bool:
         """
@@ -865,7 +1385,10 @@ class MainAgent:
         runtime_context: dict[str, str] | None = None,
     ) -> str:
         """Unified chat interface."""
+        # N1 兜底：前台新回合前 flush 残留后台 pending（趁旧 _last_runtime_context 定位 launching 回合窗口）
+        await self._flush_pending_background()
         self.set_runtime_context(runtime_context)
+        turn: _TurnChannel | None = None
         try:
             if not self._connected:
                 await self.connect(model=model)
@@ -882,8 +1405,17 @@ class MainAgent:
             self._response_model = None
             self._tool_name_by_id.clear()
 
+            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列。
+            # 不变量：注册新回合前，上一回合的 ResultMessage 必须已被 drain 读出（正常回合结束时
+            # drain 投递 ResultMessage 的同步操作会清空 _active_turn）。sleep(0) 让出事件循环，
+            # 给 drain 机会排空滞留的回合外消息，缩小"陈旧 ResultMessage 串入新回合"的竞态窗口。
+            await asyncio.sleep(0)
+            turn = _TurnChannel()
+            self._active_turn = turn
+            await self._client.query(user_message)
+
             full_response = ""
-            async for message in self._client.receive_response():
+            async for message in self._iter_turn_messages(turn):
                 text = self._process_message(message)
                 full_response += text
 
@@ -894,6 +1426,9 @@ class MainAgent:
 
             return full_response
         finally:
+            # 早退/异常时复位回合槽（is 身份比较，避免误清后续回合）
+            if turn is not None and self._active_turn is turn:
+                self._active_turn = None
             self.clear_runtime_context()
 
     @staticmethod
@@ -1026,7 +1561,7 @@ class MainAgent:
                         f"projectPath={project_path}；clientMessageId={client_message_id}；"
                         f"{'；'.join(item_strs)}。"
                         "如需分析参考图，直接使用上述 attachmentId 调用 "
-                        "mcp__canvas__analyze_image，"
+                        "mcp__canvas__canvas_vision（传 prompt + attachmentId），"
                         "不要再通过 Glob/Read 搜索 _chat_attachments.json。"
                     )
 
@@ -1051,6 +1586,38 @@ class MainAgent:
         context: dict = None,
         runtime_context: dict[str, str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
+        """流式对话外壳：保证回合槽 / runtime context 在任何退出路径（正常/异常/生成器提前关闭）都被复位。"""
+        try:
+            async for chunk in self._chat_stream_impl(
+                user_message,
+                images=images,
+                image_blocks=image_blocks,
+                client_message_id=client_message_id,
+                effort=effort,
+                thinking=thinking,
+                model=model,
+                context=context,
+                runtime_context=runtime_context,
+            ):
+                yield chunk
+        finally:
+            # 单窗口串行：本生成器结束后才会有下一回合，置空回合槽安全；
+            # drain 正常路径已在 ResultMessage 时清空，这里兜底早退/异常/GeneratorExit。
+            self._active_turn = None
+            self.clear_runtime_context()
+
+    async def _chat_stream_impl(
+        self,
+        user_message: str,
+        images: list[str] = None,
+        image_blocks: list[dict] = None,
+        client_message_id: str | None = None,
+        effort: str = None,
+        thinking: str = None,
+        model: str = None,
+        context: dict = None,
+        runtime_context: dict[str, str] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
         """
         Streaming chat interface with thinking support.
 
@@ -1064,6 +1631,8 @@ class MainAgent:
             model: 模型名称，None 使用默认配置
             context: 画布上下文（选中模块/区域），由前端 buildContextPayload() 构建
         """
+        # N1 兜底：前台新回合前 flush 残留后台 pending（趁旧 _last_runtime_context 定位 launching 回合窗口）
+        await self._flush_pending_background()
         self.set_runtime_context(runtime_context)
 
         if not self._connected:
@@ -1088,6 +1657,8 @@ class MainAgent:
         self._pending_tool_calls.clear()
         self._tool_name_by_id.clear()
         self._tool_to_subagent.clear()
+        # A 修复:本回合是否启动了后台 Workflow（用于"真后台脱离"——见 AssistantMessage 分支末尾）
+        self._turn_launched_workflow = False
 
         # 构建画布上下文 content block（独立于用户消息，对齐 Claude Code 的 <ide_selection> 模式）
         context_block = self._build_context_block(context)
@@ -1130,11 +1701,17 @@ class MainAgent:
                     "session_id": "default",
                 }
 
+            # 注册回合通道后再 query：常驻 _drain_loop 据 _active_turn 把消息投递到本回合队列。
+            # 不变量：注册新回合前，上一回合 ResultMessage 应已被 drain 读出（正常结束时同步清空 _active_turn）。
+            # sleep(0) 让出事件循环给 drain 排空滞留的回合外消息，缩小"陈旧 ResultMessage 串入新回合"的竞态窗口。
+            await asyncio.sleep(0)
+            turn = _TurnChannel()
+            self._active_turn = turn
             await self._client.query(message_stream())
         else:
             raise ValueError("Message or attachments cannot be empty")
 
-        async for message in self._client.receive_response():
+        async for message in self._iter_turn_messages(turn):
             # 获取当前消息的 parent_tool_use_id（用于关联工具调用到 SubAgent）
             current_parent_id = getattr(message, 'parent_tool_use_id', None)
 
@@ -1191,6 +1768,8 @@ class MainAgent:
             elif isinstance(message, AssistantMessage):
                 # 存储 API 响应的模型值，用于日志显示（不覆盖 _current_model）
                 self._capture_response_model(getattr(message, 'model', None))
+                # A 修复:本条 AssistantMessage 是否含工具调用（无工具=主控的收尾文本）
+                _had_tool_use = any(isinstance(b, ToolUseBlock) for b in message.content)
 
                 # 检查 API 级错误（0.1.28 修复了 error 字段填充 bug）
                 api_error = getattr(message, 'error', None)
@@ -1235,6 +1814,11 @@ class MainAgent:
                         self._current_tool_name = block.name
                         if block.id:
                             self._tool_name_by_id[block.id] = block.name
+                        if block.name == "Workflow":
+                            # A 修复:标记本回合启动了后台 Workflow，供稍后"真后台脱离"判定
+                            self._turn_launched_workflow = True
+                            # Task 页运行态全阶段预声明:读脚本 meta.phases 暂存,待 TaskStarted 推前端
+                            self._stash_workflow_meta(block)
                         if block.name == "Task":
                             # SubAgent 开始 - 添加到活跃映射（支持多个并行）
                             subagent_type = block.input.get("subagent_type", "general-purpose")
@@ -1330,6 +1914,25 @@ class MainAgent:
                                 f"[UnknownBlock] Unhandled content block: {type(block).__name__}"
                             )
 
+                # A 修复:Workflow 真后台脱离。本回合已启动后台 Workflow，且主控刚输出一条"无工具调用"的
+                # 收尾文本（即启动后的总结）→ 主动结束回合，不再死等被后台任务推迟到工作流跑完才发的 ResultMessage。
+                # 清空 _active_turn 后，后续 TaskProgress/TaskNotification 由常驻 _drain_loop 走带外通道
+                # （_handle_background_message：进度静默丢弃、完成时 _push_background_task 推前端），输入框立即解锁。
+                # 这样 Workflow 行为对齐"真后台 Task"：发起轮立即收尾，工作流成败都不再霸占对话。
+                if self._turn_launched_workflow and not _had_tool_use:
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            "[Workflow] 后台任务已启动且收尾文本已输出，回合脱离收尾（真后台，不锁输入）"
+                        )
+                    # 显式告知前端：本回合已把 workflow 脱离到后台，完成会经 background_task.completed
+                    # 旁路到达。前端据此置 isPollingBackground，跳过"前台回合结束即内联收口"——否则回合一
+                    # 结束就把仍在后台跑的 workflow 误标 completed（与旧 TaskOutput 轮询的 task_output_polling
+                    # 同为"后台脱离"信号，但此处是 push 式真后台、非轮询，故用独立语义名）。
+                    yield StreamChunk(type="workflow_detached")
+                    self._turn_launched_workflow = False
+                    self._active_turn = None  # 后续消息 → drain 带外通道
+                    break
+
             # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
             elif isinstance(message, UserMessage):
                 for block in message.content:
@@ -1398,25 +2001,16 @@ class MainAgent:
                         f"[Result] subtype={message.subtype}, cost=${message.total_cost_usd or 0:.4f}, "
                         f"turns={message.num_turns}, duration={message.duration_ms}ms{suffix}"
                     )
-                    # W3: cache 命中率埋点（诊断 SDK #974 bundled CLI 多轮 cache miss）
-                    usage = getattr(message, "usage", None) or {}
-                    cache_read = usage.get("cache_read_input_tokens") or 0
-                    cache_creation = usage.get("cache_creation_input_tokens") or 0
-                    # W3 fallback（2026-05-29 实测预言成真）：多 model 路由场景下（如 deepseek 代理
-                    # 网关）cache 计数下沉到 model_usage[<model>]，顶层 usage 为 None。SDK 是 raw
-                    # dict 透传（claude_agent_sdk/_internal/message_parser.py:258,261）。
-                    if cache_read == 0 and cache_creation == 0:
-                        model_usage = getattr(message, "model_usage", None) or {}
-                        for mu in model_usage.values():
-                            if isinstance(mu, dict):
-                                cache_read += mu.get("cache_read_input_tokens") or 0
-                                cache_creation += mu.get("cache_creation_input_tokens") or 0
-                    total = cache_read + cache_creation
-                    if total > 0:
-                        ratio = cache_read / total * 100
+                    # W3 v3: SDK ResultMessage usage / model_usage 原样透传（诊断 #974）
+                    # 不做计算/比例/累加 —— 字段名和值原封不动 dump，由读日志的人解读
+                    # （历史：v1/v2 用 ratio=read/(read+creation)，稳态会话下数学恒 100%，无诊断价值）
+                    if message.usage:
                         self._agent_logger.log_info(
-                            f"[Cache] read={cache_read}, creation={cache_creation}, "
-                            f"ratio={ratio:.1f}%"
+                            f"[Usage] {json.dumps(message.usage, ensure_ascii=False, default=str)}"
+                        )
+                    if message.model_usage:
+                        self._agent_logger.log_info(
+                            f"[ModelUsage] {json.dumps(message.model_usage, ensure_ascii=False, default=str)}"
                         )
 
             # S4: RateLimitEvent 分支（SDK 0.1.49+）
@@ -1451,20 +2045,16 @@ class MainAgent:
                         f"[TaskStarted] task_id={message.task_id}, desc={message.description}, "
                         f"tool_use_id={message.tool_use_id}"
                     )
+                # Task 页运行态全阶段预声明:workflow 任务启动即推完整 phases（命中暂存才推）
+                await self._maybe_emit_workflow_phases(message)
 
             # S4: TaskProgressMessage 分支（SDK 0.1.46+）
             # 通过 tool_use_id 反查 subagent_id（_active_subagents 当前结构 dict[tool_use_id, subagent_id]）。
             # usage 是 TaskUsage TypedDict，运行时本质 dict，可直接 .get / dict() 转换。
             elif isinstance(message, TaskProgressMessage):
                 subagent_id = self._active_subagents.get(message.tool_use_id) if message.tool_use_id else None
-                if self.verbose:
-                    usage = message.usage or {}
-                    self._agent_logger.log_info(
-                        f"[TaskProgress] task_id={message.task_id}, "
-                        f"tokens={usage.get('total_tokens')}, "
-                        f"tool_uses={usage.get('tool_uses')}, "
-                        f"last_tool={message.last_tool_name}"
-                    )
+                # 降噪（7.3）：对齐后台路径（:829-832 只推前端、不打 console）——逐 tick log 无 console 价值、
+                # 内联 workflow 下刷屏。实时进度仍经下方 subagent_progress 投递 Task 页。
                 yield StreamChunk(
                     type="subagent_progress",
                     subagent_id=subagent_id,
@@ -1475,14 +2065,33 @@ class MainAgent:
                 )
 
             # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
-            # 并存观察策略：不切现有 ToolResultBlock 完成路径（行 ~1214），避免双触发；
-            # 仅 verbose log，待后续 WP 视前端契约需求决定是否切主路径。
+            # 边界场景：后台 Workflow 在本回合流式过程中完成（消息落到活跃回合）。
+            # 只登记待汇报状态——主控的【原生总结回合】会在本回合结束后到达（回合外），
+            # 届时由 _handle_background_message 收集并投递，与回合外路径完全一致。
             elif isinstance(message, TaskNotificationMessage):
                 if self.verbose:
                     self._agent_logger.log_info(
                         f"[TaskNotification] task_id={message.task_id}, status={message.status}, "
                         f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
+                if self._bg_completion_pending is not None:
+                    # N1 防覆写：已有未收口的后台 pending，不覆写（保留首个 task_id）。
+                    if self.verbose:
+                        self._agent_logger.log_info(
+                            f"[TaskNotification] pending 未收口，忽略覆写 "
+                            f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
+                            f"new task_id={message.task_id})"
+                        )
+                else:
+                    self._bg_completion_pending = {
+                        "taskId": message.task_id,
+                        "status": str(message.status),
+                        "outputFile": message.output_file or None,
+                        "sdkSessionId": message.session_id,
+                        "fallback": message.summary or "",
+                    }
+                    self._bg_summary_parts = []
+                    self._bg_round_had_tool = False
 
             elif isinstance(message, SystemMessage):
                 # SDK 级系统消息（会话初始化、上下文压缩等）
@@ -1499,7 +2108,7 @@ class MainAgent:
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._completion_model_stamp())
-        self.clear_runtime_context()
+        # 注：_active_turn 复位与 clear_runtime_context 由外壳 chat_stream 的 finally 统一处理
 
     # ─────────────────────────────────────────────────────
     # Control Methods

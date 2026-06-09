@@ -320,21 +320,30 @@ class ConfigLoader:
         self._expand_env_vars(self._config)
         return self._config
 
-    def load_system_prompt(self, active_plugin_root: Path | None = None) -> str:
+    def load_system_prompt(
+        self,
+        active_plugin_root: Path | None = None,
+        mcp_namespace: str | None = None,
+    ) -> str:
         """加载系统提示词:core-base 永远在场 + active domain plugin 叠加 (v3.6 两层架构)。
 
         叠加语义:
         - core-base/BIMCANVAS.md 作为平台基座 prompt **永远在场**,含平台铁律 + 通用角色 +
           chat/query/edit 通用路由(原 PLATFORM_CONTRACT.md 内容已并入此文件 §2)
         - active_plugin_root 为 None 或显式传入 core-base 自身时,只返回基座 prompt (防 self-stack)
-        - 装了 domain plugin (如 indoor-layout) 时, 在基座 prompt 后追加 plugin 的 BIMCANVAS.md
-          (业务路由扩展 + workflow 调度), 中间用 markdown 分节符 + plugin id 边界标识
+        - 装了 domain plugin 时, 在基座 prompt 后追加 plugin 的 BIMCANVAS.md
+          (业务路由扩展 + workflow 调度), 中间用 **平台确定性注入的身份边界段**:
+          `## Active Plugin: <id> · namespace: mcp__<ns>__*`。身份由平台注入(非 plugin 自述),
+          让 Agent 经提示词即知当前激活插件与其 MCP 命名空间——不靠 MCP 查询、不进项目文件。
 
         Args:
             active_plugin_root: active domain plugin 物理目录;None 表示无 domain plugin
+            mcp_namespace: active plugin 的 MCP 命名空间(= mcp_tools/ 入口 .py 的 stem);
+                由调用方派生传入(见 config_bundle._derive_plugin_mcp_namespace)。None 表示
+                该 plugin 无 MCP 工具。
 
         Returns:
-            完整系统提示词:基座单层, 或 `基座 + 边界 + plugin` 双层
+            完整系统提示词:基座单层, 或 `基座 + 身份边界 + plugin` 双层
         """
         # 1. core-base/BIMCANVAS.md 必存 (平台基座, 缺失即配置损坏)
         core_base_root = self._resolve_core_base_root()
@@ -361,9 +370,10 @@ class ConfigLoader:
             active_prompt = f.read()
 
         plugin_id = active_plugin_root.name
+        ns_suffix = f" · namespace: mcp__{mcp_namespace}__*" if mcp_namespace else ""
         return (
             f"{core_base_prompt}\n\n"
-            f"---\n## Domain Plugin Layer · {plugin_id}\n---\n\n"
+            f"---\n## Active Plugin: {plugin_id}{ns_suffix}\n---\n\n"
             f"{active_prompt}"
         )
 

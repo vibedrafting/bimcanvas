@@ -372,7 +372,7 @@ class AgentLogger:
         tool_key = (tool_name or "").lower()
 
         image_bytes = self._find_image_payload_bytes(result)
-        if image_bytes is not None or tool_key == "mcp__canvas__request_background_screenshot":
+        if image_bytes is not None or tool_key == "mcp__canvas__canvas_vision":
             if image_bytes is None:
                 image_bytes = self._estimate_base64_bytes(result_str) if self._looks_like_base64(result_str) else 0
             return f"image result suppressed (bytes≈{image_bytes}, chars={len(result_str)})"

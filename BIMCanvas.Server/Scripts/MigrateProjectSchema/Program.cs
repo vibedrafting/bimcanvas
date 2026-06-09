@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using BIMCanvas.Server.Services.ProjectHealth;
 using BIMCanvas.Server.Services.ProjectHealth.Checks;
@@ -24,19 +25,21 @@ internal static class Program
         var dryRun = args.Skip(1).Any(a => a == "--dry-run");
         var only = args.Skip(1).FirstOrDefault(a => a.StartsWith("--only="))?["--only=".Length..]?.ToLowerInvariant();
 
-        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue" && only != "slim")
+        if (only != null && only != "tag" && only != "wrapper" && only != "tagvalue" && only != "slim" && only != "pointer")
         {
-            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue' / 'slim'，收到: {only}");
+            Console.Error.WriteLine($"[Error] --only 只接受 'tag' / 'wrapper' / 'tagvalue' / 'slim' / 'pointer'，收到: {only}");
             return 2;
         }
 
         // 按 plan 顺序：Phase 0 字段重命名 → Phase 0b wrapper 升级 → Phase E schemeMetadata 瘦身 → Phase D tag 值语义化
+        // → 指针模型迁移（必须最后跑：依赖 wrapper/tag 值已就位，再把 canonical→main/ + semantic_plan→DESIGN.md）
         IProjectHealthCheck[] allChecks =
         {
             new SemanticPlanTagCheck(),
             new ModulesWrapperCheck(),
             new SchemeMetadataSlimCheck(),
-            new SemanticPlanTagValueCheck()
+            new SemanticPlanTagValueCheck(),
+            new PointerModelMigrateCheck()
         };
         var checks = only switch
         {
@@ -44,6 +47,7 @@ internal static class Program
             "wrapper" => allChecks.Where(c => c.Id == "phase0b-wrapper"),
             "slim" => allChecks.Where(c => c.Id == "phase-e-metadata-slim"),
             "tagvalue" => allChecks.Where(c => c.Id == "phase-d-tag-value"),
+            "pointer" => allChecks.Where(c => c.Id == "pointer-model"),
             _ => allChecks
         };
 
@@ -67,6 +71,20 @@ internal static class Program
             }
             else
             {
+                // CLI 无 git 自动兜底（autoGitCommit:false）；迁移是破坏性一次性操作，apply 前强制工作区 clean，
+                // 非 clean 拒绝执行（除非 --force）。确认 dirty 才拦；非 git 仓库 / git 不可用则放行并提示自行备份。
+                if (!args.Skip(1).Any(a => a == "--force"))
+                {
+                    var (clean, detail) = CheckGitClean(projectPath);
+                    if (!clean)
+                    {
+                        Console.Error.WriteLine($"[Error] 工作区非 clean，拒绝执行破坏性指针迁移：{detail}");
+                        Console.Error.WriteLine("        请先 git commit 存档后重试，或加 --force 跳过此检查（风险自负）。");
+                        return 2;
+                    }
+                    Console.WriteLine($"[Migrate] git 工作区检查：{detail}");
+                }
+
                 var report = service.RepairAll(projectPath, autoGitCommit: false);
                 PrintRepair(report);
                 return report.Checks.Any(c => c.Errors.Count > 0) ? 1 : 0;
@@ -119,6 +137,34 @@ internal static class Program
         Console.WriteLine($"  错误数：{totalErrors}");
     }
 
+    /// <summary>
+    /// git working-tree-clean 检查。返回 (clean, detail)。
+    /// 仅在确认 dirty 时返回 clean=false（拦截）；非 git 仓库 / git 不可用 / 异常 → 返回 clean=true（放行 + 提示），不强行阻断。
+    /// </summary>
+    private static (bool clean, string detail) CheckGitClean(string projectPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("git", "status --porcelain")
+            {
+                WorkingDirectory = projectPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = Process.Start(psi);
+            if (p == null) return (true, "无法启动 git，跳过检查（建议手动备份）");
+            var outp = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            if (p.ExitCode != 0) return (true, "非 git 仓库或 git 不可用，跳过检查（建议手动备份）");
+            return string.IsNullOrWhiteSpace(outp) ? (true, "clean") : (false, "存在未提交改动");
+        }
+        catch (Exception ex)
+        {
+            return (true, $"git 检查异常（{ex.Message}），跳过");
+        }
+    }
+
     private static void PrintUsage()
     {
         Console.WriteLine("BIMCanvas .bcp 项目 schema 一次性清洗工具");
@@ -136,6 +182,7 @@ internal static class Program
         Console.WriteLine("  --only=wrapper    只跑 Phase 0b（modules.json wrapper）");
         Console.WriteLine("  --only=slim       只跑 Phase E（schemeMetadata 瘦身）");
         Console.WriteLine("  --only=tagvalue   只跑 Phase D（semantic_plan tag 值映射）");
+        Console.WriteLine("  --only=pointer    只跑 指针模型迁移（canonical→{dz}/main/ + semantic_plan/reference→DESIGN.md + 父 adopted:main）");
         Console.WriteLine();
         Console.WriteLine("注意:");
         Console.WriteLine("  1. CLI 不自动 git 存档——请先手动 commit。");

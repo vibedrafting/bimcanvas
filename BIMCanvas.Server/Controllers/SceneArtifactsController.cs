@@ -252,6 +252,17 @@ namespace BIMCanvas.Server.Controllers
             if (subPath.Contains("..") || subPath.Contains('\\') || !PathSegmentPattern.IsMatch(subPath))
                 return BadRequest(new { code = "invalid_path", message = "path 仅允许 [a-zA-Z0-9_/-]+,禁止 .. / \\ / 前导斜杠" });
 
+            // 指针模型:modules 的「裸设计区路径」(path=zoneId,无 slug 段) 须经拓扑解析 adopted 指针,
+            // 与聚合读 ReadModulesAggregated 同一收敛点;否则会去拼旧 canonical schemes/{zoneId}/modules.json
+            // (指针模型下不存在)→404。slug 限定路径(path=zoneId/slug[/leaf]) 仍走下方直读、不解析指针;
+            // legacy 项目(无 zones.json)或非设计区也落下方直读(零回归)。
+            if (kind == "modules" && !subPath.Contains('/'))
+            {
+                var topology = Services.ModuleFileTopologyService.BuildFromSchemesPath(Path.Combine(projectPath, "schemes"));
+                if (topology.IsDesignZoneId(subPath))
+                    return ReadAdoptedModulesForDesignZone(projectPath, topology, subPath);
+            }
+
             var schemesRoot = Path.Combine(projectPath, "schemes");
             var fileName = kind + ".json";
             var targetAbsolute = Path.Combine(schemesRoot, subPath.Replace('/', Path.DirectorySeparatorChar), fileName);
@@ -306,23 +317,74 @@ namespace BIMCanvas.Server.Controllers
                 return StatusCode(404, new { code = "artifact_not_found", message = "schemes 目录不存在", artifactKind = "modules" });
             }
 
-            var modulesFiles = Directory.GetFiles(schemesRoot, "modules.json", SearchOption.AllDirectories);
+            // 指针模型：经拓扑收敛只取各设计区 adopted 方案的 modules（排除 _ 隐藏候选 / 落选 slug）。
+            // 拓扑 canonical 条目已重定向到 adopted slug 路径；无 DESIGN.md/adopted 的设计区不产 canonical 条目（不回头看，不再回落 legacy）。
+            var topology = Services.ModuleFileTopologyService.BuildFromSchemesPath(schemesRoot);
+            var entries = topology.GetExistingCanonicalModuleFiles(null);
             var aggregated = new List<object>();
-            foreach (var file in modulesFiles)
+            foreach (var entry in entries)
             {
                 try
                 {
-                    var content = System.IO.File.ReadAllText(file, Encoding.UTF8);
-                    var relativeFromScene = Path.GetRelativePath(schemesRoot, file).Replace('\\', '/');
-                    aggregated.Add(new { relativePath = relativeFromScene, content });
+                    var content = System.IO.File.ReadAllText(entry.FilePath, Encoding.UTF8);
+                    aggregated.Add(new { relativePath = entry.RelativePath, content });
                 }
                 catch (Exception exc)
                 {
-                    _logger.LogWarning(exc, "读取 modules.json 失败: {File}", file);
+                    _logger.LogWarning(exc, "读取 modules.json 失败: {File}", entry.FilePath);
                 }
             }
 
             return Ok(new { artifactKind = "modules", files = aggregated });
+        }
+
+        // ---------- modules:裸设计区路径 → 经拓扑解析 adopted 当前生效方案 ----------
+
+        /// <summary>
+        /// 指针模型下精确读「单个设计区」当前生效(adopted)方案的 modules。
+        /// 复用拓扑收敛(与 ReadModulesAggregated / validate 同一解析点):
+        /// 单叶设计区 → 1 个叶子条目;有 subZones 的容器 → 各叶子的 adopted modules;无 DESIGN.md/adopted → 无条目(空,不回落 legacy)。
+        /// 返回形态与聚合读一致 { files:[{relativePath, content}] },让调用方看到解析后的真实 slug 路径(也教会指针模型)。
+        /// </summary>
+        private IActionResult ReadAdoptedModulesForDesignZone(string projectPath, Services.ModuleFileTopology topology, string designZoneId)
+        {
+            IReadOnlyList<Services.ModuleFileEntry> entries;
+            try
+            {
+                entries = topology.GetExistingCanonicalModuleFiles(new[] { designZoneId }, variantId: null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[SceneArtifact] 解析设计区 {Zone} 的 adopted modules 失败", designZoneId);
+                return StatusCode(500, new { code = "read_failed", message = ex.Message });
+            }
+
+            if (entries.Count == 0)
+            {
+                return StatusCode(404, new
+                {
+                    code = "artifact_not_found",
+                    message = $"设计区 {designZoneId} 无当前生效(adopted)的 modules(可能尚未采纳任何方案或未布置)。读某个隐藏候选/具体方案请用 path={designZoneId}/{{slug}}。",
+                    artifactKind = "modules",
+                    path = designZoneId,
+                });
+            }
+
+            var aggregated = new List<object>();
+            foreach (var entry in entries)
+            {
+                try
+                {
+                    var content = System.IO.File.ReadAllText(entry.FilePath, Encoding.UTF8);
+                    aggregated.Add(new { relativePath = entry.RelativePath, content });
+                }
+                catch (Exception exc)
+                {
+                    _logger.LogWarning(exc, "读取 modules.json 失败: {File}", entry.FilePath);
+                }
+            }
+
+            return Ok(new { artifactKind = "modules", path = designZoneId, files = aggregated });
         }
 
         // ---------- zones:schemes/zones.json 全 scene 共享 ----------

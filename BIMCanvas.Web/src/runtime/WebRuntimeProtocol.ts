@@ -53,8 +53,8 @@ export interface WebRuntime {
   closeProject(): Promise<void>;
   /**
    * 保存模块到持久层。
-   * @param variantSelection 可选：叶子 zone id → variantId 的映射。命中的 zone 写入 modules-{variantId}.json，
-   *   未命中 zone 走 canonical modules.json。缺省/空 = 全 canonical（旧行为）。
+   * @param variantSelection 可选：叶子 zone id → 方案 slug 的映射。命中的 zone 由服务端按指针模型
+   *   写入该方案路径 schemes/{dz}/{slug}/[{leaf}/]modules.json；未命中 zone 走 canonical（父 adopted 指向）。缺省/空 = 全 canonical。
    */
   saveModules(modules: Module[], variantSelection?: Record<string, string>): Promise<boolean>;
   getModuleLibrary(): Promise<ModuleLibrary | null>;

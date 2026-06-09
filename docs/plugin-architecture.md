@@ -188,7 +188,7 @@ installed         active         bound          launched
 | `validate_layout` | 几何 / 碰撞校验 |
 | `get_zone_boundaries` | 读取设计区边界语义 |
 | `save_modules` | 写 `schemes/{zoneId}/modules.json` |
-| `analyze_image` | 大模型图像理解(参考图分析等) |
+| `canvas_vision` | 截图 / 识图(apiyi/aoment 可配) / 截图+识图 三模式自动判断 |
 | **`list_project_scenes`** | 列出当前项目所有 scenes(供跨 scene 协作) |
 | **`load_scene_artifact`** | 读 scene 下的 artifact;聚合读(scene 内所有同名文件)或 `path` 精确读单文件 |
 

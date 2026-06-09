@@ -181,11 +181,49 @@ namespace BIMCanvas.Server.Services
                 throw new FileNotFoundException($"模板清单不存在: {manifestPath}", manifestPath);
             }
 
+            // 平台配置清单要求非空(空 = 配置错误,显式抛错)。
+            ProcessManifest(manifestPath, targetRoot, replacements, requireNonEmpty: true);
+        }
+
+        /// <summary>
+        /// 按**绝对路径** manifest 初始化目标目录。与 <see cref="EnsureInitializedFromManifest"/>
+        /// 共享同一套"仅缺失补齐、绝不覆盖"程序;唯一区别:manifest 路径不拼 Templates 根,
+        /// 且 items 为空时安静 no-op(plugin projectMount 允许声明空挂载清单)。
+        /// 供 plugin projectMount 初始化复用(<see cref="ProjectFixedFilesBootstrapService.EnsureProjectMountInitialized"/>)。
+        /// </summary>
+        public void EnsureInitializedFromManifestAbsolute(
+            string manifestPath,
+            string targetRoot,
+            IReadOnlyDictionary<string, string>? replacements = null)
+        {
+            if (string.IsNullOrWhiteSpace(targetRoot))
+            {
+                throw new ArgumentException("目标根目录不能为空。", nameof(targetRoot));
+            }
+            if (!File.Exists(manifestPath))
+            {
+                throw new FileNotFoundException($"模板清单不存在: {manifestPath}", manifestPath);
+            }
+
+            ProcessManifest(manifestPath, targetRoot, replacements, requireNonEmpty: false);
+        }
+
+        /// <summary>读 manifest 并逐项"仅缺失补齐"。两个公共入口共享的核心循环。</summary>
+        private static void ProcessManifest(
+            string manifestPath,
+            string targetRoot,
+            IReadOnlyDictionary<string, string>? replacements,
+            bool requireNonEmpty)
+        {
             var manifestJson = File.ReadAllText(manifestPath, Encoding.UTF8);
             var manifest = JsonConvert.DeserializeObject<BootstrapManifest>(manifestJson, JsonSettings);
             if (manifest?.Items == null || manifest.Items.Count == 0)
             {
-                throw new InvalidOperationException($"模板清单为空或无效: {manifestPath}");
+                if (requireNonEmpty)
+                {
+                    throw new InvalidOperationException($"模板清单为空或无效: {manifestPath}");
+                }
+                return;
             }
 
             var manifestRoot = Path.GetDirectoryName(manifestPath)
@@ -263,11 +301,7 @@ namespace BIMCanvas.Server.Services
                 throw new InvalidOperationException($"目标路径已存在同名文件，无法初始化目录: {targetPath}");
             }
 
-            if (Directory.Exists(targetPath))
-            {
-                return;
-            }
-
+            // 目标目录可能已部分存在:递归"仅缺失补齐"(CopyDirectory 跳过已存在文件),绝不覆盖用户改动。
             CopyDirectory(sourcePath, targetPath);
         }
 
@@ -316,7 +350,12 @@ namespace BIMCanvas.Server.Services
             foreach (var file in Directory.GetFiles(sourceDir))
             {
                 var fileName = Path.GetFileName(file);
-                File.Copy(file, Path.Combine(targetDir, fileName), overwrite: false);
+                var dest = Path.Combine(targetDir, fileName);
+                if (File.Exists(dest))
+                {
+                    continue; // 仅缺失补齐:已存在文件不覆盖
+                }
+                File.Copy(file, dest, overwrite: false);
             }
 
             foreach (var subDir in Directory.GetDirectories(sourceDir))

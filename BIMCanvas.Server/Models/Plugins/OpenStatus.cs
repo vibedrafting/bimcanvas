@@ -5,30 +5,22 @@ using Newtonsoft.Json.Serialization;
 namespace BIMCanvas.Server.Models.Plugins;
 
 /// <summary>
-/// OpenProject 三态返回 (主真理源 v1.1 §2.2 + §4.7 / 模板 §4.7)。
-/// Server 把 ProjectContext 内部状态投影为该 enum 返回给 Web,Web 据此决定弹哪个对话框。
+/// OpenProject 返回状态 (项目去插件态后只余 Bound 单态)。
+/// Server 把 ProjectContext 内部状态投影为该 enum 返回给 Web。
 /// 序列化为 camelCase 字符串(由 enum 类型上的 <c>[JsonConverter]</c> 控制)。
+///
+/// <para>原 SceneSelectRequired / RequiresSceneBinding 两态随「项目不持插件运行态」退役:
+/// 打开项目不再读 project.json.scenes[] 做匹配,activePlugin 非空即直接 Bound、
+/// 无 active plugin 走 legacy 放行,均不产生待选/待绑定中间态。</para>
 /// </summary>
 [JsonConverter(typeof(StringEnumConverter), typeof(CamelCaseNamingStrategy))]
 public enum OpenStatus
 {
     /// <summary>
-    /// 命中唯一 scene → ProjectContext.State = Bound,生成 LaunchContext,启动 Agent。
+    /// 项目打开成功 → ProjectContext.State = Bound,生成 LaunchContext。
     /// Web 直接渲染 active plugin 视图。
     /// </summary>
     Bound,
-
-    /// <summary>
-    /// 命中多个 scene → ProjectContext.State = Pending,候选 scenes 返回 Web。
-    /// Web 弹 SceneSelectorDialog 让用户选。
-    /// </summary>
-    SceneSelectRequired,
-
-    /// <summary>
-    /// 未命中任何 scene (legacy 项目 / 新 scene 类型) → ProjectContext.State = Pending,
-    /// Web 弹 SceneBindingDialog 让用户 [新增此场景] 或 [切回 active plugin]。
-    /// </summary>
-    RequiresSceneBinding,
 }
 
 /// <summary>

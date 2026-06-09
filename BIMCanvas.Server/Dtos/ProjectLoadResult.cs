@@ -49,22 +49,6 @@ namespace BIMCanvas.Server.Dtos
         /// 当前 server_config.json.agent.activePlugin (供 Web 提示用户)。
         /// </summary>
         public string? CurrentActivePlugin { get; set; }
-
-        /// <summary>
-        /// OpenStatus = Bound 时被绑定的 sceneId。
-        /// </summary>
-        public string? ActiveSceneId { get; set; }
-
-        /// <summary>
-        /// OpenStatus = SceneSelectRequired 时的候选 scene 列表。
-        /// </summary>
-        public List<ProjectScene>? Candidates { get; set; }
-
-        /// <summary>
-        /// OpenStatus = RequiresSceneBinding 时,项目内已存在 scenes (供 Web 提示
-        /// "此项目已有 X 场景,您当前激活 Y,是否新增 Y 场景?")。
-        /// </summary>
-        public List<ProjectScene>? ExistingScenes { get; set; }
     }
 
     /// <summary>
@@ -132,32 +116,6 @@ namespace BIMCanvas.Server.Dtos
     public class CreateProjectRequest
     {
         public string Name { get; set; } = "";
-    }
-
-    /// <summary>
-    /// 新增 scene 绑定请求 (主真理源 v1.1 §2.2 步骤 6 / §4.8)。
-    /// 对应 POST /api/project/scenes。
-    /// </summary>
-    public class BindSceneRequest
-    {
-        public string SceneId { get; set; } = "";
-        public string? Scene { get; set; }
-        public BindSceneRequestPlugin Plugin { get; set; } = new();
-    }
-
-    public class BindSceneRequestPlugin
-    {
-        public string Id { get; set; } = "";
-        public string? VersionRange { get; set; }
-    }
-
-    public class BindSceneResult
-    {
-        public bool Success { get; set; }
-        public string? SceneId { get; set; }
-        public string? PluginId { get; set; }
-        public string? ProjectPath { get; set; }
-        public string? Message { get; set; }
     }
 
     /// <summary>

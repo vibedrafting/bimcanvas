@@ -30,71 +30,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _try_read_scenes_from_project_json(project_path: str) -> "PluginLaunchContext | None":
-    """从 project.json 读取 scenes,构造 project-bound LaunchContext。
-
-    当 resolve_launch_context() 回退到 projectless(LaunchContext 文件已被前一个 agent 消费),
-    但实际上 project_path 是真实存在的项目时使用。这是多窗口 / 多 agent 实例的常见场景:
-    第一个 agent 消费了 LaunchContext 文件,后续 agent 走 fallback → scenes=None。
-    本函数允许后续 agent 从磁盘直接读取 scenes,避免 list_project_scenes 误报"未绑定项目"。
-    """
-    import json as _json
-    from pathlib import Path as _Path
-    from .launch_context import (
-        LaunchMode,
-        ProjectScenesSummary, ProjectScene, ScenePluginRef, SceneStatus,
-        _build_projectless_fallback,
-    )
-
-    if not project_path:
-        return None
-    project_json_path = _Path(project_path) / "project.json"
-    if not project_json_path.exists():
-        return None
-    try:
-        data = _json.loads(project_json_path.read_text(encoding="utf-8-sig"))
-        raw_scenes = data.get("scenes") or []
-        scenes: list[ProjectScene] = []
-        for s in raw_scenes:
-            scene_id = s.get("sceneId") or ""
-            if not scene_id:
-                continue
-            plugin_obj = s.get("plugin") or {}
-            plugin_ref = ScenePluginRef(
-                id=plugin_obj.get("id") or "",
-                version_range=plugin_obj.get("versionRange") or "^1.0.0",
-            )
-            status_str = (s.get("status") or "active").lower()
-            try:
-                status = SceneStatus(status_str)
-            except ValueError:
-                status = SceneStatus.ACTIVE
-            scenes.append(ProjectScene(
-                scene_id=scene_id,
-                scene=s.get("scene") or "",
-                plugin=plugin_ref,
-                status=status,
-                created_at=s.get("createdAt") or "",
-            ))
-        if not scenes:
-            return None
-        active_scene_id = scenes[0].scene_id if scenes else None
-        active_plugin_id = scenes[0].plugin.id if scenes else None
-        summary = ProjectScenesSummary(scenes=tuple(scenes), active_scene_id=active_scene_id)
-        fallback = _build_projectless_fallback(active_plugin_id)
-        # frozen dataclass — 用 dataclasses.replace 创建新实例
-        import dataclasses
-        return dataclasses.replace(
-            fallback,
-            mode=LaunchMode.PROJECT_BOUND,
-            project_path=project_path,
-            active_scene_id=active_scene_id,
-            scenes=summary,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("_try_read_scenes_from_project_json 失败 (%s): %s", project_path, exc)
-        return None
-
 _FRONTMATTER_RE = re.compile(r"^---\r?\n([\s\S]*?)\r?\n---")
 
 
@@ -191,8 +126,6 @@ class ConfigBundle:
             "agents_allow": sorted(self.agents_allow),
             "agents_deny": sorted(self.agents_deny),
             "diagnostics": list(self.diagnostics),
-            "scenes_count": len(self.launch_context.scenes.scenes) if self.launch_context.scenes else 0,
-            "active_scene_id": self.launch_context.active_scene_id,
         }
 
 
@@ -355,10 +288,8 @@ def _load_plugin_mcp_server(
         server_url=launch_context.server_url,
         project_path=launch_context.project_path,
         active_plugin_id=plugin_id,
-        active_scene=plugin_id,  # 数据命名空间 = active plugin id(永远有值,含 projectless)
         logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
         session=session,
-        scenes=launch_context.scenes,  # v3.4 D10
     )
 
     builder = McpServerBuilder(namespace=namespace, context=plugin_ctx)
@@ -399,6 +330,25 @@ def _load_plugin_mcp_server(
 
     plugin_server = builder.build()
     return namespace, plugin_server, builder.tool_names
+
+
+def _derive_plugin_mcp_namespace(plugin_root: Path | None) -> str | None:
+    """派生 plugin 的 MCP 命名空间(= mcp_tools/ 下唯一入口 .py 的 stem)。
+
+    与 _load_plugin_mcp_server 的派生逻辑一致(line 256-268),但**不做安全校验**
+    (canvas 保留名 / 单入口校验仍在 _load_plugin_mcp_server fail-fast)。仅供系统提示词
+    注入身份边界段使用——load_system_prompt 在 _build_mcp_servers 之前调用,拿不到
+    mcp_servers_spec,故此处轻量独立派生。无 mcp_tools/ 或无 .py 入口时返回 None。
+    """
+    if plugin_root is None:
+        return None
+    mcp_tools_dir = plugin_root / "mcp_tools"
+    if not mcp_tools_dir.is_dir():
+        return None
+    py_files = sorted(mcp_tools_dir.glob("*.py"))
+    if not py_files:
+        return None
+    return py_files[0].stem
 
 
 def _build_mcp_servers(
@@ -526,10 +476,8 @@ def _load_web_actions_only(
         server_url=launch_context.server_url,
         project_path=launch_context.project_path,
         active_plugin_id=plugin_id,
-        active_scene=plugin_id,
         logger=logging.getLogger(f"bimcanvas.plugin.{plugin_id}"),
         session=session,
-        scenes=launch_context.scenes,
     )
     builder = McpServerBuilder(namespace=namespace, context=plugin_ctx)
 
@@ -588,7 +536,6 @@ def _resolve_effective_permissions(
 def build_config_bundle(
     launch_context: "PluginLaunchContext | None" = None,
     session: "aiohttp.ClientSession | None" = None,
-    project_path: str | None = None,
 ) -> ConfigBundle:
     """Build a fresh host-facing config bundle.
 
@@ -604,28 +551,11 @@ def build_config_bundle(
     Args:
         launch_context: 已注入的 PluginLaunchContext;为 None 时调 resolve_launch_context
         session: long-lived aiohttp session,供 plugin 工具使用;为 None 时 plugin 网络工具不可用
-        project_path: 当前窗口的实际项目路径;当 launch_context 是 projectless fallback 但
-                      真实项目已打开时,用于从 project.json 补全 scenes(多窗口 agent 实例场景)
     """
     if launch_context is None:
-        from .launch_context import resolve_launch_context, LaunchMode
+        from .launch_context import resolve_launch_context
 
         launch_context = resolve_launch_context()
-
-        # 如果拿到 projectless fallback 但实际有 project_path,尝试从 project.json 补全 scenes。
-        # 场景:第一个 agent 已消费 LaunchContext 文件,后续 agent 走 fallback → scenes=None。
-        if (
-            launch_context.mode == LaunchMode.PROJECTLESS
-            and project_path
-        ):
-            supplemented = _try_read_scenes_from_project_json(project_path)
-            if supplemented is not None:
-                logger.info(
-                    "LaunchContext projectless fallback 被 project.json 补全: path=%s scenes=%d",
-                    project_path,
-                    len(supplemented.scenes.scenes) if supplemented.scenes else 0,
-                )
-                launch_context = supplemented
 
     loader = get_config_loader()
     bimcanvas_home = loader.config_dir.resolve()
@@ -634,7 +564,11 @@ def build_config_bundle(
     # (resolve_active_plugin 仍返回二元组,供 permissions / system_prompt 等用途)
     active_plugin_root, _plugin_manifest = loader.resolve_active_plugin(launch_context)
 
-    system_prompt = loader.load_system_prompt(active_plugin_root)
+    # 派生 active plugin 的 MCP 命名空间(= mcp_tools/ 唯一入口 .py 的 stem),用于在系统
+    # 提示词注入「## Active Plugin: <id> · namespace: mcp__<ns>__*」身份边界段。
+    # load_system_prompt 在 _build_mcp_servers 之前调用,拿不到 mcp_servers_spec,故此处独立派生。
+    active_mcp_namespace = _derive_plugin_mcp_namespace(active_plugin_root)
+    system_prompt = loader.load_system_prompt(active_plugin_root, active_mcp_namespace)
 
     # 工具权限 v3.3 §3 Phase 3b.1 — fallback 二选一:
     # - 有 active 专业插件 → 读 active plugin manifest,active.tools/agents 完全接管

@@ -30,7 +30,11 @@ namespace BIMCanvas.Server.Services
             };
         }
 
-        public ProjectData LoadProjectData(string projectPath, string? strategyId = null)
+        public ProjectData LoadProjectData(
+            string projectPath,
+            string? strategyId = null,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             if (!Directory.Exists(projectPath))
             {
@@ -59,7 +63,7 @@ namespace BIMCanvas.Server.Services
             var schemeId = data.Project.ActiveSchemeId;
             if (!string.IsNullOrWhiteSpace(schemeId))
             {
-                data.ActiveScheme = LoadSchemeData(projectPath, schemeId);
+                data.ActiveScheme = LoadSchemeData(projectPath, schemeId, variantId, variantZoneScope);
             }
 
             data.Computed = LoadComputedData(projectPath);
@@ -113,7 +117,11 @@ namespace BIMCanvas.Server.Services
             return data;
         }
 
-        private SchemeData LoadSchemeData(string projectPath, string schemeId)
+        private SchemeData LoadSchemeData(
+            string projectPath,
+            string schemeId,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             var schemePath = Path.Combine(projectPath, "schemes");
             var data = new SchemeData();
@@ -130,11 +138,9 @@ namespace BIMCanvas.Server.Services
                 data.Strategy = ReadJson<Strategy>(strategyPath);
             }
 
-            var zonesPath = Path.Combine(schemePath, "zones.json");
-            if (File.Exists(zonesPath))
-            {
-                data.Zones = ReadJson<List<Zone>>(zonesPath) ?? new List<Zone>();
-            }
+            // zones：有效拓扑视图（读时聚合）——根 baseline rz_* + 各设计区 per-scheme 叶子作 SubZones。
+            // variantId 非空（候选截图）→ 渲染该候选方案分区；否则渲染 adopted。收口到 P1 解析器。
+            data.Zones = ProjectService.BuildEffectiveZoneView(schemePath, variantId, variantZoneScope);
 
             var finishesPath = Path.Combine(schemePath, "finishes.json");
             if (File.Exists(finishesPath))
@@ -142,7 +148,7 @@ namespace BIMCanvas.Server.Services
                 data.Finishes = ReadJson<List<FinishSegment>>(finishesPath) ?? new List<FinishSegment>();
             }
 
-            data.Modules = LoadAllZoneModules(schemePath);
+            data.Modules = LoadAllZoneModules(schemePath, variantId, variantZoneScope);
 
             _logger.LogDebug("策略数据加载完成: SchemeId={Id}, Zones={Zones}, Modules={Modules}",
                 schemeId, data.Zones.Count, data.Modules.Count);
@@ -150,42 +156,36 @@ namespace BIMCanvas.Server.Services
             return data;
         }
 
-        private List<Module> LoadAllZoneModules(string schemePath)
+        private List<Module> LoadAllZoneModules(
+            string schemePath,
+            string? variantId = null,
+            IReadOnlyCollection<string>? variantZoneScope = null)
         {
             var allModules = new List<Module>();
 
-            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath);
+            // variantId 为空 → 解析 adopted 当前生效方案（零回归）；非空 → 解析指定候选 slug，
+            // 须配 variantZoneScope（截图链路由 viewport.zoneId 派生），拓扑层不允许全分区变体扫描。
+            var leafFiles = ProjectService.FindAllLeafModuleFiles(schemePath, variantZoneScope, variantId);
 
             // modules.json 自 schemeMetadata wrapper 迁移后(commit 7ade7e8 / b9a36ac)统一为
             // `{schemeMetadata, modules}` 对象格式;此处读 wrapper 取 .Modules 跟 ModulesReaderService /
             // VariantController / ModuleNormalizationService 等所有"主"读路径对齐(避免 List<Module>
             // 强类型把 wrapper 当裸数组反序列化时炸 JsonSerializationException)。
-            if (leafFiles.Count > 0)
+            // 不回头看：删 schemes/modules.json 裸文件 legacy 兜底——解析器无叶子即视为空（无 modules）。
+            foreach (var (filePath, zoneId) in leafFiles)
             {
-                foreach (var (filePath, zoneId) in leafFiles)
+                try
                 {
-                    try
+                    var wrapper = ReadJson<ModulesWrapper>(filePath) ?? new ModulesWrapper();
+                    foreach (var module in wrapper.Modules)
                     {
-                        var wrapper = ReadJson<ModulesWrapper>(filePath) ?? new ModulesWrapper();
-                        foreach (var module in wrapper.Modules)
-                        {
-                            module.ZoneId ??= zoneId;
-                        }
-                        allModules.AddRange(wrapper.Modules);
+                        module.ZoneId ??= zoneId;
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "读取截图模块文件失败: {Path}", filePath);
-                    }
+                    allModules.AddRange(wrapper.Modules);
                 }
-            }
-            else
-            {
-                var modulesPath = Path.Combine(schemePath, "modules.json");
-                if (File.Exists(modulesPath))
+                catch (Exception ex)
                 {
-                    var wrapper = ReadJson<ModulesWrapper>(modulesPath) ?? new ModulesWrapper();
-                    allModules = wrapper.Modules;
+                    _logger.LogWarning(ex, "读取截图模块文件失败: {Path}", filePath);
                 }
             }
 

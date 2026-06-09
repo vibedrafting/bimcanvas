@@ -1,0 +1,546 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress'
+import type {
+  WorkflowAgentState,
+  WorkflowTranscriptAgent,
+  WorkflowPhase
+} from '../../composables/aiCommandCenter/useWorkflowProgress'
+
+const {
+  workflow,
+  transcript,
+  transcriptStatus,
+  hasCompletedWorkflow,
+  workflowAgents,
+  liveAgentPhase,
+  pinLiveAgents,
+  predeclaredPhases,
+  predeclaredName,
+  resetWorkflow,
+  loadTranscript
+} = useWorkflowProgress()
+
+const now = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  timer = setInterval(() => {
+    now.value = Date.now()
+    // 运行中：每 1.5s 静默重拉一次 orchestrator 运行态（若增量写，则运行中也呈现完整 phase 树）
+    if (workflow.value && workflow.value.status === 'running') void loadTranscript(true, true)
+  }, 1500)
+  // force=true：运行态心跳已把 transcriptStatus 置 'loaded'，完成后的拉取必须强制绕过 loaded 守卫，
+  // 否则停留在最后一帧实时态（live）→ 永远 no-toggle / 末位 agent "运行中"。
+  if (hasCompletedWorkflow.value) void loadTranscript(true)
+})
+onUnmounted(() => { if (timer) clearInterval(timer) })
+watch(hasCompletedWorkflow, (done) => { if (done) void loadTranscript(true) })
+
+// 完成态：权威分组 phase 树
+const showTranscript = computed(
+  () => transcriptStatus.value === 'loaded'
+    && !!transcript.value
+    && !transcript.value.live
+    && transcript.value.phases.length > 0
+)
+// 运行态：阶段步进条 + 扁平 live agent 列表（增量 transcript）
+const showLive = computed(
+  () => transcriptStatus.value === 'loaded'
+    && !!transcript.value
+    && transcript.value.live === true
+    && (transcript.value.liveAgents?.length ?? 0) > 0
+)
+// 运行态·阶段预声明：workflow 启动即推完整 meta.phases，先于 transcript/liveAgents 即可渲染全阶段。
+// 不依赖闭源 CLI 写的脚本副本（运行态常缺失/runId 错位 → 旧实现降级单「阶段 1」）。
+const showPredeclared = computed(
+  () => !showTranscript.value && (predeclaredPhases.value?.length ?? 0) > 0
+)
+// 运行态统一渲染模式（transcript 实时 或 预声明），区别于完成态权威树（showTranscript）。
+const isLiveView = computed(() => showLive.value || showPredeclared.value)
+// 当前阶段：从 SSE 心跳 description("阶段: 当前agent")取前缀
+const currentPhaseTitle = computed(() => {
+  const d = workflowAgents.value[0]?.description
+  if (!d) return undefined
+  const i = d.indexOf(':')
+  const cn = d.indexOf('：') // 兼容中文冒号
+  const at = i >= 0 && (cn < 0 || i < cn) ? i : cn
+  return at > 0 ? d.slice(0, at).trim() : undefined
+})
+// 运行态阶段源：transcript 实时读到的 phases(脚本匹配上时) > 预声明 phases > 降级单阶段
+const livePhaseSource = computed<WorkflowPhase[]>(() => {
+  const t = transcript.value
+  if (t?.live && t.phases.length) return t.phases
+  return predeclaredPhases.value ?? []
+})
+// 运行态：按钉定的阶段把 live agents 分组，未声明阶段则单组；所有声明阶段都保留(空=待执行)
+const liveGroupedPhases = computed<WorkflowPhase[]>(() => {
+  const src = livePhaseSource.value
+  const phases: WorkflowPhase[] = src.length
+    ? src.map(p => ({ index: p.index, title: p.title, detail: p.detail, agents: [] as WorkflowTranscriptAgent[] }))
+    : [{ index: 1, title: '', detail: undefined, agents: [] as WorkflowTranscriptAgent[] }]
+  const first = phases[0]
+  if (!first) return phases
+  const byTitle = new Map<string, WorkflowPhase>()
+  for (const p of phases) byTitle.set(p.title, p)
+  for (const a of (transcript.value?.liveAgents ?? [])) {
+    const title = liveAgentPhase.value.get(a.agentId) ?? currentPhaseTitle.value ?? first.title
+    ;(byTitle.get(title) ?? first).agents.push(a)
+  }
+  return phases
+})
+// 统一渲染源：完成态用权威分组，运行态用钉定分组（含预声明）
+const displayPhases = computed<WorkflowPhase[]>(() => {
+  if (showTranscript.value && transcript.value) return transcript.value.phases
+  return liveGroupedPhases.value
+})
+// 每次 transcript 刷新（运行态）钉定新出现的 agent（阶段源含预声明兜底）
+watch(() => transcript.value, (t) => {
+  if (t?.live) pinLiveAgents(t.liveAgents, currentPhaseTitle.value, livePhaseSource.value)
+})
+
+const titleText = computed(() => {
+  const t = transcript.value
+  if ((showTranscript.value || showLive.value) && t?.workflowName) return t.workflowName
+  return predeclaredName.value || workflow.value?.label || 'Workflow'
+})
+const subTitleText = computed(() => {
+  const t = transcript.value
+  return (showTranscript.value || showLive.value) ? (t?.summary ?? '') : ''
+})
+
+const statusText = computed(() => {
+  if (!workflow.value) return ''
+  if (workflow.value.status === 'running') return 'Running'
+  if (workflow.value.status === 'failed') return 'Failed'
+  return 'Completed'
+})
+
+const formatTokens = (n: number | undefined | null): string | null => {
+  if (typeof n !== 'number' || !isFinite(n)) return null
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`
+  return `${(n / 1_000_000).toFixed(1)}M`
+}
+const formatMs = (ms: number | undefined | null): string | null => {
+  if (typeof ms !== 'number' || !isFinite(ms)) return null
+  const sec = Math.round(ms / 1000)
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`
+}
+const formatLiveDuration = (startTime?: number, endTime?: number): string => {
+  if (!startTime) return ''
+  const sec = Math.max(0, Math.round(((endTime ?? now.value) - startTime) / 1000))
+  return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`
+}
+
+const headerMeta = computed(() => {
+  if (!workflow.value) return ''
+  if (showTranscript.value && transcript.value) {
+    const t = transcript.value
+    const n = t.agentCount ?? t.phases.reduce((s, p) => s + p.agents.length, 0)
+    return [
+      `${n} agent${n === 1 ? '' : 's'}`,
+      formatMs(t.durationMs),
+      formatTokens(t.totalTokens) ? `${formatTokens(t.totalTokens)} tok` : null
+    ].filter(Boolean).join(' · ')
+  }
+  if (showLive.value && transcript.value) {
+    const t = transcript.value
+    const n = t.agentCount ?? t.liveAgents?.length ?? 0
+    return [
+      `${n} agent${n === 1 ? '' : 's'}`,
+      formatLiveDuration(workflow.value.startTime, undefined),
+      formatTokens(t.totalTokens) ? `${formatTokens(t.totalTokens)} tok` : null
+    ].filter(Boolean).join(' · ')
+  }
+  const dur = formatLiveDuration(workflow.value.startTime, workflow.value.endTime)
+  return dur ? `运行中 · ${dur}` : '运行中'
+})
+
+// === 展开 ===
+const expandedKeys = ref<Set<string>>(new Set())
+const promptOpen = ref<Set<string>>(new Set())
+const expandedPhases = ref<Set<number>>(new Set()) // 完成态：默认空 = 全部折叠（用户要求）
+const collapsedPhases = ref<Set<number>>(new Set()) // 运行态：默认空 = 全部展开，可手动折叠
+// phase 是否展开：完成态默认折叠(看 expandedPhases)，运行态默认展开(看 collapsedPhases 取反)
+const phaseOpen = (idx: number): boolean =>
+  isLiveView.value ? !collapsedPhases.value.has(idx) : expandedPhases.value.has(idx)
+const toggleSet = (s: { value: Set<string> }, key: string) => {
+  const next = new Set(s.value)
+  next.has(key) ? next.delete(key) : next.add(key)
+  s.value = next
+}
+const toggleExpand = (key: string) => toggleSet(expandedKeys, key)
+const togglePrompt = (key: string) => toggleSet(promptOpen, key)
+const togglePhase = (idx: number) => {
+  // 运行态切 collapsedPhases（默认展开），完成态切 expandedPhases（默认折叠）
+  const s = isLiveView.value ? collapsedPhases : expandedPhases
+  const next = new Set(s.value)
+  next.has(idx) ? next.delete(idx) : next.add(idx)
+  s.value = next
+}
+
+// === transcript agent 辅助 ===
+function parseOutcomeObj(raw?: string): Record<string, unknown> | undefined {
+  if (!raw) return undefined
+  try {
+    const o = JSON.parse(raw)
+    return o && typeof o === 'object' && !Array.isArray(o) ? (o as Record<string, unknown>) : undefined
+  } catch { return undefined }
+}
+const VERDICT_KEY_RE = /compliant|passed|valid|success|^ok$|^pass$/i
+function verdictInfo(a: WorkflowTranscriptAgent): { key?: string; value?: boolean } {
+  const o = parseOutcomeObj(a.outcome)
+  if (!o) return {}
+  const key = Object.keys(o).find(k => VERDICT_KEY_RE.test(k) && typeof o[k] === 'boolean')
+  return key ? { key, value: o[key] as boolean } : {}
+}
+function groupTools(tools: { name: string }[]): { name: string; count: number }[] {
+  const m = new Map<string, number>()
+  for (const t of tools) m.set(t.name, (m.get(t.name) ?? 0) + 1)
+  return Array.from(m, ([name, count]) => ({ name, count })).sort((x, y) => y.count - x.count)
+}
+function prettyOutcome(raw?: string): string {
+  const o = parseOutcomeObj(raw)
+  return o ? JSON.stringify(o, null, 2) : (raw ?? '')
+}
+function agentStateClass(state?: string): string {
+  if (state === 'done' || state === 'completed') return 'completed'
+  if (state === 'error' || state === 'failed') return 'failed'
+  if (state === 'running') return 'running'
+  return ''
+}
+
+// 每阶段运行时间（墙钟跨度）：phase 内 agent 的 min(startedAt) → max(endedAt)；
+// 有运行中 agent 时延到 now（实时 ticking）。完成态/运行态同一套逻辑。
+// 注意：phase 间因 pipeline 并行会重叠，各 phase 时长之和 > 总时长，非总时长的拆分。
+function phaseDurationMs(agents: WorkflowTranscriptAgent[]): number | null {
+  const starts: number[] = []
+  const ends: number[] = []
+  let running = false
+  for (const a of agents) {
+    if (typeof a.startedAt === 'number') starts.push(a.startedAt)
+    if (typeof a.endedAt === 'number') ends.push(a.endedAt)
+    if (a.state === 'running') running = true
+  }
+  if (!starts.length) return null
+  const start = Math.min(...starts)
+  let end = ends.length ? Math.max(...ends) : start
+  if (running) end = Math.max(end, now.value)  // 运行中：延到 now（本地 dev 同机，clock 偏差可忽略）
+  return Math.max(0, end - start)
+}
+function phaseDurText(agents: WorkflowTranscriptAgent[]): string {
+  const ms = phaseDurationMs(agents)
+  return ms === null ? '' : (formatMs(ms) ?? '')
+}
+
+// 每阶段完成度 + 状态（对齐 CLI 左栏 "Inventory 12/12 ✓" / "› Infrastructure 3/10"）
+function phaseStats(agents: WorkflowTranscriptAgent[]): { done: number; total: number; status: 'done' | 'active' | 'pending' } {
+  const total = agents.length
+  const done = agents.filter(a => a.state === 'done' || a.state === 'completed').length
+  const running = agents.some(a => a.state === 'running')
+  const status: 'done' | 'active' | 'pending' =
+    total > 0 && done === total ? 'done' : (running || done > 0) ? 'active' : 'pending'
+  return { done, total, status }
+}
+
+// === 实时聚合行 ===
+const liveStats = (a: WorkflowAgentState): string[] => {
+  const out: string[] = []
+  const t = formatTokens(a.usage.totalTokens)
+  if (t) out.push(`${t} tok`)
+  if (typeof a.usage.toolUses === 'number') out.push(`${a.usage.toolUses} 工具`)
+  const dur = formatLiveDuration(a.startTime, a.endTime)
+  if (dur) out.push(dur)
+  return out
+}
+
+const dismiss = () => {
+  resetWorkflow()
+  expandedKeys.value = new Set()
+  promptOpen.value = new Set()
+  expandedPhases.value = new Set()
+  collapsedPhases.value = new Set()
+}
+</script>
+
+<template>
+  <div v-if="workflow" class="wf-panel" :class="workflow.status">
+    <!-- Header -->
+    <div class="wf-head">
+      <div class="wf-icon" :class="workflow.status">
+        <div v-if="workflow.status === 'running'" class="spinner"></div>
+        <svg v-else-if="workflow.status === 'completed'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </div>
+      <div class="wf-titles">
+        <div class="wf-title">{{ titleText }}</div>
+        <div class="wf-sub">{{ subTitleText || headerMeta }}</div>
+        <div v-if="subTitleText" class="wf-meta">{{ headerMeta }}</div>
+      </div>
+      <span class="wf-badge" :class="workflow.status">{{ statusText }}</span>
+      <button v-if="hasCompletedWorkflow" class="wf-x" title="清除" @click="dismiss">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+
+    <div v-if="hasCompletedWorkflow && transcriptStatus === 'loading'" class="wf-hint">正在加载执行详情…</div>
+    <div v-else-if="hasCompletedWorkflow && transcriptStatus === 'error'" class="wf-hint error">
+      详情加载失败 <button class="wf-retry" @click="loadTranscript(true)">重试</button>
+    </div>
+
+    <!-- ============ Phase 树（运行态与完成态统一；运行态默认展开+所有阶段预留，完成态可折叠默认折叠） ============ -->
+    <div v-if="showTranscript || isLiveView" class="wf-body">
+      <div v-for="ph in displayPhases" :key="ph.index" class="phase">
+        <div
+          class="phase-head"
+          :class="[phaseStats(ph.agents).status]"
+          @click="togglePhase(ph.index)"
+        >
+          <svg class="phase-caret" :class="{ open: phaseOpen(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          <span class="phase-mark" :class="phaseStats(ph.agents).status">
+            <template v-if="phaseStats(ph.agents).status === 'done'">✓</template>
+            <template v-else-if="phaseStats(ph.agents).status === 'active'">›</template>
+            <template v-else>○</template>
+          </span>
+          <span class="phase-title">{{ ph.title || `阶段 ${ph.index}` }}</span>
+          <span class="phase-count">{{ phaseStats(ph.agents).done }}/{{ phaseStats(ph.agents).total }}</span>
+          <span v-if="phaseDurText(ph.agents)" class="phase-dur">{{ phaseDurText(ph.agents) }}</span>
+          <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
+        </div>
+
+        <div v-show="phaseOpen(ph.index)" class="phase-agents">
+          <div v-if="!ph.agents.length" class="phase-empty">{{ isLiveView ? '待执行' : '无 agent' }}</div>
+          <div v-for="a in ph.agents" :key="a.agentId" class="agent">
+            <div class="agent-head" @click="toggleExpand(a.agentId)">
+              <span class="dot" :class="agentStateClass(a.state)"></span>
+              <span class="agent-name">{{ a.label || a.agentId }}</span>
+              <span v-if="a.model" class="model">{{ a.model }}</span>
+              <svg class="chev" :class="{ open: expandedKeys.has(a.agentId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <div class="agent-stats">
+              <span v-if="verdictInfo(a).value !== undefined" class="verdict" :class="verdictInfo(a).value ? 'ok' : 'bad'">
+                {{ verdictInfo(a).value ? '✓' : '✗' }} {{ verdictInfo(a).key }}
+              </span>
+              <span v-if="formatTokens(a.tokens)" class="stat">{{ formatTokens(a.tokens) }} tok</span>
+              <span v-if="typeof a.toolCalls === 'number'" class="stat">{{ a.toolCalls }} 工具</span>
+              <span v-if="formatMs(a.durationMs)" class="stat">{{ formatMs(a.durationMs) }}</span>
+              <span v-if="a.state === 'running'" class="stat running-tag">运行中</span>
+            </div>
+
+            <div v-if="expandedKeys.has(a.agentId)" class="detail">
+              <div v-if="a.prompt" class="block">
+                <button class="b-toggle" @click="togglePrompt(a.agentId)">
+                  <span class="caret" :class="{ open: promptOpen.has(a.agentId) }">▸</span> Prompt
+                </button>
+                <pre v-if="promptOpen.has(a.agentId)" class="pre">{{ a.prompt }}</pre>
+              </div>
+              <div v-if="a.tools.length" class="block">
+                <div class="b-label">Activity · {{ a.tools.length }} 步</div>
+                <div class="chips">
+                  <span v-for="g in groupTools(a.tools)" :key="g.name" class="chip">{{ g.name }}<span v-if="g.count > 1" class="chip-n">×{{ g.count }}</span></span>
+                </div>
+              </div>
+              <div v-if="a.outcome" class="block">
+                <div class="b-label">Outcome</div>
+                <pre class="pre out">{{ prettyOutcome(a.outcome) }}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 兜底：实时聚合（运行中无 transcript 时，task 级） ============ -->
+    <div v-else class="wf-body">
+      <div v-if="workflowAgents.length === 0" class="wf-hint">workflow 已启动，等待执行…</div>
+      <div v-for="a in workflowAgents" :key="a.key" class="agent live">
+        <div class="agent-head" @click="toggleExpand(a.key)">
+          <span class="dot" :class="a.status"></span>
+          <span class="agent-name">{{ a.label }}</span>
+          <svg v-if="a.activity.length || a.outcome" class="chev" :class="{ open: expandedKeys.has(a.key) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+        <div class="agent-stats">
+          <span v-if="a.lastToolName && a.status === 'running'" class="live-tool">{{ a.lastToolName }}</span>
+          <span v-for="s in liveStats(a)" :key="s" class="stat">{{ s }}</span>
+        </div>
+        <div class="track">
+          <div v-if="a.status === 'running'" class="bar-pulse"></div>
+          <div v-else-if="a.status === 'completed'" class="bar-solid completed"></div>
+          <div v-else-if="a.status === 'failed'" class="bar-solid failed"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped lang="scss">
+.wf-panel {
+  background: var(--surface-elevated, rgba(255,255,255,0.02));
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0; /* 关键:在 view-tasks(flex 列+overflow-y:auto)里不被压缩,保持自然高度→可滚动 */
+
+  &.running { border-color: rgba(var(--accent-primary-rgb, 79, 172, 254), 0.45); }
+  &.completed { border-color: rgba(var(--accent-success-rgb), 0.35); }
+  &.failed { border-color: rgba(var(--accent-danger-rgb, 239, 68, 68), 0.45); }
+}
+
+/* ---- Header ---- */
+.wf-head {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 13px 14px;
+  background: linear-gradient(180deg, var(--surface-highlight), transparent);
+  border-bottom: 1px solid var(--border-subtle);
+
+  .wf-icon {
+    width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    svg { width: 100%; height: 100%; }
+    &.completed { color: var(--accent-success); }
+    &.failed { color: var(--accent-danger); }
+    .spinner { width: 14px; height: 14px; border: 2px solid var(--accent-primary); border-top-color: transparent; border-radius: 50%; animation: wf-spin 1s linear infinite; }
+  }
+  .wf-titles { flex: 1; min-width: 0; }
+  .wf-title { font-size: 0.88rem; font-weight: 650; color: var(--text-primary); word-break: break-word; }
+  .wf-sub { font-size: 0.72rem; color: var(--text-secondary); margin-top: 3px; line-height: 1.45; word-break: break-word; }
+  .wf-meta { font-size: 0.68rem; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 4px; }
+  .wf-badge {
+    flex-shrink: 0; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 3px 8px; border-radius: 6px;
+    &.running { background: rgba(var(--accent-primary-rgb, 79, 172, 254), 0.16); color: var(--accent-primary); }
+    &.completed { background: rgba(var(--accent-success-rgb), 0.16); color: var(--accent-success); }
+    &.failed { background: rgba(var(--accent-danger-rgb, 239, 68, 68), 0.16); color: var(--accent-danger); }
+  }
+  .wf-x {
+    flex-shrink: 0; background: transparent; border: none; cursor: pointer; padding: 2px;
+    color: var(--text-tertiary); width: 18px; height: 18px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    &:hover { background: var(--surface-dim); color: var(--text-secondary); }
+    svg { width: 13px; height: 13px; }
+  }
+}
+
+.wf-hint {
+  padding: 12px 14px; font-size: 0.74rem; color: var(--text-tertiary); font-style: italic;
+  &.error { color: var(--accent-danger); font-style: normal; }
+  .wf-retry { margin-left: 8px; background: transparent; border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-secondary); cursor: pointer; padding: 1px 8px; font-size: 0.7rem; &:hover { background: var(--surface-dim); } }
+}
+
+.wf-body { padding: 6px 0 8px; }
+
+/* ---- Phase ---- */
+.phase { padding: 4px 0; }
+.phase-head {
+  display: flex; align-items: center; gap: 7px; padding: 7px 14px; cursor: pointer; border-radius: 6px;
+  &:hover { background: var(--surface-dim); }
+  .phase-caret {
+    width: 12px; height: 12px; flex-shrink: 0; color: var(--text-tertiary);
+    transition: transform 0.18s; &.open { transform: rotate(90deg); }
+  }
+  .phase-mark {
+    width: 14px; text-align: center; flex-shrink: 0; font-size: 0.78rem; font-weight: 700; line-height: 1;
+    &.done { color: var(--accent-success); }
+    &.active { color: var(--accent-primary); }
+    &.pending { color: var(--text-tertiary); opacity: 0.6; }
+  }
+  .phase-title { font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+  &.active .phase-title { color: var(--accent-primary); }
+  &.pending .phase-title { color: var(--text-tertiary); }
+  .phase-count {
+    font-size: 0.6rem; font-weight: 700; font-family: var(--font-mono);
+    background: var(--surface-dim); color: var(--text-tertiary); border-radius: 8px; padding: 0 6px; min-width: 28px; text-align: center;
+  }
+  .phase-dur { font-size: 0.62rem; font-family: var(--font-mono); color: var(--text-tertiary); flex-shrink: 0; }
+  &.active .phase-dur { color: var(--accent-primary); }
+  .phase-detail { font-size: 0.66rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+.phase-agents { padding: 0 10px 0 18px; display: flex; flex-direction: column; gap: 6px; }
+.phase-empty { font-size: 0.7rem; color: var(--text-tertiary); font-style: italic; padding: 2px 6px; }
+
+/* ---- Agent card ---- */
+.agent {
+  background: var(--surface-card, var(--surface-dim));
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 7px 10px;
+  &.live { margin: 0 8px; }
+
+  .agent-head {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-tertiary);
+      &.running { background: var(--accent-primary); animation: wf-pulse 1.4s ease-in-out infinite; }
+      &.completed { background: var(--accent-success); }
+      &.failed { background: var(--accent-danger); }
+    }
+    .agent-name { flex: 1; min-width: 0; font-size: 0.8rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .model { flex-shrink: 0; font-size: 0.6rem; font-family: var(--font-mono); color: var(--text-secondary); background: var(--surface-elevated); border: 1px solid var(--border-subtle); padding: 1px 6px; border-radius: 4px; }
+    .chev { width: 13px; height: 13px; color: var(--text-tertiary); flex-shrink: 0; transition: transform 0.2s; &.open { transform: rotate(180deg); } }
+  }
+
+  .agent-stats {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 5px; padding-left: 15px;
+    .verdict {
+      font-size: 0.64rem; font-weight: 700; font-family: var(--font-mono); padding: 1px 7px; border-radius: 4px;
+      &.ok { background: rgba(var(--accent-success-rgb), 0.14); color: var(--accent-success); }
+      &.bad { background: rgba(var(--accent-danger-rgb, 239, 68, 68), 0.14); color: var(--accent-danger); }
+    }
+    .stat { font-size: 0.66rem; color: var(--text-tertiary); font-family: var(--font-mono); }
+    .live-tool { font-size: 0.64rem; color: var(--accent-primary); font-family: var(--font-mono); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  }
+
+  .track {
+    height: 3px; background: var(--border-dim); border-radius: 2px; overflow: hidden; position: relative; margin-top: 7px; margin-left: 15px;
+    .bar-pulse { position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--accent-primary), transparent); transform: translateX(-100%); animation: wf-shimmer 1.5s infinite; }
+    .bar-solid { width: 100%; height: 100%; &.completed { background: var(--accent-success); } &.failed { background: var(--accent-danger); } }
+  }
+
+  .detail {
+    margin-top: 8px; margin-left: 15px; padding-top: 8px; border-top: 1px dashed var(--border-dim);
+    display: flex; flex-direction: column; gap: 10px;
+    .block { display: flex; flex-direction: column; gap: 4px; }
+    .b-label { font-size: 0.58rem; font-weight: 700; text-transform: uppercase; color: var(--text-tertiary); letter-spacing: 0.05em; }
+    .b-toggle {
+      align-self: flex-start; background: transparent; border: none; cursor: pointer; padding: 0;
+      font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary);
+      display: flex; align-items: center; gap: 4px; &:hover { color: var(--text-secondary); }
+      .caret { transition: transform 0.15s; &.open { transform: rotate(90deg); } }
+    }
+    .pre {
+      margin: 0; font-size: 0.68rem; font-family: var(--font-mono); line-height: 1.5; color: var(--text-secondary);
+      white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;
+      background: var(--surface-elevated); border-radius: 6px; padding: 8px;
+      &.out { color: var(--text-primary); }
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip {
+      font-size: 0.64rem; font-family: var(--font-mono); color: var(--text-secondary);
+      background: var(--surface-elevated); border: 1px solid var(--border-subtle); padding: 1px 7px; border-radius: 10px;
+      .chip-n { color: var(--text-tertiary); margin-left: 2px; }
+    }
+  }
+}
+
+/* ---- 运行态：步进条 + 扁平列表 ---- */
+.stepper {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 14px 2px;
+  .step {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.7rem; color: var(--text-tertiary); font-weight: 600;
+    .step-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-tertiary); opacity: 0.5; }
+    &.current {
+      color: var(--accent-primary);
+      .step-dot { background: var(--accent-primary); opacity: 1; animation: wf-pulse 1.4s ease-in-out infinite; }
+    }
+  }
+  .step-sep { color: var(--text-tertiary); opacity: 0.45; font-size: 0.7rem; }
+}
+.live-progress { padding: 2px 14px 8px; font-size: 0.68rem; color: var(--text-tertiary); font-family: var(--font-mono); }
+.phase-agents.flat { padding: 0 10px 2px; }
+.running-tag { color: var(--accent-primary) !important; }
+
+@keyframes wf-spin { to { transform: rotate(360deg); } }
+@keyframes wf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes wf-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+</style>
