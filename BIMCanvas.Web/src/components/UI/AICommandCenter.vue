@@ -1012,7 +1012,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
       </div>
 
       <!-- Layer 2: Intelligence Stream -->
-      <div class="layer-stream">
+      <div class="layer-stream" :class="{ 'stream-tasks': mode === 'tasks' }">
 
          <!-- View: Chat - Phase 2: 多窗口 v-show 架构 -->
         <div
@@ -2736,13 +2736,18 @@ watch(chatScrollRef, (newEl, oldEl) => {
     &::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
 }
 
+/* Task 模式：layer-stream 收口为悬浮卡片——底部留外边距 + 圆角 + 下边框，不顶到面板底。
+   Chat 模式下方有 layer-footer(composer)承接底边，故不加；仅 Task 模式生效。 */
+.layer-stream.stream-tasks {
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-dim);
+    border-radius: 0 0 12px 12px;
+}
+
 .view-tasks {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    /* 滚动视口内底部留白：view-tasks 自身是滚动容器，无此 padding 时滚到底最后一张卡片紧贴下沿。
-       layer-stream 的 padding 在滚动视口之外，不构成内容呼吸空间，故在此补。对齐 Chat 的底部间距观感。 */
-    padding-bottom: 20px;
 }
 
 /* Phase 2: 多窗口聊天容器 */
