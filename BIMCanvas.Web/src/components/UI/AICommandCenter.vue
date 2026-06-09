@@ -2736,12 +2736,12 @@ watch(chatScrollRef, (newEl, oldEl) => {
     &::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
 }
 
-/* Task 模式：layer-stream 收口为悬浮卡片——底部留外边距 + 圆角 + 下边框，不顶到面板底。
+/* Task 模式：layer-stream 收口——底部留外边距 + 下边框，不顶到面板底；四角保持直角（不倒角）。
    Chat 模式下方有 layer-footer(composer)承接底边，故不加；仅 Task 模式生效。 */
 .layer-stream.stream-tasks {
     margin-bottom: 16px;
     border-bottom: 1px solid var(--border-dim);
-    border-radius: 0 0 12px 12px;
+    border-radius: 0; /* 四角直角，去倒角 */
 }
 
 .view-tasks {
