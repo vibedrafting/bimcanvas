@@ -515,6 +515,7 @@ const {
   restoreHistory,
   waitForInteractionContinuation,
   interruptMessage,
+  injectBackgroundSummary,
   checkAgentHealth,
   fetchProjectPath,
   cleanupHealthCheck,
@@ -574,7 +575,8 @@ const {
 } = useBackgroundTask({
   agentApiBase: AGENT_API_BASE,
   windows,
-  scrollToBottom
+  scrollToBottom,
+  injectBackgroundSummary
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);

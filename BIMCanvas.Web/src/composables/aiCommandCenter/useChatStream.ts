@@ -1779,6 +1779,36 @@ export const useChatStream = (options: ChatStreamOptions) => {
     return response.sessionStatus ?? response.session?.status ?? null;
   };
 
+  /**
+   * 注入「后台 Workflow 完成的主控原生总结」为一条 AI 气泡——走与 history 重建**完全相同**的渲染
+   * 管线（createRestoredAiMessage + applyNormalizedEventToMessage），而非手搓 createTextBubble。
+   * 折中重构：消除 useBackgroundTask 与 history 重建的双渲染路径，二者收敛到同一处。
+   * turnId 语义上对应 store 落盘的 bgtask:<taskId>，重载后由 history 重建复现同一条气泡（不重复）。
+   */
+  const injectBackgroundSummary = (
+    windowId: string | null | undefined,
+    content: string,
+    timestamp?: number
+  ): void => {
+    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
+      ?? options.windows.value[0];
+    if (!windowState) return;
+    const text = (content ?? '').trim();
+    if (!text) return;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+
+    const aiMessage = createRestoredAiMessage(ts);
+    const normalized = normalizeStreamEvent({ eventType: 'text.completed', payload: { content: text } });
+    if (!normalized) return;
+    applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+    aiMessage.isStreaming = false;
+    aiMessage.endTime = ts;
+    exitWaitingState(aiMessage.waitingState);
+    windowState.messages.push(aiMessage);
+
+    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
+  };
+
   const wait = (ms: number): Promise<void> =>
     new Promise(resolve => setTimeout(resolve, ms));
 
@@ -2123,6 +2153,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     restoreHistory,
     waitForInteractionContinuation,
     interruptMessage,
+    injectBackgroundSummary,
     checkAgentHealth,
     fetchProjectPath,
     cleanupHealthCheck,

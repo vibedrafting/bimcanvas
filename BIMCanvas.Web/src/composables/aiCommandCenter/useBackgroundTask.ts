@@ -1,8 +1,7 @@
 import type { Ref } from 'vue'
 import type { BackgroundTaskRecord } from '../../types/agent'
-import type { ChatMessage, ChatWindow } from '../../types/aiCommandCenter'
+import type { ChatWindow } from '../../types/aiCommandCenter'
 import { getBackgroundTaskService } from '../../services/BackgroundTaskService'
-import { createTextBubble, completeBubble } from '../../utils/bubbleManager'
 import { useWorkflowProgress } from './useWorkflowProgress'
 
 const workflowProgress = useWorkflowProgress()
@@ -11,28 +10,13 @@ interface BackgroundTaskOptions {
   agentApiBase: string
   windows: Ref<ChatWindow[]>
   scrollToBottom: (options?: { windowId?: string }) => void
+  /** 注入后台总结气泡（由 useChatStream 提供，走 history 重建同款渲染管线，避免双路径漂移） */
+  injectBackgroundSummary: (windowId: string | null | undefined, content: string, timestamp?: number) => void
 }
-
-const createBackgroundHostMessage = (): ChatMessage => ({
-  role: 'ai',
-  bubbles: [],
-  waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 },
-  isStreaming: false,
-  startTime: Date.now(),
-  endTime: Date.now()
-})
 
 export const useBackgroundTask = (options: BackgroundTaskOptions) => {
   // 去重：仅防同一完成事件被重复实时投递。
   const seenKeys = new Set<string>()
-
-  const findTargetWindow = (windowId?: string | null): ChatWindow | undefined => {
-    if (windowId) {
-      const matched = options.windows.value.find(w => w.id === windowId)
-      if (matched) return matched
-    }
-    return options.windows.value[0] // 兜底落第一个窗口
-  }
 
   const handleCompleted = (record: BackgroundTaskRecord) => {
     if (record.taskId) {
@@ -52,20 +36,12 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
 
     // ② Chat 气泡：仅当主控有原生总结(hasSummary)时注入富总结；generic 占位(hasSummary=false)
     //    不渲染（承接 Bug4，去掉 'Workflow ... completed' 噪声）。
+    //    渲染委托 useChatStream.injectBackgroundSummary —— 与 history 重建走同一管线（折中重构去双路径）。
     if (!record.hasSummary) return
     const text = (record.content || record.summary || '').trim()
     if (!text) return
-    const win = findTargetWindow(record.windowId)
-    if (!win) {
-      console.warn(`[useBackgroundTask] No window to host background task: ${record.taskId}`)
-      return
-    }
-    const message = createBackgroundHostMessage()
-    const bubble = createTextBubble(text)
-    completeBubble(bubble)
-    message.bubbles.push(bubble)
-    win.messages.push(message)
-    options.scrollToBottom({ windowId: win.id })
+    const ts = record.timestamp ? Date.parse(record.timestamp) : Date.now()
+    options.injectBackgroundSummary(record.windowId, text, isNaN(ts) ? Date.now() : ts)
   }
 
   const startListening = () => {
