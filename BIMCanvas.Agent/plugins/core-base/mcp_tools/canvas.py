@@ -29,10 +29,13 @@ _AGENT_ROOT = Path(__file__).resolve().parents[3]
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
+import asyncio
 import base64
 import json
 import mimetypes
 import re
+import time
+import traceback
 from datetime import datetime
 from typing import Any
 
@@ -375,6 +378,43 @@ _CANVAS_VISION_SCHEMA = {
     "additionalProperties": False,
 }
 
+# ============================================================
+# Step1 重试:对截图/识图的瞬时类失败做指数退避重试
+#   - 瞬时(retryable=True):连接失败/超时、HTTP 5xx/429、空结果
+#   - 永久(retryable=False):HTTP 4xx/参数错、模型级 success=False —— 重试无意义,立即返回
+# ============================================================
+
+_VISION_RETRY_ATTEMPTS = 3
+_VISION_RETRY_BASE_DELAY = 1.0  # 退避基数(秒):1s / 2s / 4s
+
+
+async def _retry_request(label: str, attempt_fn: Any) -> tuple[Any, str | None]:
+    """对瞬时类失败做指数退避重试,返回 (result, error)。
+
+    attempt_fn 是无参 async,返回三元组 (result, error, retryable):
+      - error is None      → 成功,立即返回 (result, None)
+      - retryable is False → 永久失败,立即返回 (None, error)
+      - retryable is True  → 瞬时失败,退避后重试,耗尽后返回 (None, error)
+    """
+    last_error: str | None = None
+    for i in range(_VISION_RETRY_ATTEMPTS):
+        result, error, retryable = await attempt_fn()
+        if error is None:
+            return result, None
+        last_error = error
+        if not retryable or i == _VISION_RETRY_ATTEMPTS - 1:
+            return None, error
+        delay = _VISION_RETRY_BASE_DELAY * (2 ** i)
+        print(
+            f"[canvas_vision] {label} 第{i + 1}/{_VISION_RETRY_ATTEMPTS}次失败"
+            f"(可重试,{delay:.0f}s 后重试): {error}",
+            file=sys.stderr,
+            flush=True,
+        )
+        await asyncio.sleep(delay)
+    return None, last_error
+
+
 async def _render_viewport(
     session: Any,
     server_url: str,
@@ -383,7 +423,10 @@ async def _render_viewport(
     variant_id: str,
     request_timeout: "aiohttp.ClientTimeout",
 ) -> tuple[str | None, str | None]:
-    """渲染单个 viewport,返回 (imageData, error)。截图+识图 与 只截图单图共用。"""
+    """渲染单个 viewport,返回 (imageData, error)。截图+识图 与 只截图单图共用。
+
+    瞬时失败(连接/超时/5xx/空图)经 _retry_request 指数退避重试。
+    """
     payload: dict[str, Any] = {
         "projectPath": str(project_dir),
         "layerPreset": SCREENSHOT_LAYER_PRESET,
@@ -394,19 +437,27 @@ async def _render_viewport(
     }
     if variant_id:
         payload["variantId"] = variant_id
-    async with session.post(
-        f"{server_url}/api/screenshot/render",
-        json=payload,
-        timeout=request_timeout,
-    ) as resp:
-        data = await resp.json() if resp.content_type == "application/json" else await resp.text()
-        if resp.status != 200:
-            message = data.get("message") if isinstance(data, dict) else str(data)
-            return None, f"后台截图失败: HTTP {resp.status} {message}"
-    image_data = data.get("imageData") if isinstance(data, dict) else None
-    if not image_data:
-        return None, "后台截图失败: imageData 为空"
-    return image_data, None
+
+    async def _attempt() -> tuple[str | None, str | None, bool]:
+        try:
+            async with session.post(
+                f"{server_url}/api/screenshot/render",
+                json=payload,
+                timeout=request_timeout,
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+                if resp.status != 200:
+                    message = data.get("message") if isinstance(data, dict) else str(data)
+                    retryable = resp.status >= 500 or resp.status == 429
+                    return None, f"后台截图失败: HTTP {resp.status} {message}", retryable
+            image_data = data.get("imageData") if isinstance(data, dict) else None
+            if not image_data:
+                return None, "后台截图失败: imageData 为空", True
+            return image_data, None, False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            return None, f"无法连接 Server(截图): {type(e).__name__}: {e}", True
+
+    return await _retry_request(f"render:{_build_shot_label(viewport, 1)}", _attempt)
 
 
 async def _aoment_recognize(
@@ -415,39 +466,45 @@ async def _aoment_recognize(
     image_path: Path,
     prompt: str,
 ) -> tuple[str | None, str | None]:
-    """multipart 上传单张图到 aoment 识别端点,返回 (resultText, error)。"""
+    """multipart 上传单张图到 aoment 识别端点,返回 (resultText, error)。
+
+    瞬时失败(连接/超时/5xx/空结果)经 _retry_request 指数退避重试;
+    4xx 与模型级 success=False 视为永久失败,不重试。
+    """
     request_timeout = aiohttp.ClientTimeout(total=cfg.timeout_seconds)
     mime = mimetypes.guess_type(image_path.name)[0] or "image/png"
-    form = aiohttp.FormData()
-    form.add_field("prompt", prompt)
-    form.add_field("model", cfg.model)
-    form.add_field(
-        "images",
-        image_path.read_bytes(),
-        filename=image_path.name,
-        content_type=mime,
-    )
-    try:
-        async with session.post(
-            cfg.endpoint,
-            data=form,
-            headers={"Authorization": f"Bearer {cfg.api_key}"},
-            timeout=request_timeout,
-        ) as resp:
-            data = await resp.json() if resp.content_type == "application/json" else await resp.text()
-            if resp.status != 200:
-                message = data.get("message") if isinstance(data, dict) else str(data)[:300]
-                return None, f"aoment 识图失败: HTTP {resp.status} {message}"
-            if not isinstance(data, dict):
-                return None, f"aoment 识图失败: 响应非 JSON ({str(data)[:200]})"
-            if data.get("success") is False:
-                return None, f"aoment 识图失败: {data.get('message') or data.get('resultText') or '未知错误'}"
-            result_text = str(data.get("resultText") or "").strip()
-            if not result_text:
-                return None, "aoment 识图失败: resultText 为空"
-            return result_text, None
-    except aiohttp.ClientError as e:
-        return None, f"无法连接 aoment: {e}"
+    image_bytes = image_path.read_bytes()  # 读一次,重试复用
+
+    async def _attempt() -> tuple[str | None, str | None, bool]:
+        # FormData 单次请求消耗性,每次重试重建
+        form = aiohttp.FormData()
+        form.add_field("prompt", prompt)
+        form.add_field("model", cfg.model)
+        form.add_field("images", image_bytes, filename=image_path.name, content_type=mime)
+        try:
+            async with session.post(
+                cfg.endpoint,
+                data=form,
+                headers={"Authorization": f"Bearer {cfg.api_key}"},
+                timeout=request_timeout,
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+                if resp.status != 200:
+                    message = data.get("message") if isinstance(data, dict) else str(data)[:300]
+                    retryable = resp.status >= 500 or resp.status == 429
+                    return None, f"aoment 识图失败: HTTP {resp.status} {message}", retryable
+                if not isinstance(data, dict):
+                    return None, f"aoment 识图失败: 响应非 JSON ({str(data)[:200]})", True
+                if data.get("success") is False:
+                    return None, f"aoment 识图失败: {data.get('message') or data.get('resultText') or '未知错误'}", False
+                result_text = str(data.get("resultText") or "").strip()
+                if not result_text:
+                    return None, "aoment 识图失败: resultText 为空", True
+                return result_text, None, False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            return None, f"无法连接 aoment: {type(e).__name__}: {e}", True
+
+    return await _retry_request("aoment", _attempt)
 
 
 def _extract_openai_text(content: Any) -> str:
@@ -472,6 +529,7 @@ async def _apiyi_recognize(
     """OpenAI Chat Completions 格式识图（apiyi 等 OpenAI 兼容服务），返回 (text, error)。
 
     图片转 base64 data URL 塞 image_url；取 choices[0].message.content。
+    瞬时失败(连接/超时/5xx/空结果)经 _retry_request 指数退避重试;4xx 不重试。
     """
     request_timeout = aiohttp.ClientTimeout(total=cfg.timeout_seconds)
     mime = mimetypes.guess_type(image_path.name)[0] or "image/png"
@@ -489,35 +547,40 @@ async def _apiyi_recognize(
             }
         ],
     }
-    try:
-        async with session.post(
-            cfg.endpoint,
-            json=payload,
-            headers={"Authorization": f"Bearer {cfg.api_key}"},
-            timeout=request_timeout,
-        ) as resp:
-            data = await resp.json() if resp.content_type == "application/json" else await resp.text()
-            if resp.status != 200:
-                if isinstance(data, dict):
+
+    async def _attempt() -> tuple[str | None, str | None, bool]:
+        try:
+            async with session.post(
+                cfg.endpoint,
+                json=payload,
+                headers={"Authorization": f"Bearer {cfg.api_key}"},
+                timeout=request_timeout,
+            ) as resp:
+                data = await resp.json() if resp.content_type == "application/json" else await resp.text()
+                if resp.status != 200:
+                    if isinstance(data, dict):
+                        err = data.get("error")
+                        message = (err.get("message") if isinstance(err, dict) else err) or data.get("message") or str(data)[:300]
+                    else:
+                        message = str(data)[:300]
+                    retryable = resp.status >= 500 or resp.status == 429
+                    return None, f"apiyi 识图失败: HTTP {resp.status} {message}", retryable
+                if not isinstance(data, dict):
+                    return None, f"apiyi 识图失败: 响应非 JSON ({str(data)[:200]})", True
+                choices = data.get("choices")
+                if not isinstance(choices, list) or not choices:
                     err = data.get("error")
-                    message = (err.get("message") if isinstance(err, dict) else err) or data.get("message") or str(data)[:300]
-                else:
-                    message = str(data)[:300]
-                return None, f"apiyi 识图失败: HTTP {resp.status} {message}"
-            if not isinstance(data, dict):
-                return None, f"apiyi 识图失败: 响应非 JSON ({str(data)[:200]})"
-            choices = data.get("choices")
-            if not isinstance(choices, list) or not choices:
-                err = data.get("error")
-                return None, f"apiyi 识图失败: {err or '响应无 choices'}"
-            message_obj = choices[0].get("message") if isinstance(choices[0], dict) else None
-            content = message_obj.get("content") if isinstance(message_obj, dict) else None
-            text = _extract_openai_text(content)
-            if not text:
-                return None, "apiyi 识图失败: content 为空"
-            return text, None
-    except aiohttp.ClientError as e:
-        return None, f"无法连接 apiyi: {e}"
+                    return None, f"apiyi 识图失败: {err or '响应无 choices'}", True
+                message_obj = choices[0].get("message") if isinstance(choices[0], dict) else None
+                content = message_obj.get("content") if isinstance(message_obj, dict) else None
+                text = _extract_openai_text(content)
+                if not text:
+                    return None, "apiyi 识图失败: content 为空", True
+                return text, None, False
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            return None, f"无法连接 apiyi: {type(e).__name__}: {e}", True
+
+    return await _retry_request("apiyi", _attempt)
 
 
 async def _recognize_image(
@@ -851,8 +914,7 @@ def register(builder: McpServerBuilder) -> None:
             }
 
     # ---------- canvas_vision（截图 / 识图 / 截图+识图 三模式自动判断）----------
-    @builder.tool("canvas_vision", _CANVAS_VISION_DESC, _CANVAS_VISION_SCHEMA)
-    async def canvas_vision(args: dict[str, Any]) -> dict[str, Any]:
+    async def _canvas_vision_body(args: dict[str, Any]) -> dict[str, Any]:
         """截图 / 识图 / 截图+识图 三模式自动判断（无显式 mode 参数）。"""
         project_path = str(args.get("projectPath") or "").strip()
         if not project_path:
@@ -1073,6 +1135,28 @@ def register(builder: McpServerBuilder) -> None:
         if aerr:
             return {"content": [{"type": "text", "text": f"{aerr}(截图已存 {saved_path})"}], "is_error": True}
         return {"content": [{"type": "text", "text": result_text}]}
+
+    @builder.tool("canvas_vision", _CANVAS_VISION_DESC, _CANVAS_VISION_SCHEMA)
+    async def canvas_vision(args: dict[str, Any]) -> dict[str, Any]:
+        """canvas_vision 入口薄包装(Step0 可观测性)。
+
+        把 _canvas_vision_body 的任何未捕获异常 / 进程级崩溃转成结构化 is_error
+        结果(含异常类型 + 尾部 traceback + 总耗时),消除上层 "Command failed with
+        no output" 黑洞——该消息不是本工具的任何 return 文案,说明此前是裸异常冒泡。
+        """
+        started = time.monotonic()
+        try:
+            return await _canvas_vision_body(args)
+        except Exception as e:  # noqa: BLE001 —— 兜底转结构化错误,不让裸异常冒泡成 "no output"
+            elapsed = time.monotonic() - started
+            tb = traceback.format_exc()
+            return {
+                "content": [{"type": "text", "text": (
+                    f"canvas_vision 未捕获异常(elapsed={elapsed:.1f}s): "
+                    f"{type(e).__name__}: {e}\n--- traceback(尾部) ---\n{tb[-1800:]}"
+                )}],
+                "is_error": True,
+            }
 
     # ---------- load_artifact ----------
     @builder.tool(
