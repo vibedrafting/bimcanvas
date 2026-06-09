@@ -29,10 +29,12 @@ onMounted(() => {
     // 运行中：每 1.5s 静默重拉一次 orchestrator 运行态（若增量写，则运行中也呈现完整 phase 树）
     if (workflow.value && workflow.value.status === 'running') void loadTranscript(true, true)
   }, 1500)
-  if (hasCompletedWorkflow.value) void loadTranscript()
+  // force=true：运行态心跳已把 transcriptStatus 置 'loaded'，完成后的拉取必须强制绕过 loaded 守卫，
+  // 否则停留在最后一帧实时态（live）→ 永远 no-toggle / 末位 agent "运行中"。
+  if (hasCompletedWorkflow.value) void loadTranscript(true)
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
-watch(hasCompletedWorkflow, (done) => { if (done) void loadTranscript() })
+watch(hasCompletedWorkflow, (done) => { if (done) void loadTranscript(true) })
 
 // 完成态：权威分组 phase 树
 const showTranscript = computed(

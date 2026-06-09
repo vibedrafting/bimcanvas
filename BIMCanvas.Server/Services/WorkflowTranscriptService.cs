@@ -45,7 +45,7 @@ namespace BIMCanvas.Server.Services
             }
 
             // 完成态优先：找到本次 run 的权威 wf_*.json
-            var runJsonPath = PickRunJson(Path.Combine(sessionDir, "workflows"), taskId);
+            var runJsonPath = PickRunJson(Path.Combine(sessionDir, "workflows"), taskId, sessionDir);
             if (runJsonPath != null)
             {
                 try
@@ -198,25 +198,48 @@ namespace BIMCanvas.Server.Services
         }
 
         /// <summary>
-        /// 选完成态 wf_*.json：完成态必须绑定具体 run 身份(taskId)，不靠 mtime 猜。
-        /// - 给了 taskId：只认匹配的；没匹配(本次 run 完成文件还没写出)→ null → 走实时态。
-        /// - 没给 taskId：无法识别是哪个 run → 一律 null 走实时态(BuildLive)，绝不回退"取最新完成文件"——
-        ///   否则同一会话先后跑多个 workflow 时，新 run 启动期会错读上一个已完成 run 的 wf_*.json，
-        ///   把仍在跑的新 run 误报 completed(latent bug)。代价：对"已完成会话的无 taskId 查询"会报成
-        ///   运行态，但前端完成态查询恒带 taskId(onWorkflowCompleted 先绑 taskId 再 loadTranscript)，不受影响。
+        /// 选完成态 wf_*.json。
+        /// - 给了 taskId(常规路径)：只认 taskId 匹配的；没匹配(本次 run 完成文件还没写出)→ null → 走实时态。
+        /// - 没给 taskId(兜底)：取最新完成文件，但**仅当**其 runId 同时是最新活动的 run(subagents/workflows
+        ///   下最新 run 目录)——即没有更新的 run 在跑。否则同会话新 run 启动期会错读上一个已完成 run 的
+        ///   wf_*.json，把仍在跑的新 run 误报 completed(4b2f4edc 防的 latent bug)，此时返回 null 走实时态。
+        ///   这条兜底是为修复"实时进度 SSE 漏传 taskId → 前端完成态查询无 taskId → 永久卡实时态"而加，
+        ///   前端已优先从 Workflow 工具结果绑 taskId(bindWorkflowIdentity)，本兜底只在 taskId 仍缺失时生效。
         /// </summary>
-        private static string? PickRunJson(string workflowsDir, string? taskId)
+        private static string? PickRunJson(string workflowsDir, string? taskId, string sessionDir)
         {
-            if (string.IsNullOrEmpty(taskId)) return null;  // 无 run 身份 → 不认完成态，交 BuildLive
             if (!Directory.Exists(workflowsDir)) return null;
             var files = Directory.EnumerateFiles(workflowsDir, "wf_*.json", SearchOption.TopDirectoryOnly).ToList();
             if (files.Count == 0) return null;
-            foreach (var f in files)
+
+            if (!string.IsNullOrEmpty(taskId))
             {
-                try { if (string.Equals((string?)JObject.Parse(File.ReadAllText(f))["taskId"], taskId, StringComparison.Ordinal)) return f; }
-                catch { }
+                foreach (var f in files)
+                {
+                    try { if (string.Equals((string?)JObject.Parse(File.ReadAllText(f))["taskId"], taskId, StringComparison.Ordinal)) return f; }
+                    catch { }
+                }
+                return null; // taskId 指定但本次 run 还没写出 → 走实时态
             }
-            return null; // taskId 指定但本次 run 还没写出 → 走实时态
+
+            // 无 taskId 安全兜底：最新完成文件，且其 runId == 最新活动 run（无更新的 run 在跑）
+            var newestJson = files.OrderByDescending(File.GetLastWriteTimeUtc).First();
+            var subRoot = Path.Combine(sessionDir, "subagents", "workflows");
+            if (Directory.Exists(subRoot))
+            {
+                var newestRunDir = Directory.EnumerateDirectories(subRoot, "wf_*")
+                    .OrderByDescending(Directory.GetLastWriteTimeUtc).FirstOrDefault();
+                if (newestRunDir != null)
+                {
+                    var newestRunId = Path.GetFileName(newestRunDir);
+                    string? jsonRunId = null;
+                    try { jsonRunId = (string?)JObject.Parse(File.ReadAllText(newestJson))["runId"]; } catch { }
+                    // 有更新的 run 在跑（最新完成文件 ≠ 最新活动 run）→ 不认完成态，交 BuildLive
+                    if (jsonRunId == null || !string.Equals(jsonRunId, newestRunId, StringComparison.Ordinal))
+                        return null;
+                }
+            }
+            return newestJson;
         }
 
         private static HashSet<string> ReadJournalStarted(string subDir)

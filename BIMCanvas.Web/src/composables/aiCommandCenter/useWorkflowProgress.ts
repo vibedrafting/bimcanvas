@@ -429,6 +429,7 @@ export function useWorkflowProgress() {
     isWorkflowTaskType,
     // ingest
     startWorkflow,
+    bindWorkflowIdentity,
     onSubtaskStarted,
     onSubtaskProgress,
     onWorkflowProgress,

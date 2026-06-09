@@ -51,41 +51,19 @@ class RuntimeStateStore:
                 self._interaction_subscribers.remove(queue)
 
     async def push_background_task(self, *, record: dict[str, Any]) -> dict[str, Any]:
-        """后台任务（Workflow）完成：① 落 session history（唯一真理源，使任何重建可复现气泡）
-        ② 复用 interaction SSE 通道实时推送（即时性，session idle 无轮询时也能立刻显示）。
+        """后台任务（Workflow）完成：仅复用 interaction SSE 通道实时推送（驱动前端 Task 面板收口）。
 
-        落 history 用 text.completed 事件形态 + 合成 turnId "bgtask:<taskId>"（独立成一条 AI 消息，
-        不并入真实回合）。content 由 Agent 组装好随 record 传入，实时注入与 history 重建复用同一文本，
-        渲染收敛、不重复（restoreHistoryForWindow 每次全量重建，二者永不共存）。
+        【不再落 history、不再注入 Chat 气泡】——后台任务即 Workflow，其完成详情已由 Task 页
+        WorkflowProgressPanel（读权威 wf_{runId}.json）完整呈现；Chat 里那条 generic
+        'Workflow "<desc>" completed'（主控脱离后台无原生总结时的 TaskNotification 兜底文案）属冗余噪声，
+        且因延迟投递常置底错位，故移除。SSE 记录仍携带 taskId/status/sdkSessionId，供 onWorkflowCompleted
+        驱动面板（事件名 background_task.completed）。
         """
         record = dict(record)
         if not record.get("timestamp"):
             record["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-        session_id = record.get("sessionId")
-        window_id = record.get("windowId")
-        task_id = record.get("taskId") or "unknown"
-        content = record.get("content") or record.get("summary") or ""
-
-        # ① 落 history（仅当定位信息齐全；缺失则只走实时推送，不持久化）
-        if session_id and window_id:
-            bg_turn_id = f"bgtask:{task_id}"
-            event_payload = {
-                "eventId": str(uuid.uuid4()),
-                "sessionId": session_id,
-                "turnId": bg_turn_id,
-                "eventType": "text.completed",
-                "timestamp": record["timestamp"],
-                "payload": {"content": content},
-            }
-            await self.append_event_history(
-                session_id=session_id,
-                turn_id=bg_turn_id,
-                window_id=window_id,
-                event_payload=event_payload,
-            )
-
-        # ② 实时 SSE 推送
+        # 实时 SSE 推送（仅驱动 Task 面板收口，不落 history、不出 Chat 气泡）
         async with self._lock:
             subscribers = list(self._interaction_subscribers)
         self._publish(subscribers, "background_task.completed", record)

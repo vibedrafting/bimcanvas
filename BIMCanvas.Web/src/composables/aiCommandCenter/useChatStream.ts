@@ -893,6 +893,18 @@ export const useChatStream = (options: ChatStreamOptions) => {
           success: getBoolean(payload.success) ?? getBoolean(raw.success)
         });
 
+        // Workflow 工具完成（async_launched）：从结果文本 "Task ID: <id>" 绑定 taskId。
+        // 这是最可靠的 in-turn 来源——实时进度 SSE 可能只带 sdkSessionId 漏传 taskId，
+        // 不绑定则完成后 loadTranscript 无 taskId、服务端只能回退实时态，Task 面板永久卡"运行中"。
+        const wfTool = workflowProgress.workflow.value;
+        if (wfTool && toolCallId === wfTool.toolCallId && !wfTool.taskId) {
+          const wfOut = getString(payload.output) ?? getString(raw.toolOutput) ?? '';
+          const wfMatch = wfOut.match(/Task ID:\s*(\S+)/i);
+          if (wfMatch) {
+            workflowProgress.bindWorkflowIdentity({ toolCallId, taskId: wfMatch[1] });
+          }
+        }
+
         if (windowState?.todoProgress?.toolCallId === toolCallId) {
           const success = getBoolean(payload.success) ?? getBoolean(raw.success);
           if (success === false) {
