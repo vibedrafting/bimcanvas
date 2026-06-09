@@ -42,8 +42,9 @@ const variantContext = computed<{ designZoneId: string } | null>(() => {
     return { designZoneId };
 });
 
-// 指针模型：隐藏候选（_ 前缀，state=hidden）不进导航条；adopted 方案由 canonical 槽（位置0「已采纳方案」，
-// clearActiveVariant 渲染父指针指向的方案）代表，不在列表里再重复出现一条 —— 避免采纳后同一方案显示两次。
+// 指针模型：隐藏候选（_ 前缀，state=hidden）不进导航条；adopted 方案由位置0 canonical 槽
+// （clearActiveVariant 渲染父指针指向的方案；标签显示其 slug、动作区显示灰色「已采纳」）代表，
+// 不在列表里再重复出现一条 —— 避免采纳后同一方案显示两次。
 const visibleVariants = computed(() =>
     variants.value.filter(v => v.state !== 'hidden' && v.state !== 'adopted')
 );
@@ -83,11 +84,18 @@ const currentVariant = computed<VariantDescriptor | null>(() =>
         : sortedVariants.value.find(v => v.slug === currentSlot.value) ?? null
 );
 
+// 已采纳方案不进 visibleVariants 列表，但仍需取其 slug/summary 用于 canonical 槽的标签与 tooltip。
+const adoptedVariant = computed<VariantDescriptor | null>(() =>
+    variants.value.find(v => v.state === 'adopted') ?? null);
+
+// canonical 槽直接显示被采纳方案的 slug（而非笼统的「已采纳方案」）；adoptedVariant 缺失时兜底。
 const currentLabel = computed(() =>
-    isCanonicalCurrent.value ? '已采纳方案' : currentVariant.value?.slug ?? '');
+    isCanonicalCurrent.value
+        ? (adoptedVariant.value?.slug ?? '已采纳方案')
+        : currentVariant.value?.slug ?? '');
 
 const currentSummary = computed(() => {
-    const v = currentVariant.value;
+    const v = isCanonicalCurrent.value ? adoptedVariant.value : currentVariant.value;
     return (v?.summary && v.summary.trim()) || '';
 });
 
@@ -273,7 +281,13 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                 >
                     {{ adoptingSlug ? '采纳中' : '采纳' }}
                 </button>
-                <span v-else class="vnav-status">基准</span>
+                <button
+                    v-else
+                    class="vnav-adopted"
+                    type="button"
+                    disabled
+                    title="此方案为当前已采纳方案"
+                >已采纳</button>
             </div>
             <button
                 v-if="showAdopt"
@@ -458,7 +472,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
 }
 
 .vnav-adopt,
-.vnav-status {
+.vnav-adopted {
     width: 58px;
     height: 26px;
     padding: 0 8px;
@@ -491,10 +505,11 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     cursor: progress;
 }
 
-.vnav-status {
+.vnav-adopted {
     background: rgba(255, 255, 255, 0.045);
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
+    cursor: default;
 }
 
 .vnav-error {

@@ -2740,6 +2740,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    /* 滚动视口内底部留白：view-tasks 自身是滚动容器，无此 padding 时滚到底最后一张卡片紧贴下沿。
+       layer-stream 的 padding 在滚动视口之外，不构成内容呼吸空间，故在此补。对齐 Chat 的底部间距观感。 */
+    padding-bottom: 20px;
 }
 
 /* Phase 2: 多窗口聊天容器 */
