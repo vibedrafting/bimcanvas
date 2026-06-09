@@ -83,8 +83,6 @@ namespace BIMCanvas.Server.Controllers
                               ?? _projectContext.CurrentProjectPath!;
             var schemesPath = Path.Combine(projectPath, "schemes");
             var adopted = _designDoc.ReadAdoptedSlug(schemesPath, designZoneId);
-            var topology = ModuleFileTopologyService.BuildFromSchemesPath(schemesPath);
-            var leafZoneIds = topology.GetLeafZoneIds(designZoneId);
 
             // 指针模型：方案 = schemes/{dz}/ 下的子目录（每个一个 slug）；adopted 指针标生效；_ 前缀=隐藏候选。
             foreach (var dir in Directory.EnumerateDirectories(designZoneRoot, "*", SearchOption.TopDirectoryOnly))
@@ -100,7 +98,7 @@ namespace BIMCanvas.Server.Controllers
                     : slug.StartsWith("_", StringComparison.Ordinal)
                         ? "hidden"
                         : "variant";
-                var summary = DeriveVariantSummaryFromModules(projectPath, designZoneId, slug, leafZoneIds);
+                var summary = DeriveVariantSummaryFromModules(projectPath, designZoneId, slug);
                 var createdAt = Directory.GetCreationTimeUtc(dir).ToString("o");
 
                 response.Variants.Add(new VariantMetadata
@@ -738,19 +736,22 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 派生变体的 summary：遍历该变体所有叶子 modules.json，取第一个非空的 schemeMetadata.summary。
         /// 用于 ListVariants 显示。AI 在 register_variant 时已把 summary 复制到各叶子 modules.json。
+        /// 必补-1：叶子集必须读**该候选自身**的 {slug}/zones.json（EnumerateSchemeLeaves），不能用设计区
+        /// adopted 派生的 GetLeafZoneIds —— 否则未采纳的 AI 多叶子候选（adopted 为空→回落单叶子占位）会
+        /// 拼出不存在的 {slug}/modules.json 顶层路径、取不到 summary 而前端列表空白（与 AdoptVariant 同源 bug）。
         /// </summary>
         private string DeriveVariantSummaryFromModules(
-            string projectPath, string designZoneId, string variantSlug, IReadOnlyList<string> leafZoneIds)
+            string projectPath, string designZoneId, string variantSlug)
         {
             try
             {
-                foreach (var leafId in leafZoneIds)
+                var schemesPath = Path.Combine(projectPath, "schemes");
+                foreach (var entry in ModuleFileTopologyService.EnumerateSchemeLeaves(
+                             schemesPath, designZoneId, variantSlug))
                 {
-                    var modulesPath = _modulesWriter.ResolveModulesPath(
-                        projectPath, designZoneId, leafId, variantSlug);
-                    if (!System.IO.File.Exists(modulesPath))
+                    if (!System.IO.File.Exists(entry.FilePath))
                         continue;
-                    var wrapper = _modulesReader.Read(modulesPath);
+                    var wrapper = _modulesReader.Read(entry.FilePath);
                     var summary = wrapper?.SchemeMetadata?.Summary;
                     if (!string.IsNullOrWhiteSpace(summary))
                         return summary;
