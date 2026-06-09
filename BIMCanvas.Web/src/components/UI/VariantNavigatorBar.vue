@@ -276,7 +276,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                 </svg>
             </button>
             <div class="vnav-center" :title="barTitle">
-                <span class="vnav-label" :class="{ 'is-hidden-variant': isHiddenCurrent }">{{ currentLabel }}</span>
+                <span class="vnav-label" :class="{ 'is-adopted': isCanonicalCurrent, 'is-hidden-variant': isHiddenCurrent }">{{ currentLabel }}</span>
                 <span class="vnav-indicator">{{ indicator }}</span>
             </div>
             <button
@@ -442,10 +442,14 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     text-overflow: ellipsis;
 }
 
-/* 当前停在隐藏候选时的 label 着色提示（与「_」前缀 slug 配合，提示这是临时显示的废弃方案） */
+/* label 三态着色（均不用斜体）：
+ * 采纳态 → 琥珀高亮；普通变体 → 默认色（无类）；隐藏候选 → 浅蓝。 */
+.vnav-label.is-adopted {
+    color: rgba(255, 205, 130, 1);
+}
+
 .vnav-label.is-hidden-variant {
-    color: rgba(255, 200, 120, 0.95);
-    font-style: italic;
+    color: rgba(130, 190, 255, 0.95);
 }
 
 .vnav-indicator {
