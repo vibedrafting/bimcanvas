@@ -159,7 +159,11 @@ const headerMeta = computed(() => {
 // === 展开 ===
 const expandedKeys = ref<Set<string>>(new Set())
 const promptOpen = ref<Set<string>>(new Set())
-const expandedPhases = ref<Set<number>>(new Set()) // 默认空 = 全部折叠（用户要求）
+const expandedPhases = ref<Set<number>>(new Set()) // 完成态：默认空 = 全部折叠（用户要求）
+const collapsedPhases = ref<Set<number>>(new Set()) // 运行态：默认空 = 全部展开，可手动折叠
+// phase 是否展开：完成态默认折叠(看 expandedPhases)，运行态默认展开(看 collapsedPhases 取反)
+const phaseOpen = (idx: number): boolean =>
+  isLiveView.value ? !collapsedPhases.value.has(idx) : expandedPhases.value.has(idx)
 const toggleSet = (s: { value: Set<string> }, key: string) => {
   const next = new Set(s.value)
   next.has(key) ? next.delete(key) : next.add(key)
@@ -168,9 +172,11 @@ const toggleSet = (s: { value: Set<string> }, key: string) => {
 const toggleExpand = (key: string) => toggleSet(expandedKeys, key)
 const togglePrompt = (key: string) => toggleSet(promptOpen, key)
 const togglePhase = (idx: number) => {
-  const next = new Set(expandedPhases.value)
+  // 运行态切 collapsedPhases（默认展开），完成态切 expandedPhases（默认折叠）
+  const s = isLiveView.value ? collapsedPhases : expandedPhases
+  const next = new Set(s.value)
   next.has(idx) ? next.delete(idx) : next.add(idx)
-  expandedPhases.value = next
+  s.value = next
 }
 
 // === transcript agent 辅助 ===
@@ -253,6 +259,7 @@ const dismiss = () => {
   expandedKeys.value = new Set()
   promptOpen.value = new Set()
   expandedPhases.value = new Set()
+  collapsedPhases.value = new Set()
 }
 </script>
 
@@ -286,10 +293,10 @@ const dismiss = () => {
       <div v-for="ph in displayPhases" :key="ph.index" class="phase">
         <div
           class="phase-head"
-          :class="[phaseStats(ph.agents).status, { 'no-toggle': isLiveView }]"
-          @click="!isLiveView && togglePhase(ph.index)"
+          :class="[phaseStats(ph.agents).status]"
+          @click="togglePhase(ph.index)"
         >
-          <svg v-if="!isLiveView" class="phase-caret" :class="{ open: expandedPhases.has(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          <svg class="phase-caret" :class="{ open: phaseOpen(ph.index) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span class="phase-mark" :class="phaseStats(ph.agents).status">
             <template v-if="phaseStats(ph.agents).status === 'done'">✓</template>
             <template v-else-if="phaseStats(ph.agents).status === 'active'">›</template>
@@ -301,7 +308,7 @@ const dismiss = () => {
           <span v-if="ph.detail" class="phase-detail">{{ ph.detail }}</span>
         </div>
 
-        <div v-show="isLiveView || expandedPhases.has(ph.index)" class="phase-agents">
+        <div v-show="phaseOpen(ph.index)" class="phase-agents">
           <div v-if="!ph.agents.length" class="phase-empty">{{ isLiveView ? '待执行' : '无 agent' }}</div>
           <div v-for="a in ph.agents" :key="a.agentId" class="agent">
             <div class="agent-head" @click="toggleExpand(a.agentId)">

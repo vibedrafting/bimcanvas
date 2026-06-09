@@ -180,7 +180,10 @@ namespace BIMCanvas.Server.Services
                 try { EnrichAgentDetail(agent, runDir); } catch (Exception ex) { _logger.LogWarning(ex, "live enrich {Id}", agentId); }
                 if (string.IsNullOrEmpty(agent.Outcome) && results.TryGetValue(agentId, out var oc)) agent.Outcome = oc;
                 agent.State = results.ContainsKey(agentId) ? "done" : (started.Contains(agentId) ? "running" : "running");
-                agent.Label = LabelFromOutcomeOrPrompt(agent.Outcome, agent.Prompt) ?? agentId;
+                // 运行态权威角色名：agent-{id}.meta.json 的 agentType（如 space-understanding-agent）。
+                // 远比扒 prompt 的启发式可靠；完成态才有脚本 label（review:north-storage:动线设计 这种唯一名）。
+                agent.Label = ReadAgentType(runDir, agentId)
+                    ?? LabelFromOutcomeOrPrompt(agent.Outcome, agent.Prompt) ?? agentId;
                 liveAgents.Add(agent);
             }
             // 让 done 的排前面、稳定可读
@@ -407,6 +410,19 @@ namespace BIMCanvas.Server.Services
         {
             var m = Regex.Match(text, pattern);
             return m.Success ? m.Groups[1].Value : null;
+        }
+
+        /// <summary>读 agent-{agentId}.meta.json 的 agentType（运行态权威角色名）。无/解析失败返回 null。</summary>
+        private static string? ReadAgentType(string subDir, string agentId)
+        {
+            var file = Path.Combine(subDir, $"agent-{agentId}.meta.json");
+            if (!File.Exists(file)) return null;
+            try
+            {
+                var t = (string?)JObject.Parse(File.ReadAllText(file))["agentType"];
+                return string.IsNullOrWhiteSpace(t) ? null : t;
+            }
+            catch { return null; }
         }
 
         private static string ExtractAgentId(string path)
