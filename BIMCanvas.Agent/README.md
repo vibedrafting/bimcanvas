@@ -832,27 +832,6 @@ curl -X POST http://127.0.0.1:8765/api/chat \
   -d '{"message": "你好"}'
 ```
 
-### 独立图片生成调试
-
-第一阶段新增了一个独立的图片处理客户端，不依赖 Agent/Server/Web 运行时，可直接用两张本地图测试 API：
-
-```bash
-cd BIMCanvas.Agent
-python -m src.image_generation.cli ^
-  --source "E:\工作文档\开发类\MyCode\BIMCanvas\references\凤栖湖127主卧.png" ^
-  --style "E:\工作文档\开发类\MyCode\BIMCanvas\references\参考图.png" ^
-  --output "E:\工作文档\开发类\MyCode\BIMCanvas\references\outputs\phase1_result.png"
-```
-
-如需临时覆盖默认 Key，可额外传入 `--api-key "..."`
-
-当前 CLI 默认 prompt 已重构为 8 条规则、三级优先级（结构保真 > 家具保真 > 视觉风格）的精简版本：结构保真 + 家具矩形化 + 色彩键值映射 + 零幻觉优先；方向箭头规则已完全移除（旧版箭头规则导致方向幻觉）。同时 API 请求的 parts 顺序已调整为 `[source_image, style_image, text]`，与 Gemini 官方图像编辑示例一致，让模型先建立视觉锚点再阅读指令。
-
-核心实现位于：
-
-- `src/image_generation/nano_banana_client.py`
-- `src/image_generation/cli.py`
-
 ### MCP 工具开发指南
 
 #### 已集成 MCP 工具（canvas）
