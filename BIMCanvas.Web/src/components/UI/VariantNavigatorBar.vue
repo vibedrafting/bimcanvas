@@ -42,11 +42,17 @@ const variantContext = computed<{ designZoneId: string } | null>(() => {
     return { designZoneId };
 });
 
-// 指针模型：隐藏候选（_ 前缀，state=hidden）不进导航条；adopted 方案由位置0 canonical 槽
-// （clearActiveVariant 渲染父指针指向的方案；标签显示其 slug、动作区显示灰色「已采纳」）代表，
-// 不在列表里再重复出现一条 —— 避免采纳后同一方案显示两次。
+// 临时显示隐藏候选（_ 前缀，state=hidden）的开关；默认关，刷新即重置。
+const showHidden = ref(false);
+const hasHidden = computed(() => variants.value.some(v => v.state === 'hidden'));
+
+// 指针模型：隐藏候选（_ 前缀，state=hidden）默认不进导航条，showHidden 开启时临时纳入；
+// adopted 方案由位置0 canonical 槽（clearActiveVariant 渲染父指针指向的方案；标签显示其 slug、
+// 动作区显示灰色「已采纳」）代表，不在列表里再重复出现一条 —— 避免采纳后同一方案显示两次。
 const visibleVariants = computed(() =>
-    variants.value.filter(v => v.state !== 'hidden' && v.state !== 'adopted')
+    variants.value.filter(v =>
+        v.state !== 'adopted' && (showHidden.value || v.state !== 'hidden')
+    )
 );
 // server 已按 createdAt 排序，保留原顺序即可；后续如需稳定排序可在此扩展
 const sortedVariants = computed(() => [...visibleVariants.value]);
@@ -100,6 +106,9 @@ const currentSummary = computed(() => {
 });
 
 const showAdopt = computed(() => !isCanonicalCurrent.value);
+// 当前停在的是否为隐藏候选——用于 label 视觉标记（slug 本身带 _ 前缀，这里再加色提示）。
+const isHiddenCurrent = computed(() =>
+    !isCanonicalCurrent.value && currentVariant.value?.state === 'hidden');
 const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.length}`);
 const barTitle = computed(() =>
     currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value);
@@ -118,6 +127,19 @@ async function gotoIndex(nextIndex: number) {
 }
 const onPrev = () => gotoIndex(currentIndex.value - 1);
 const onNext = () => gotoIndex(currentIndex.value + 1);
+
+function toggleHidden() {
+    showHidden.value = !showHidden.value;
+    // 关闭时若当前正停在某隐藏候选上，该 slug 会从 sequence 移除，导致 bar 索引回落却仍渲染隐藏方案——
+    // 主动回退到 canonical，保持 bar 角标与画布一致。
+    if (!showHidden.value) {
+        const ctx = variantContext.value;
+        const active = activeVariantSlug.value;
+        if (ctx && active && variants.value.find(v => v.slug === active)?.state === 'hidden') {
+            void canvasStore.clearActiveVariant(ctx.designZoneId);
+        }
+    }
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
@@ -254,7 +276,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                 </svg>
             </button>
             <div class="vnav-center" :title="barTitle">
-                <span class="vnav-label">{{ currentLabel }}</span>
+                <span class="vnav-label" :class="{ 'is-hidden-variant': isHiddenCurrent }">{{ currentLabel }}</span>
                 <span class="vnav-indicator">{{ indicator }}</span>
             </div>
             <button
@@ -302,6 +324,28 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                     <path d="M9 3h6m-9 4h12m-1 0l-1 12a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2L5 7m4 4v6m4-6v6"
                           fill="none" stroke="currentColor"
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+            <button
+                v-if="hasHidden"
+                class="vnav-toggle-hidden"
+                :class="{ active: showHidden }"
+                type="button"
+                :disabled="busy"
+                :aria-pressed="showHidden"
+                @click="toggleHidden"
+                :title="showHidden ? '收起「_」前缀的废弃/隐藏方案' : '临时显示「_」前缀的废弃/隐藏方案'"
+            >
+                <svg v-if="showHidden" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.8M9.4 5.2A9.4 9.4 0 0112 5c5 0 9 4.5 10 7-.4 1-1.2 2.3-2.4 3.5M6.1 6.2C3.8 7.6 2.4 9.8 2 12c1 2.5 5 7 10 7 1 0 2-.2 2.9-.5"
+                          fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
+                          fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
                 </svg>
             </button>
             <div v-if="errorMessage" class="vnav-error" :title="errorMessage">{{ errorMessage }}</div>
@@ -398,11 +442,54 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     text-overflow: ellipsis;
 }
 
+/* 当前停在隐藏候选时的 label 着色提示（与「_」前缀 slug 配合，提示这是临时显示的废弃方案） */
+.vnav-label.is-hidden-variant {
+    color: rgba(255, 200, 120, 0.95);
+    font-style: italic;
+}
+
 .vnav-indicator {
     font-size: 10px;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+
+/* 临时显示隐藏候选的切换按钮：尺寸/交互对齐 .vnav-arrow；active（已开启）时高亮琥珀色。 */
+.vnav-toggle-hidden {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.vnav-toggle-hidden:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+}
+
+.vnav-toggle-hidden.active {
+    background: rgba(255, 190, 100, 0.16);
+    border-color: rgba(255, 190, 100, 0.42);
+    color: rgba(255, 205, 130, 1);
+}
+
+.vnav-toggle-hidden:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.vnav-toggle-hidden:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .vnav-arrow {
