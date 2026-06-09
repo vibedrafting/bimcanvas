@@ -1833,6 +1833,11 @@ class MainAgent:
                         self._agent_logger.log_info(
                             "[Workflow] 后台任务已启动且收尾文本已输出，回合脱离收尾（真后台，不锁输入）"
                         )
+                    # 显式告知前端：本回合已把 workflow 脱离到后台，完成会经 background_task.completed
+                    # 旁路到达。前端据此置 isPollingBackground，跳过"前台回合结束即内联收口"——否则回合一
+                    # 结束就把仍在后台跑的 workflow 误标 completed（与旧 TaskOutput 轮询的 task_output_polling
+                    # 同为"后台脱离"信号，但此处是 push 式真后台、非轮询，故用独立语义名）。
+                    yield StreamChunk(type="workflow_detached")
                     self._turn_launched_workflow = False
                     self._active_turn = None  # 后续消息 → drain 带外通道
                     break

@@ -81,7 +81,10 @@ const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
   rate_limit: 'runtime.rate_limit',
   tool_call_start: 'tool.started',
   tool_call_output: 'tool.output',
-  tool_call_complete: 'tool.completed'
+  tool_call_complete: 'tool.completed',
+  // workflow 真后台脱离信号（agent 在回合脱离收尾时发）：标记本回合 workflow 已转后台，
+  // 完成走 background_task.completed 旁路，前端据此跳过前台回合结束的内联收口
+  workflow_detached: 'workflow_detached'
 };
 const ASSISTANT_EVENT_TYPES = new Set([
   'thinking.delta',
@@ -931,6 +934,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
           markAsBackground(bubble);
           bubble.subAgentResult = `正在获取结果... (timeout: ${timeout / 1000}s)`;
         }
+        break;
+      }
+      case 'workflow_detached': {
+        // workflow 已脱离到真后台：完成将经 background_task.completed 旁路到达。
+        // 置此标记 → sendMessage 的 finally 跳过"前台回合结束即内联收口"（:1435 守卫），
+        // 避免回合一结束就把仍在后台跑的 workflow 误标 completed。
+        isPollingBackground.value = true;
         break;
       }
       case 'turn.completed': {
