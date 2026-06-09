@@ -316,9 +316,15 @@ export const useCanvasStore = defineStore('canvas', () => {
         const activeMap = activeVariantByDesignZone.value;
         const baseSnapshot = canonicalModulesSnapshot.value ?? [];
 
-        // 构建 leafZoneId → designZoneId 反查表（含顶层叶子自映射）
+        // 构建 leafZoneId → designZoneId 反查表（含顶层叶子自映射）。
+        // 关键：必须用 canonical zones 快照，而非已被 recomputeDisplayZones 改写成「变体拓扑」的 live zones。
+        // baseSnapshot 是 canonical 模块，其 zoneId 是 canonical 叶子 id；若用变体拓扑的 live zones 建表，
+        // canonical 与所切变体叶子 id 不一致的设计区会映射失败（get→undefined→dz=''），该设计区的 canonical
+        // 模块漏过下方过滤、与变体模块叠加渲染（切换变体重叠 bug）。拉变体模块那一步仍用 live 拓扑（见下方
+        // getLeafZoneIdsForDesignZone），两处拓扑需求相反，不要混用。
+        const filterZones = canonicalZonesSnapshot.value ?? projectData.value.activeScheme.zones ?? [];
         const leafToDesignZone = new Map<string, string>();
-        for (const z of (projectData.value.activeScheme.zones ?? [])) {
+        for (const z of filterZones) {
             if (!z.id) continue;
             if (z.subZones && z.subZones.length > 0) {
                 for (const sz of z.subZones) {
