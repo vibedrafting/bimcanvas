@@ -28,6 +28,7 @@ import RateLimitBanner from './RateLimitBanner.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
 import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import WorkflowProgressPanel from './WorkflowProgressPanel.vue';
+import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
 import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress';
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
@@ -685,9 +686,11 @@ watch(activeSubAgents, (newAgents, oldAgents) => {
 const proposals = ref(proposalMocks);
 
 // Workflow 进度（Task 页可视化）。hasActiveWorkflow 锚到 workflow 工具调用触发信号（见 useChatStream tool.started）。
-const { hasActiveWorkflow, hasCompletedWorkflow, backgroundTaskCount } = useWorkflowProgress();
+const { hasActiveWorkflow, hasCompletedWorkflow, backgroundTaskCount, backgroundTaskList } = useWorkflowProgress();
 // 占位 mock 与 workflow 进度面板互补：有 workflow（进行中或已完成留存）→ 隐占位、显进度。
 const hasWorkflowView = computed(() => hasActiveWorkflow.value || hasCompletedWorkflow.value);
+// 普通后台任务卡片（含完成态留存）：有则显示面板并同样让 mock 临时让位。
+const hasBackgroundTaskView = computed(() => backgroundTaskList.value.length > 0);
 
 // 统一后台活动灯：合并原 polling-indicator / workflow-indicator 两盏灯——用户视角只关心
 // "AI 还有事没干完吗"，类型区分（workflow 阶段树 / 普通任务）下沉到 Task 页。
@@ -1176,8 +1179,11 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <!-- Workflow 进度（有活跃/已完成 workflow 时显示，与下方占位 mock 互补） -->
             <WorkflowProgressPanel v-if="hasWorkflowView" />
 
-            <!-- Proposal Carousel（占位 mock：仅在无 workflow 视图时显示） -->
-            <div class="carousel-section" v-if="!hasWorkflowView">
+            <!-- 普通后台任务监控卡片（SSE 心跳驱动，含完成态留存） -->
+            <BackgroundTaskPanel v-if="hasBackgroundTaskView" />
+
+            <!-- Proposal Carousel（占位 mock：仅在无 workflow / 无后台任务视图时显示，有则临时让位） -->
+            <div class="carousel-section" v-if="!hasWorkflowView && !hasBackgroundTaskView">
                 <div class="section-title">Proposals</div>
                 <div class="carousel-track" ref="carouselTrackRef" @wheel="handleWheel">
                     <div class="proposal-card" v-for="p in proposals" :key="p.id">

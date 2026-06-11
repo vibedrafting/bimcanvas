@@ -27,8 +27,11 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
         return
       }
       seenKeys.add(key)
-      // 普通后台 Task 收口（统一活动灯计数）；对 workflow 的 taskId 调用无害（集合里本来没有）
-      workflowProgress.clearBackgroundTask(record.taskId)
+      // 普通后台 Task 收口：标完成态保留条目（Task 页卡片显示）；对 workflow 的 taskId 调用无害（集合里本来没有）
+      workflowProgress.completeBackgroundTask(
+        record.taskId,
+        record.status === 'failed' ? 'failed' : 'completed'
+      )
     }
 
     // ① Task 面板收口（始终）——携带 sdkSessionId 供 tier C 拉 transcript。

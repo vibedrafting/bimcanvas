@@ -913,6 +913,7 @@ class MainAgent:
                 )
             # Task 页运行态全阶段预声明（detach 后 workflow 任务的 TaskStarted 走此路径时也兜底）
             await self._maybe_emit_workflow_phases(message)
+            # 启动即推心跳（在 phases 之后——先记 workflow task_id，isWorkflow 标记才正确）
             await self._push_background_progress(message)
         elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
             # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
@@ -2062,6 +2063,10 @@ class MainAgent:
                     )
                 # Task 页运行态全阶段预声明:workflow 任务启动即推完整 phases（命中暂存才推）
                 await self._maybe_emit_workflow_phases(message)
+                # 回合内也推 SSE 心跳（双通道：chat 流 subagent_* 照旧）：活动灯/后台任务卡片的
+                # 数据源只接 SSE——此前回合内静默，导致 todo 面板与后台任务灯永远无法同屏。
+                # 须在 phases 之后（先记 workflow task_id，isWorkflow 标记才正确）。
+                await self._push_background_progress(message)
 
             # S4: TaskProgressMessage 分支（SDK 0.1.46+）
             # 通过 tool_use_id 反查 subagent_id（_active_subagents 当前结构 dict[tool_use_id, subagent_id]）。
@@ -2078,6 +2083,9 @@ class MainAgent:
                     tool_name=message.last_tool_name,
                     usage=dict(message.usage) if message.usage else None,
                 )
+                # 回合内也推 SSE 心跳（双通道）：理由同 TaskStartedMessage 分支——
+                # 活动灯/后台任务卡片只接 SSE，回合内静默会让它们在回合期间不可见。
+                await self._push_background_progress(message)
 
             # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
             # 边界场景：后台 Workflow 在本回合流式过程中完成（消息落到活跃回合）。

@@ -135,26 +135,53 @@ const predeclaredName = ref<string | undefined>(undefined)
 const liveAgentPhase = ref<Map<string, string>>(new Map())
 
 // 普通后台 Task 集合（非 Workflow 工具发起，心跳 record.isWorkflow===false）：
-// 仅供统一后台活动灯计数与文案，不进 workflow 阶段树。进=心跳，出=background_task.completed。
-const backgroundTasks = ref<Map<string, { description?: string }>>(new Map())
+// 供统一后台活动灯计数（只数 running）与 Task 页 BackgroundTaskPanel 卡片，不进 workflow 阶段树。
+// 进=心跳（merge 更新）；完成=background_task.completed 标完成态保留（卡片显示），resetWorkflow 清空。
+export interface BackgroundTaskInfo {
+  description?: string
+  lastToolName?: string
+  usage?: { totalTokens?: number; toolUses?: number; durationMs?: number }
+  startTime: number
+  status: 'running' | 'completed' | 'failed'
+  endTime?: number
+}
+const backgroundTasks = ref<Map<string, BackgroundTaskInfo>>(new Map())
 
 const hasActiveWorkflow = computed(() => workflow.value?.status === 'running')
 const hasCompletedWorkflow = computed(
   () => !!workflow.value && workflow.value.status !== 'running'
 )
 const workflowAgents = computed<WorkflowAgentState[]>(() => workflow.value?.agents ?? [])
-const backgroundTaskCount = computed(() => backgroundTasks.value.size)
+// 活动灯口径：只数 running——完成态条目保留给 Task 页卡片，不该让灯常亮
+const backgroundTaskCount = computed(() =>
+  [...backgroundTasks.value.values()].filter(t => t.status === 'running').length)
+// Task 页 BackgroundTaskPanel 消费（含完成态）
+const backgroundTaskList = computed(() =>
+  [...backgroundTasks.value.entries()].map(([taskId, info]) => ({ taskId, ...info })))
 
-function noteBackgroundTask(taskId: string, description?: string): void {
+function noteBackgroundTask(
+  taskId: string,
+  data?: { description?: string; lastToolName?: string; usage?: BackgroundTaskInfo['usage'] }
+): void {
   const next = new Map(backgroundTasks.value)
-  next.set(taskId, { description })
+  const prev = next.get(taskId)
+  next.set(taskId, {
+    startTime: prev?.startTime ?? Date.now(),
+    status: prev?.status ?? 'running',
+    endTime: prev?.endTime,
+    description: data?.description ?? prev?.description,
+    lastToolName: data?.lastToolName ?? prev?.lastToolName,
+    usage: data?.usage ?? prev?.usage
+  })
   backgroundTasks.value = next
 }
 
-function clearBackgroundTask(taskId: string): void {
-  if (!backgroundTasks.value.has(taskId)) return
+/** background_task.completed 收口：标完成态+endTime、保留条目（卡片显示），不删除。 */
+function completeBackgroundTask(taskId: string, status: 'completed' | 'failed' = 'completed'): void {
+  const prev = backgroundTasks.value.get(taskId)
+  if (!prev || prev.status !== 'running') return
   const next = new Map(backgroundTasks.value)
-  next.delete(taskId)
+  next.set(taskId, { ...prev, status, endTime: Date.now() })
   backgroundTasks.value = next
 }
 
@@ -284,10 +311,22 @@ function onWorkflowProgress(record: {
   lastToolName?: string | null
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
 }): void {
-  // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯集合，不开/不喂 workflow 视图。
+  // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯/卡片集合，不开/不喂 workflow 视图。
   // isWorkflow 缺省（旧 Agent）按 workflow 处理——保留"刷新后首条心跳兜底重开视图"的恢复能力。
   if (record.isWorkflow === false) {
-    if (record.taskId) noteBackgroundTask(record.taskId, record.description ?? undefined)
+    if (record.taskId) {
+      noteBackgroundTask(record.taskId, {
+        description: record.description ?? undefined,
+        lastToolName: record.lastToolName ?? undefined,
+        usage: record.usage
+          ? {
+              totalTokens: record.usage.total_tokens,
+              toolUses: record.usage.tool_uses,
+              durationMs: record.usage.duration_ms
+            }
+          : undefined
+      })
+    }
     return
   }
   // 已完成的 workflow 收到迟到进度 → 不复活
@@ -454,10 +493,11 @@ export function useWorkflowProgress() {
     hasActiveWorkflow,
     hasCompletedWorkflow,
     workflowAgents,
-    // 普通后台 Task 集合（统一后台活动灯）
+    // 普通后台 Task 集合（统一后台活动灯 + Task 页卡片）
     backgroundTaskCount,
+    backgroundTaskList,
     noteBackgroundTask,
-    clearBackgroundTask,
+    completeBackgroundTask,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,
