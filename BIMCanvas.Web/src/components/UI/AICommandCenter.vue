@@ -506,7 +506,7 @@ const toggleAttachmentMenu = () => {
 const {
   agentStatus,
   currentProjectPath,
-  isPollingBackground,
+  isAwaitingTaskResult,
   streamWelcomeMessage,
   sendMessage,
   sendQueuedMessageNow,
@@ -540,7 +540,7 @@ const {
   buildContextSnapshot: (spatialMarks = pendingSpatialMarks.value) => buildContextSnapshot(spatialMarks)
 });
 
-const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value || hasActiveWorkflow.value);
+const hasProgressOverlay = computed(() => !!activeTodoProgress.value || hasBackgroundActivity.value);
 
 const {
   showScreenshotOverlay,
@@ -685,9 +685,22 @@ watch(activeSubAgents, (newAgents, oldAgents) => {
 const proposals = ref(proposalMocks);
 
 // Workflow 进度（Task 页可视化）。hasActiveWorkflow 锚到 workflow 工具调用触发信号（见 useChatStream tool.started）。
-const { hasActiveWorkflow, hasCompletedWorkflow } = useWorkflowProgress();
+const { hasActiveWorkflow, hasCompletedWorkflow, backgroundTaskCount } = useWorkflowProgress();
 // 占位 mock 与 workflow 进度面板互补：有 workflow（进行中或已完成留存）→ 隐占位、显进度。
 const hasWorkflowView = computed(() => hasActiveWorkflow.value || hasCompletedWorkflow.value);
+
+// 统一后台活动灯：合并原 polling-indicator / workflow-indicator 两盏灯——用户视角只关心
+// "AI 还有事没干完吗"，类型区分（workflow 阶段树 / 普通任务）下沉到 Task 页。
+// 文案按信息量分级：阻塞等待 > workflow（附普通任务计数） > 仅普通任务。
+const hasBackgroundActivity = computed(() =>
+  isAwaitingTaskResult.value || hasActiveWorkflow.value || backgroundTaskCount.value > 0);
+const bgActivityClickable = computed(() => !isAwaitingTaskResult.value);
+const bgActivityText = computed(() => {
+  if (isAwaitingTaskResult.value) return '正在等待后台任务结果...';
+  const n = backgroundTaskCount.value;
+  if (hasActiveWorkflow.value) return n > 0 ? `Workflow 后台运行中 (+${n})` : 'Workflow 后台运行中';
+  return `后台任务运行中 (${n})`;
+});
 
 // workflow 运行中 → Chat 底部气泡 → 点击跳 Task 页。
 const goToTasks = () => { mode.value = 'tasks'; };
@@ -1122,6 +1135,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
           </div>
 
           <transition name="todo-panel-fade">
+            <!-- 容器=布局壳：两个住户（todo 面板 / 后台活动灯）共享输入框上方锚位，状态机互不相干。
+                 todo 在上（前台回合计划，turn 结束收口）、活动灯贴底（跨回合后台状态）。 -->
             <div
               v-if="hasProgressOverlay"
               class="todo-progress-overlay"
@@ -1133,16 +1148,16 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 @toggle="toggleTodoProgressCollapsed"
               />
               <transition name="slide-down">
-                <div v-if="isPollingBackground" class="polling-indicator">
-                  <span class="polling-dot"></span>
-                  <span class="polling-text">正在等待后台任务...</span>
-                </div>
-              </transition>
-              <transition name="slide-down">
-                <div v-if="hasActiveWorkflow" class="workflow-indicator" @click="goToTasks" title="点击查看 Task 页进度">
-                  <span class="workflow-dot"></span>
-                  <span class="workflow-text">Workflow 后台运行中</span>
-                  <span class="workflow-link">查看进度 →</span>
+                <div
+                  v-if="hasBackgroundActivity"
+                  class="bg-activity-indicator"
+                  :class="{ 'is-waiting': isAwaitingTaskResult, 'is-clickable': bgActivityClickable }"
+                  :title="bgActivityClickable ? '点击查看 Task 页进度' : undefined"
+                  @click="bgActivityClickable && goToTasks()"
+                >
+                  <span class="bg-activity-dot"></span>
+                  <span class="bg-activity-text">{{ bgActivityText }}</span>
+                  <span v-if="bgActivityClickable" class="bg-activity-link">查看进度 →</span>
                 </div>
               </transition>
             </div>
@@ -3371,40 +3386,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
     transform: scale(0.95);
 }
 
-/* --- Polling Indicator --- */
-.polling-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    margin: 0;
-    background: rgba(251, 191, 36, 0.1);  /* amber/warning color */
-    border-radius: 8px;
-    border: 1px solid rgba(251, 191, 36, 0.3);
-    color: rgba(251, 191, 36, 0.9);
-    font-size: 0.8rem;
-    pointer-events: auto;
-
-    .polling-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: rgba(251, 191, 36, 0.9);
-        animation: pulse-polling 1.5s ease-in-out infinite;
-    }
-
-    .polling-text {
-        font-weight: 500;
-    }
-}
-
-@keyframes pulse-polling {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(1.2); }
-}
-
-/* --- Workflow Indicator（仿 polling-indicator，独立信号 hasActiveWorkflow，点击跳 Task 页） --- */
-.workflow-indicator {
+/* --- 统一后台活动灯（合并原 polling-indicator / workflow-indicator）---
+ * 默认态 = workflow 蓝（可点击跳 Task 页）；.is-waiting = 主控阻塞等结果，amber 警示色、不可点。 */
+.bg-activity-indicator {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3415,13 +3399,14 @@ watch(chatScrollRef, (newEl, oldEl) => {
     border: 1px solid rgba(79, 172, 254, 0.3);
     color: rgba(79, 172, 254, 0.95);
     font-size: 0.8rem;
-    cursor: pointer;
+    cursor: default;
     pointer-events: auto;
     transition: background 0.2s;
 
-    &:hover { background: rgba(79, 172, 254, 0.18); }
+    &.is-clickable { cursor: pointer; }
+    &.is-clickable:hover { background: rgba(79, 172, 254, 0.18); }
 
-    .workflow-dot {
+    .bg-activity-dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
@@ -3429,14 +3414,27 @@ watch(chatScrollRef, (newEl, oldEl) => {
         animation: pulse-polling 1.5s ease-in-out infinite;
     }
 
-    .workflow-text { font-weight: 500; }
+    .bg-activity-text { font-weight: 500; }
 
-    .workflow-link {
+    .bg-activity-link {
         margin-left: auto;
         font-size: 0.72rem;
         font-weight: 600;
         opacity: 0.85;
     }
+
+    &.is-waiting {
+        background: rgba(251, 191, 36, 0.1);
+        border-color: rgba(251, 191, 36, 0.3);
+        color: rgba(251, 191, 36, 0.9);
+
+        .bg-activity-dot { background: rgba(251, 191, 36, 0.9); }
+    }
+}
+
+@keyframes pulse-polling {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.2); }
 }
 
 .slide-down-enter-active,

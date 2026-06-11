@@ -103,8 +103,8 @@ const ASSISTANT_EVENT_TYPES = new Set([
 ]);
 const STREAM_DELTA_EVENT_TYPES = new Set(['text.delta', 'thinking.delta']);
 // 仅在实时流中有意义的"运行态信号"事件：重放（history 重建 / 后台 turn 注入）时必须跳过。
-// 实测 bug：launch 回合落盘的 workflow_detached 被 history 重建重放 → isPollingBackground
-// 被重新置 true，而重放路径没有 sendMessage finally 兜底清除 → "正在等待后台任务..."常驻。
+// 实测 bug：launch 回合落盘的 workflow_detached 被 history 重建重放 → 等待态被重新点亮，
+// 而重放路径没有回合 finally 兜底清除 → "正在等待后台任务..."常驻。
 const RUNTIME_ONLY_EVENT_TYPES = new Set(['workflow_detached', 'task_output_polling']);
 const HISTORY_POLL_INTERVAL_MS = 1000;
 const HISTORY_POLL_MAX_ATTEMPTS = 30 * 60;
@@ -315,7 +315,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const systemStore = useSystemStore();
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const currentProjectPath = ref('');
-  const isPollingBackground = ref(false);
+  // 主控正在阻塞等待后台任务结果（仅 task_output_polling 置位）——统一后台活动灯的"等待态"文案来源。
+  const isAwaitingTaskResult = ref(false);
+  // workflow 本回合已脱离到真后台（仅 workflow_detached 置位）——只作回合 finally 的收口守卫，
+  // 不接任何 UI（控制位与显示位分离：此前两职责同住 isPollingBackground，重放泄漏即成常驻横幅）。
+  const workflowDetachedInTurn = ref(false);
   const activeHistoryPollingWindows = new Set<string>();
   const todoDismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -943,7 +947,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         break;
       }
       case 'task_output_polling': {
-        isPollingBackground.value = true;
+        isAwaitingTaskResult.value = true;
         const timeout = Number(raw.timeout ?? payload.timeout ?? 0);
         const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
         for (const bubble of streamingSubAgents) {
@@ -954,9 +958,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'workflow_detached': {
         // workflow 已脱离到真后台：完成将经 background_task.completed 旁路到达。
-        // 置此标记 → sendMessage 的 finally 跳过"前台回合结束即内联收口"（:1435 守卫），
-        // 避免回合一结束就把仍在后台跑的 workflow 误标 completed。
-        isPollingBackground.value = true;
+        // 置守卫标记 → 回合 finally 跳过"前台回合结束即内联收口"，避免回合一结束就把
+        // 仍在后台跑的 workflow 误标 completed。纯控制位，不点亮任何 UI（活动灯由
+        // hasActiveWorkflow 负责，tool.started 起就亮着）。
+        workflowDetachedInTurn.value = true;
         break;
       }
       case 'turn.completed': {
@@ -1152,6 +1157,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
     });
     targetWin.isStreaming = true;
+    workflowDetachedInTurn.value = false;   // 每回合重置 detach 守卫
 
     targetWin.shouldAutoScroll = true;
     await nextTick();
@@ -1457,12 +1463,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       // 内联 workflow 收口（7.4）：未 detach 后台的 workflow 在主控回合结束时不会再有
       // background_task.completed（那是后台路径专属），在此统一收口，避免 Task 面板卡 Running。
-      // detach 到后台的（isPollingBackground）留给 background_task.completed，不在此提前完成。
-      if (isLatestRequest && !isPollingBackground.value
+      // detach 到后台的（workflowDetachedInTurn 守卫）留给 background_task.completed，不在此提前完成。
+      if (isLatestRequest && !workflowDetachedInTurn.value
           && workflowProgress.workflow.value?.status === 'running') {
         workflowProgress.onWorkflowCompleted({ status: completedSuccessfully ? 'completed' : 'failed' });
       }
-      isPollingBackground.value = false;
+      workflowDetachedInTurn.value = false;   // 守卫消费完毕，复位
+      isAwaitingTaskResult.value = false;     // 回合结束，阻塞等待态终结
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
 
@@ -1795,7 +1802,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     timestamp?: number
   ): void => {
     // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
-    isPollingBackground.value = false;
+    isAwaitingTaskResult.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState) return;
@@ -1827,7 +1834,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     timestamp?: number
   ): void => {
     // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
-    isPollingBackground.value = false;
+    isAwaitingTaskResult.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState || !Array.isArray(events) || events.length === 0) return;
@@ -2183,7 +2190,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
   return {
     agentStatus,
     currentProjectPath,
-    isPollingBackground,
+    isAwaitingTaskResult,
     streamWelcomeMessage,
     sendMessage,
     sendQueuedMessageNow,

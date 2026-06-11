@@ -149,6 +149,11 @@ class MainAgent:
         # meta.phases 暂存（key=tool_use_id=block.id），TaskStarted 拿到 task_id 后再推前端。
         # 不依赖闭源 CLI 写的 per-run 脚本副本/wf_*.json（运行态常缺失/runId 错位）。
         self._pending_workflow_meta: dict[str, dict[str, Any]] = {}
+        # Workflow 身份标记：拦截 Workflow tool_use 记 tool_use_id；TaskStarted 命中后记 task_id。
+        # 进度心跳据此带 isWorkflow 字段——前端统一后台活动灯需要区分"Workflow"与"普通后台 Task"
+        # （二者心跳同走 kind=workflow_progress 通道，record 自身无别的判别字段）。
+        self._workflow_tool_use_ids: set[str] = set()
+        self._workflow_task_ids: set[str] = set()
         # 并行工具调用安全的工具名跟踪：tool_use_id → tool_name（解决 _current_tool_name 单值覆盖问题）
         self._tool_name_by_id: dict[str, str] = {}
 
@@ -1060,9 +1065,11 @@ class MainAgent:
             return
         ctx = self._last_runtime_context or {}
         usage = getattr(message, "usage", None)
+        task_id = getattr(message, "task_id", None)
         record = {
             "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
-            "taskId": getattr(message, "task_id", None),
+            "taskId": task_id,
+            "isWorkflow": bool(task_id and task_id in self._workflow_task_ids),  # 区分 Workflow / 普通后台 Task（统一活动灯用）
             "status": "running",
             "usage": dict(usage) if usage else None,
             "lastToolName": getattr(message, "last_tool_name", None),
@@ -1110,6 +1117,9 @@ class MainAgent:
         """拦截 Workflow tool_use：读 scriptPath 指向的插件源脚本（稳定常在）或 inline script，
         解析 meta 暂存（key=block.id=tool_use_id），待 TaskStarted 拿到 task_id 再推前端。
         """
+        # 无论 meta 解析成败都记下"这个 tool_use 是 Workflow"——isWorkflow 标记不依赖脚本可读
+        if getattr(block, "id", None):
+            self._workflow_tool_use_ids.add(block.id)
         try:
             inp = getattr(block, "input", None) or {}
             script_path = inp.get("scriptPath")
@@ -1150,6 +1160,11 @@ class MainAgent:
         tool_use_id = getattr(message, "tool_use_id", None)
         if not tool_use_id:
             return
+        # Workflow 工具发起的 task → 记 task_id，后续进度心跳带 isWorkflow=true
+        if tool_use_id in self._workflow_tool_use_ids:
+            task_id = getattr(message, "task_id", None)
+            if task_id:
+                self._workflow_task_ids.add(task_id)
         meta = self._pending_workflow_meta.pop(tool_use_id, None)
         if not meta:
             return

@@ -168,6 +168,8 @@ export type WorkflowProgressEventName = 'background_task.progress';
 export interface WorkflowProgressRecord {
   kind: 'workflow_progress';
   taskId?: string | null;
+  /** Agent 端按"是否 Workflow 工具发起"标记；false=普通后台 Task（统一活动灯据此分流），缺省=旧 Agent 兼容（按 workflow 处理） */
+  isWorkflow?: boolean | null;
   status?: string | null;
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
   lastToolName?: string | null;

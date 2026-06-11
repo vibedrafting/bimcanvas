@@ -134,11 +134,29 @@ const predeclaredName = ref<string | undefined>(undefined)
 // 用于把已完成的前序阶段 agent 留在原阶段，而非随当前阶段漂移（运行态精确归属不在增量数据里，靠此近似）。
 const liveAgentPhase = ref<Map<string, string>>(new Map())
 
+// 普通后台 Task 集合（非 Workflow 工具发起，心跳 record.isWorkflow===false）：
+// 仅供统一后台活动灯计数与文案，不进 workflow 阶段树。进=心跳，出=background_task.completed。
+const backgroundTasks = ref<Map<string, { description?: string }>>(new Map())
+
 const hasActiveWorkflow = computed(() => workflow.value?.status === 'running')
 const hasCompletedWorkflow = computed(
   () => !!workflow.value && workflow.value.status !== 'running'
 )
 const workflowAgents = computed<WorkflowAgentState[]>(() => workflow.value?.agents ?? [])
+const backgroundTaskCount = computed(() => backgroundTasks.value.size)
+
+function noteBackgroundTask(taskId: string, description?: string): void {
+  const next = new Map(backgroundTasks.value)
+  next.set(taskId, { description })
+  backgroundTasks.value = next
+}
+
+function clearBackgroundTask(taskId: string): void {
+  if (!backgroundTasks.value.has(taskId)) return
+  const next = new Map(backgroundTasks.value)
+  next.delete(taskId)
+  backgroundTasks.value = next
+}
 
 function isRunning(): boolean {
   return workflow.value?.status === 'running'
@@ -260,11 +278,18 @@ function onSubtaskProgress(
  */
 function onWorkflowProgress(record: {
   taskId?: string | null
+  isWorkflow?: boolean | null
   sdkSessionId?: string | null
   description?: string | null
   lastToolName?: string | null
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
 }): void {
+  // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯集合，不开/不喂 workflow 视图。
+  // isWorkflow 缺省（旧 Agent）按 workflow 处理——保留"刷新后首条心跳兜底重开视图"的恢复能力。
+  if (record.isWorkflow === false) {
+    if (record.taskId) noteBackgroundTask(record.taskId, record.description ?? undefined)
+    return
+  }
   // 已完成的 workflow 收到迟到进度 → 不复活
   if (workflow.value && workflow.value.status !== 'running') return
   if (!workflow.value) {
@@ -360,6 +385,7 @@ function resetWorkflow(): void {
   liveAgentPhase.value = new Map()
   predeclaredPhases.value = null
   predeclaredName.value = undefined
+  backgroundTasks.value = new Map()
 }
 
 /** 把尚未钉定的 live agent 钉到当前阶段（首见即定，之后不变）。 */
@@ -428,6 +454,10 @@ export function useWorkflowProgress() {
     hasActiveWorkflow,
     hasCompletedWorkflow,
     workflowAgents,
+    // 普通后台 Task 集合（统一后台活动灯）
+    backgroundTaskCount,
+    noteBackgroundTask,
+    clearBackgroundTask,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,

@@ -27,6 +27,8 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
         return
       }
       seenKeys.add(key)
+      // 普通后台 Task 收口（统一活动灯计数）；对 workflow 的 taskId 调用无害（集合里本来没有）
+      workflowProgress.clearBackgroundTask(record.taskId)
     }
 
     // ① Task 面板收口（始终）——携带 sdkSessionId 供 tier C 拉 transcript。
@@ -55,9 +57,11 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
     getBackgroundTaskService(options.agentApiBase).startListening({
       onCompleted: handleCompleted,
       onProgress: (record) => {
-        // 后台 Workflow 实时进度 → Task 页 workflow 视图（detach 后唯一实时来源）
+        // 后台任务实时进度：isWorkflow=false 在 onWorkflowProgress 内分流进普通任务集合，
+        // 其余 → Task 页 workflow 视图（detach 后唯一实时来源）
         workflowProgress.onWorkflowProgress({
           taskId: record.taskId,
+          isWorkflow: record.isWorkflow,
           sdkSessionId: record.sdkSessionId,
           description: record.description,
           lastToolName: record.lastToolName,
