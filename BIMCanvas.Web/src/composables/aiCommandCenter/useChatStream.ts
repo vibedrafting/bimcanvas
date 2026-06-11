@@ -493,12 +493,14 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
     }
     const allCompleted = progress.todos.length > 0 && progress.todos.every(t => t.status === 'completed');
+    // updatedAt 必须先于 scheduleTodoDismiss 更新：dismiss timer 以调度时刻的 updatedAt 做
+    // 失效守卫，若先调度再 bump，1.5s 后守卫必然失配 → 面板永不消失。
+    progress.updatedAt = Date.now();
     if (allCompleted) {
       progress.status = 'completed';
       progress.message = '全部完成';
       scheduleTodoDismiss(windowState, 1500);
     }
-    progress.updatedAt = Date.now();
     return true;
   };
 

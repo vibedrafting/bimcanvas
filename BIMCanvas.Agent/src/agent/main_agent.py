@@ -2129,6 +2129,13 @@ class MainAgent:
                         f"[UnknownMessage] Unhandled top-level message: {type(message).__name__}"
                     )
 
+        # 回合内 TaskNotification 收口：通知在本回合内注入时，主控已在同一回合消费结果并总结，
+        # 不会再有带外"原生总结回合"——若等它来收口，background_task.completed 永不投递，
+        # 前端活动灯 / Task 页卡片停在 running。回合结束即 flush（_bg_summary_parts 为空 →
+        # content="" → hasSummary=False → 前端仅收口面板、不注气泡，总结文本本回合已流式展示）。
+        # 带外登记的 pending 不会存活到这里（新回合开始前已被 set_runtime_context 前的 flush 清掉）。
+        await self._flush_pending_background()
+
         if self.verbose:
             self._agent_logger.log_complete(model=self._completion_model_stamp())
         # 注：_active_turn 复位与 clear_runtime_context 由外壳 chat_stream 的 finally 统一处理
