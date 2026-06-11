@@ -400,6 +400,108 @@ export const useChatStream = (options: ChatStreamOptions) => {
     return true;
   };
 
+  // ── Task 工具系（TaskCreate/TaskUpdate）→ todo 面板适配 ──
+  // SDK 新版以 TaskCreate/TaskUpdate 任务系取代 TodoWrite（实测主控只调前者，面板锚旧工具名永不亮）。
+  // 与 TodoWrite 的差异：TodoWrite 一次带全量 todos 数组；Task 系是增量（Create 一条、Update 一条），
+  // 且任务 id 在 TaskCreate 的 result 文本里（"Task #N created..."）——故 started 时先以对象引用入列，
+  // completed 时回填 taskId 供后续 TaskUpdate 匹配。
+  const pendingTaskCreates = new Map<string, TodoProgressItem>();
+
+  const ensureTaskProgress = (
+    windowState: ChatWindow,
+    event: NormalizedStreamEvent
+  ): TodoProgressState => {
+    clearTodoDismissTimer(windowState.id);
+    const turnId = getEventTurnId(event);
+    const existing = windowState.todoProgress;
+    if (existing && existing.status === 'running') {
+      // 跨回合继续更新任务时刷新 turnId，让 turn.completed 的收口判定锚到最新回合
+      if (turnId) existing.turnId = turnId;
+      existing.updatedAt = Date.now();
+      return existing;
+    }
+    windowState.todoProgress = {
+      todos: [],
+      status: 'running',
+      isCollapsed: false,
+      updatedAt: Date.now(),
+      ...(turnId ? { turnId } : {})
+    };
+    return windowState.todoProgress;
+  };
+
+  /** TaskCreate tool.started：subject/activeForm 入列（taskId 待 completed 回填）。返回 true=已更新面板（气泡照常渲染）。 */
+  const handleTaskCreateStarted = (
+    windowState: ChatWindow | undefined,
+    event: NormalizedStreamEvent,
+    toolCallId: string,
+    params: Record<string, any> | undefined
+  ): boolean => {
+    const subject = typeof params?.subject === 'string' ? params.subject.trim() : '';
+    if (!subject) return false;
+    if (!windowState) return true;
+    const progress = ensureTaskProgress(windowState, event);
+    const item: TodoProgressItem = {
+      content: subject,
+      status: 'pending',
+      ...(typeof params?.activeForm === 'string' && params.activeForm ? { activeForm: params.activeForm } : {})
+    };
+    progress.todos.push(item);
+    pendingTaskCreates.set(toolCallId, item);
+    return true;
+  };
+
+  /** TaskCreate tool.completed：从结果文本解析任务 id 回填；失败则把该条目移除。返回 true=已更新面板。 */
+  const handleTaskCreateCompleted = (
+    windowState: ChatWindow | undefined,
+    toolCallId: string,
+    output: string | undefined,
+    success: boolean | undefined
+  ): boolean => {
+    const item = pendingTaskCreates.get(toolCallId);
+    if (!item) return false;
+    pendingTaskCreates.delete(toolCallId);
+    const progress = windowState?.todoProgress;
+    if (!progress) return true;
+    if (success === false) {
+      progress.todos = progress.todos.filter(t => t !== item);
+      return true;
+    }
+    const match = (output ?? '').match(/Task #(\S+) created/i);
+    if (match?.[1]) item.taskId = match[1];
+    progress.updatedAt = Date.now();
+    return true;
+  };
+
+  /** TaskUpdate tool.started：按 taskId 更新条目状态（deleted=移除）；全部完成则收口面板。返回 true=已更新面板。 */
+  const handleTaskUpdateStarted = (
+    windowState: ChatWindow | undefined,
+    event: NormalizedStreamEvent,
+    params: Record<string, any> | undefined
+  ): boolean => {
+    const taskId = params?.taskId != null ? String(params.taskId) : '';
+    const status = typeof params?.status === 'string' ? params.status : '';
+    if (!taskId || !status) return false;
+    if (!windowState?.todoProgress) return true;
+    const progress = ensureTaskProgress(windowState, event);
+    const item = progress.todos.find(t => t.taskId === taskId);
+    if (item) {
+      if (status === 'deleted') {
+        progress.todos = progress.todos.filter(t => t !== item);
+      } else if (status === 'pending' || status === 'in_progress' || status === 'completed') {
+        item.status = status;
+      }
+    }
+    const allCompleted = progress.todos.length > 0 && progress.todos.every(t => t.status === 'completed');
+    if (allCompleted) {
+      progress.status = 'completed';
+      progress.message = '全部完成';
+      scheduleTodoDismiss(windowState, 1500);
+    }
+    progress.updatedAt = Date.now();
+    return true;
+  };
+
   const getRandomWaitingVerb = (): string =>
     WAITING_VERBS[Math.floor(Math.random() * WAITING_VERBS.length)] ?? 'Processing';
 
@@ -834,6 +936,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
           enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
           break;
         }
+        // Task 工具系 → 同一 todo 面板。不吞工具气泡（用户裁定）：面板与气泡并存，气泡保留完整执行痕迹。
+        if (toolName === 'TaskCreate') {
+          handleTaskCreateStarted(windowState, normalizedEvent, toolCallId, toolParams);
+        } else if (toolName === 'TaskUpdate') {
+          handleTaskUpdateStarted(windowState, normalizedEvent, toolParams);
+        }
 
         // Workflow 触发信号(必修2):主控自身调用 workflow 工具(无 subtaskId,工具名命中触发信号)即开 workflow,
         // 让 Chat 气泡 + Task 页在"调用 workflow 时"就亮起,不等首个子 agent。
@@ -925,6 +1033,15 @@ export const useChatStream = (options: ChatStreamOptions) => {
           }
           break;
         }
+
+        // TaskCreate 完成：从结果文本回填任务 id（供后续 TaskUpdate 按 id 匹配条目）。
+        // 不 break：继续走下方工具气泡的 output/complete 流程（面板与气泡并存）。
+        handleTaskCreateCompleted(
+          windowState,
+          toolCallId,
+          getString(payload.output) ?? getString(raw.toolOutput),
+          getBoolean(payload.success) ?? getBoolean(raw.success)
+        );
 
         const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
         if (toolBubble && toolBubble.type === 'tool_call') {
