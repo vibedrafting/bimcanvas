@@ -144,6 +144,8 @@ export interface BackgroundTaskInfo {
   startTime: number
   status: 'running' | 'completed' | 'failed'
   endTime?: number
+  /** 最近一条 SSE 心跳到达时刻——reapStaleBackgroundTasks 的静默判据 */
+  lastHeartbeat: number
 }
 const backgroundTasks = ref<Map<string, BackgroundTaskInfo>>(new Map())
 
@@ -171,7 +173,8 @@ function noteBackgroundTask(
     endTime: prev?.endTime,
     description: data?.description ?? prev?.description,
     lastToolName: data?.lastToolName ?? prev?.lastToolName,
-    usage: data?.usage ?? prev?.usage
+    usage: data?.usage ?? prev?.usage,
+    lastHeartbeat: Date.now()
   })
   backgroundTasks.value = next
 }
@@ -183,6 +186,28 @@ function completeBackgroundTask(taskId: string, status: 'completed' | 'failed' =
   const next = new Map(backgroundTasks.value)
   next.set(taskId, { ...prev, status, endTime: Date.now() })
   backgroundTasks.value = next
+}
+
+/**
+ * 回合结束后的"心跳静默收口"：CLI 不向宿主投递回合内完成的 task_notification
+ * （实测 2026-06-11 金凤127 chat_20260611_153658.log：通知被注入主控 prompt 流后
+ * 从队列 remove，宿主全程收不到），background_task.completed 在"主控回合内消费结果"
+ * 场景下永远不来。判据改为：回合结束（turn.completed/failed）时对每个 running 任务
+ * 启动宽限期，graceMs 内无新心跳 → 视为已被回合内消费，标 completed。
+ * 任务真还在跑（detach 场景）→ 心跳持续刷新 lastHeartbeat → 不收口，
+ * 等带外 task_notification 经 background_task.completed 正常收口（带外路径实测可达）。
+ */
+function reapStaleBackgroundTasks(graceMs = 10_000): void {
+  for (const [taskId, info] of backgroundTasks.value) {
+    if (info.status !== 'running') continue
+    const heartbeatAtSchedule = info.lastHeartbeat
+    setTimeout(() => {
+      const current = backgroundTasks.value.get(taskId)
+      if (current?.status === 'running' && current.lastHeartbeat === heartbeatAtSchedule) {
+        completeBackgroundTask(taskId, 'completed')
+      }
+    }, graceMs)
+  }
 }
 
 function isRunning(): boolean {
@@ -498,6 +523,7 @@ export function useWorkflowProgress() {
     backgroundTaskList,
     noteBackgroundTask,
     completeBackgroundTask,
+    reapStaleBackgroundTasks,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,

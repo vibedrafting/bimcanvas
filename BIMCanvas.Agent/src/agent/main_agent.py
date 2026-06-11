@@ -2088,9 +2088,11 @@ class MainAgent:
                 await self._push_background_progress(message)
 
             # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
-            # 边界场景：后台 Workflow 在本回合流式过程中完成（消息落到活跃回合）。
-            # 只登记待汇报状态——主控的【原生总结回合】会在本回合结束后到达（回合外），
-            # 届时由 _handle_background_message 收集并投递，与回合外路径完全一致。
+            # 注意：实测（2026-06-11 金凤127 chat_20260611_153658.log）CLI 在回合内不向宿主
+            # 投递 task_notification——通知作为 queued_command 注入主控 prompt 流后从队列
+            # remove，本分支在"回合内完成"场景不触发；该场景的前端收口由 Web 端
+            # reapStaleBackgroundTasks（回合结束+心跳静默）兜底。本分支保留作 CLI 未来
+            # 行为变化的防御：若真触发，登记 pending 后由回合末 _flush_pending_background 收口。
             elif isinstance(message, TaskNotificationMessage):
                 if self.verbose:
                     self._agent_logger.log_info(
@@ -2129,11 +2131,10 @@ class MainAgent:
                         f"[UnknownMessage] Unhandled top-level message: {type(message).__name__}"
                     )
 
-        # 回合内 TaskNotification 收口：通知在本回合内注入时，主控已在同一回合消费结果并总结，
-        # 不会再有带外"原生总结回合"——若等它来收口，background_task.completed 永不投递，
-        # 前端活动灯 / Task 页卡片停在 running。回合结束即 flush（_bg_summary_parts 为空 →
-        # content="" → hasSummary=False → 前端仅收口面板、不注气泡，总结文本本回合已流式展示）。
-        # 带外登记的 pending 不会存活到这里（新回合开始前已被 set_runtime_context 前的 flush 清掉）。
+        # 回合末兜底 flush：实测 CLI 在回合内不向宿主投递 task_notification（pending 在
+        # "回合内完成"场景从不登记，此调用通常 no-op）——保留以防御 CLI 未来行为变化 /
+        # 极端时序下回合内登记了 pending 的情形（content="" → 前端仅收口面板、不注气泡）。
+        # "回合内完成"场景的前端收口由 Web 端 reapStaleBackgroundTasks 负责。
         await self._flush_pending_background()
 
         if self.verbose:
