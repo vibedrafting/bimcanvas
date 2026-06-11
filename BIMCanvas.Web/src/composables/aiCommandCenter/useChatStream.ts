@@ -102,6 +102,10 @@ const ASSISTANT_EVENT_TYPES = new Set([
   'runtime.rate_limit'
 ]);
 const STREAM_DELTA_EVENT_TYPES = new Set(['text.delta', 'thinking.delta']);
+// 仅在实时流中有意义的"运行态信号"事件：重放（history 重建 / 后台 turn 注入）时必须跳过。
+// 实测 bug：launch 回合落盘的 workflow_detached 被 history 重建重放 → isPollingBackground
+// 被重新置 true，而重放路径没有 sendMessage finally 兜底清除 → "正在等待后台任务..."常驻。
+const RUNTIME_ONLY_EVENT_TYPES = new Set(['workflow_detached', 'task_output_polling']);
 const HISTORY_POLL_INTERVAL_MS = 1000;
 const HISTORY_POLL_MAX_ATTEMPTS = 30 * 60;
 
@@ -1714,7 +1718,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
         const aiMessage = ensureAiMessageForTurn(entry.turnId, item.timestamp);
         const normalizedEvent = normalizeStreamEvent(entry.event);
-        if (!normalizedEvent) {
+        if (!normalizedEvent || RUNTIME_ONLY_EVENT_TYPES.has(normalizedEvent.eventType)) {
           continue;
         }
         applyNormalizedEventToMessage(
@@ -1790,6 +1794,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     content: string,
     timestamp?: number
   ): void => {
+    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
+    isPollingBackground.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState) return;
@@ -1820,6 +1826,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     events: Record<string, unknown>[],
     timestamp?: number
   ): void => {
+    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
+    isPollingBackground.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState || !Array.isArray(events) || events.length === 0) return;
@@ -1828,7 +1836,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const aiMessage = createRestoredAiMessage(ts);
     for (const ev of events) {
       const normalized = normalizeStreamEvent(ev);
-      if (normalized) applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+      if (normalized && !RUNTIME_ONLY_EVENT_TYPES.has(normalized.eventType)) {
+        applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+      }
     }
     aiMessage.isStreaming = false;
     aiMessage.endTime = ts;
