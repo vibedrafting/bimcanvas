@@ -92,15 +92,7 @@ function childrenOf(parent: TaskEntry): TaskEntry[] {
 const showRunningSectionHead = computed(() => runningSections.value.length > 1);
 const showFinishedSectionHead = computed(() => finishedSections.value.length > 1);
 
-// === 归属 chip（行内标注，unknown 不显示） ===
-const OWNER_LABELS: Record<string, string> = {
-  main: '主控',
-  subagent: '子代理',
-  workflow: 'Workflow'
-};
-function ownerLabel(t: TaskEntry): string | null {
-  return (t.ownerKind && OWNER_LABELS[t.ownerKind]) || null;
-}
+// 行内类型 chip：Agent / Shell（归属 ownerKind 保留在数据层，不再占用行内位置）
 
 // === 标题清洗：命令行型 description 截取首行限长 ===
 function displayTitle(t: TaskEntry): string {
@@ -212,8 +204,7 @@ function detailHasContent(d?: TaskDetail | null): boolean {
           <div class="btp-row" @click="toggleExpand(t)">
             <span class="btp-dot" :class="t.status"></span>
             <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-            <span v-if="ownerLabel(t)" class="btp-owner">{{ ownerLabel(t) }}</span>
-            <span v-if="sec.kind === 'command' && t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
+            <span class="btp-tag">{{ sec.kind === 'agent' ? 'Agent' : 'Shell' }}</span>
             <svg class="btp-chev" :class="{ open: expanded.has(t.taskId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
           <div v-if="activityLine(t)" class="btp-activity">{{ activityLine(t) }}</div>
@@ -276,8 +267,7 @@ function detailHasContent(d?: TaskDetail | null): boolean {
               <div class="btp-row" @click="toggleExpand(t)">
                 <span class="btp-dot" :class="t.status"></span>
                 <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-                <span v-if="ownerLabel(t)" class="btp-owner">{{ ownerLabel(t) }}</span>
-                <span v-if="sec.kind === 'command' && t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
+                <span class="btp-tag">{{ sec.kind === 'agent' ? 'Agent' : 'Shell' }}</span>
                 <svg class="btp-chev" :class="{ open: expanded.has(t.taskId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </div>
               <div class="btp-meta">
@@ -427,15 +417,6 @@ function detailHasContent(d?: TaskDetail | null): boolean {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.btp-owner {
-  flex-shrink: 0;
-  font-size: 0.6rem;
-  color: var(--text-tertiary);
-  background: var(--surface-dim);
-  border-radius: 8px;
-  padding: 1px 6px;
 }
 
 .btp-tag {
