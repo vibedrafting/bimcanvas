@@ -131,10 +131,9 @@ async function toggleExpand(t: TaskEntry): Promise<void> {
   }
 }
 
-function stateText(t: TaskEntry): string {
-  if (t.status === 'running') return '运行中';
-  const base = t.status === 'failed' ? '失败' : '已完成';
-  return t.finishSource === 'inferred' ? `${base}·推断` : base;
+// 极简状态显示：绿点即"已完成"（含推断收口，不另加文字），仅失败保留文字提示。
+function detailHasContent(d?: TaskDetail | null): boolean {
+  return !!(d && (d.originAgentType || d.agent?.outcome || (d.outputTail && d.outputTail.trim())));
 }
 </script>
 
@@ -167,7 +166,6 @@ function stateText(t: TaskEntry): string {
           <div class="btp-meta">
             <span class="btp-stat">{{ taskDuration(t) }}</span>
             <span v-if="formatTokens(t.usage?.totalTokens)" class="btp-stat">{{ formatTokens(t.usage?.totalTokens) }}</span>
-            <span class="btp-state running">{{ stateText(t) }}</span>
           </div>
           <div v-if="expanded.has(t.taskId)" class="btp-detail">
             <div v-if="details.get(t.taskId)?.status === 'loading'" class="btp-hint">正在加载详情…</div>
@@ -180,11 +178,13 @@ function stateText(t: TaskEntry): string {
                 <div class="btp-label">Outcome</div>
                 <pre class="btp-pre">{{ details.get(t.taskId)!.data!.agent!.outcome }}</pre>
               </div>
-              <div v-if="details.get(t.taskId)!.data!.outputTail" class="btp-block">
+              <div v-if="details.get(t.taskId)!.data!.outputTail?.trim()" class="btp-block">
                 <div class="btp-label">Output{{ details.get(t.taskId)!.data!.outputTruncated ? '（尾部）' : '' }}</div>
                 <pre class="btp-pre">{{ details.get(t.taskId)!.data!.outputTail }}</pre>
               </div>
-              <div v-if="!details.get(t.taskId)!.data!.kind" class="btp-hint">暂无可用详情</div>
+              <div v-if="!detailHasContent(details.get(t.taskId)?.data)" class="btp-hint">
+                {{ details.get(t.taskId)!.data!.kind === 'bash' ? '该任务无输出' : '暂无可用详情' }}
+              </div>
             </template>
           </div>
         </div>
@@ -219,7 +219,7 @@ function stateText(t: TaskEntry): string {
               <div class="btp-meta">
                 <span class="btp-stat">{{ taskDuration(t) }}</span>
                 <span v-if="formatTokens(t.usage?.totalTokens)" class="btp-stat">{{ formatTokens(t.usage?.totalTokens) }}</span>
-                <span class="btp-state" :class="t.status">{{ stateText(t) }}</span>
+                <span v-if="t.status === 'failed'" class="btp-state failed">失败</span>
               </div>
               <div v-if="expanded.has(t.taskId)" class="btp-detail">
                 <div v-if="details.get(t.taskId)?.status === 'loading'" class="btp-hint">正在加载详情…</div>
