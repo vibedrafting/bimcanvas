@@ -1085,9 +1085,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.completed': {
         finalizeStreamingMessage(currentMsg);
-        // 回合内被主控消费的后台 Task 不会有 background_task.completed（CLI 不向宿主投递
-        // 回合内 task_notification）——回合结束起宽限期，心跳静默则收口活动灯/Task 页卡片。
-        workflowProgress.reapStaleBackgroundTasks();
+        // 后台 Task 收口已自治：useWorkflowProgress 内置心跳静默 sweeper，与回合边界解耦。
         const eventTurnId = getEventTurnId(normalizedEvent);
         const todoTurnId = windowState?.todoProgress?.turnId;
         if (
@@ -1105,7 +1103,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.failed': {
         finalizeStreamingMessage(currentMsg);
-        workflowProgress.reapStaleBackgroundTasks();
         // WP-Web: 读后端 WP-1 新增的 error.code(RATE_LIMITED / CLIENT_ERROR / UPSTREAM_ERROR / PROVIDER_SDK_ERROR)
         // 与 error.details.httpStatus,按 code 给用户视角文案;httpStatus 仅供 console 诊断。
         const errorObj = getObject(payload.error);

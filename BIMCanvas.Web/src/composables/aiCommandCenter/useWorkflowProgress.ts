@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import type { SubAgentStatus } from '../../types/agent'
 import { SERVER_BASE } from '../../config/api'
+import { isInteractionChannelConnected } from '../../services/InteractionChannelService'
 
 // ============================================================================
 // Workflow 进度状态层（平台级 · Task 页可视化）
@@ -179,6 +180,7 @@ function noteBackgroundTask(
     lastHeartbeat: Date.now()
   })
   backgroundTasks.value = next
+  ensureBgSweeper()
 }
 
 /** background_task.completed 收口：标完成态+endTime、保留条目（卡片显示），不删除。 */
@@ -191,25 +193,43 @@ function completeBackgroundTask(taskId: string, status: 'completed' | 'failed' =
 }
 
 /**
- * 回合结束后的"心跳静默收口"：CLI 不向宿主投递回合内完成的 task_notification
- * （实测 2026-06-11 金凤127 chat_20260611_153658.log：通知被注入主控 prompt 流后
- * 从队列 remove，宿主全程收不到），background_task.completed 在"主控回合内消费结果"
- * 场景下永远不来。判据改为：回合结束（turn.completed/failed）时对每个 running 任务
- * 启动宽限期，graceMs 内无新心跳 → 视为已被回合内消费，标 completed。
- * 任务真还在跑（detach 场景）→ 心跳持续刷新 lastHeartbeat → 不收口，
- * 等带外 task_notification 经 background_task.completed 正常收口（带外路径实测可达）。
+ * 后台 Task 自治收口：持续的心跳静默 sweeper，与 workflow / turn 生命周期完全解耦。
+ *
+ * 背景：CLI 不向宿主投递回合内完成的 task_notification（实测 2026-06-11 金凤127
+ * chat_20260611_153658.log：通知被注入主控 prompt 流后从队列 remove，宿主收不到），
+ * background_task.completed 在"主控回合内消费结果"场景下永远不来。旧实现把静默检查
+ * 锚定在 turn.completed/failed 的一次性宽限期——主控长回合（如等 Workflow）期间任务
+ * 中途完成时，回合不结束就没人检查，卡片虚挂 running 直到回合边界（实测 2026-06-12
+ * 金凤127：3 个后台任务完成后陪 Workflow 多挂 3 分钟）。
+ *
+ * 现判据：running 期间 SDK TaskProgress 逐 tick 推心跳（秒级），存在 running 条目时
+ * sweeper 每 SWEEP_MS 检查一次，静默超 SILENCE_MS → 标 completed；无 running 条目自停。
+ * 真终态（含 failed）仍以带外 background_task.completed 为权威（先到先得，
+ * completeBackgroundTask 自带幂等守卫）。SSE 断连期间跳过检查——断连时心跳静默
+ * 不代表任务结束，误收口比晚收口更糟。
  */
-function reapStaleBackgroundTasks(graceMs = 10_000): void {
-  for (const [taskId, info] of backgroundTasks.value) {
-    if (info.status !== 'running') continue
-    const heartbeatAtSchedule = info.lastHeartbeat
-    setTimeout(() => {
-      const current = backgroundTasks.value.get(taskId)
-      if (current?.status === 'running' && current.lastHeartbeat === heartbeatAtSchedule) {
+const BG_SWEEP_MS = 5_000
+const BG_SILENCE_MS = 15_000
+let bgSweeper: ReturnType<typeof setInterval> | null = null
+function ensureBgSweeper(): void {
+  if (bgSweeper) return
+  bgSweeper = setInterval(() => {
+    let anyRunning = false
+    const now = Date.now()
+    const connected = isInteractionChannelConnected()
+    for (const [taskId, info] of backgroundTasks.value) {
+      if (info.status !== 'running') continue
+      if (connected && now - info.lastHeartbeat > BG_SILENCE_MS) {
         completeBackgroundTask(taskId, 'completed')
+      } else {
+        anyRunning = true
       }
-    }, graceMs)
-  }
+    }
+    if (!anyRunning && bgSweeper) {
+      clearInterval(bgSweeper)
+      bgSweeper = null
+    }
+  }, BG_SWEEP_MS)
 }
 
 function isRunning(): boolean {
@@ -452,6 +472,7 @@ function resetWorkflow(): void {
   predeclaredPhases.value = null
   predeclaredName.value = undefined
   backgroundTasks.value = new Map()
+  if (bgSweeper) { clearInterval(bgSweeper); bgSweeper = null }
 }
 
 /** 把尚未钉定的 live agent 钉到当前阶段（首见即定，之后不变）。 */
@@ -525,7 +546,6 @@ export function useWorkflowProgress() {
     backgroundTaskList,
     noteBackgroundTask,
     completeBackgroundTask,
-    reapStaleBackgroundTasks,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,
