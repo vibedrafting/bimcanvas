@@ -1116,8 +1116,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
             <!-- 普通后台任务监控卡片（SSE 心跳驱动，含完成态留存） -->
             <BackgroundTaskPanel v-if="hasBackgroundTaskView" />
 
-            <!-- Proposal Carousel（占位 mock：仅在无 workflow / 无后台任务视图时显示，有则临时让位） -->
-            <div class="carousel-section" v-if="!hasWorkflowView && !hasBackgroundTaskView">
+            <!-- Proposal Carousel（mock 演示，后续接真实业务）：常驻置底——真监控面板（wf/bg-task）在上 -->
+            <div class="carousel-section">
                 <div class="section-title">Proposals</div>
                 <div class="carousel-track" ref="carouselTrackRef" @wheel="handleWheel">
                     <div class="proposal-card" v-for="p in proposals" :key="p.id">
@@ -1165,8 +1165,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </div>
             </div>
 
-            <!-- Alert Card (Mock)：仅在无 workflow 视图时显示 -->
-            <div class="card alert-card" v-if="!hasWorkflowView">
+            <!-- Alert Card（mock 演示，后续接真实业务）：常驻置底，同上 -->
+            <div class="card alert-card">
                 <div class="alert-header">
                     <span class="icon">⚠️</span>
                     <span>Conflict Detected</span>
@@ -2979,6 +2979,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     &.alert-card {
+        flex-shrink: 0; /* 与真监控面板共存时不被 flex 列挤压（对齐 wf-panel/bg-task-panel） */
         border-color: rgba(255, 165, 0, 0.3);
         background: rgba(255, 165, 0, 0.05);
         
@@ -3008,6 +3009,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
 }
 
 .carousel-section {
+    flex-shrink: 0; /* 同 alert-card：常驻置底，不被挤压 */
     .section-title {
         font-size: 0.75rem;
         text-transform: uppercase;
