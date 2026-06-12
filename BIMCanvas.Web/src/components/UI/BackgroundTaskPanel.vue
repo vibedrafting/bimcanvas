@@ -8,10 +8,13 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress';
 
-const { backgroundTaskList } = useWorkflowProgress();
+const { backgroundTaskList, clearFinishedBackgroundTasks } = useWorkflowProgress();
 
 const runningCount = computed(() =>
   backgroundTaskList.value.filter(t => t.status === 'running').length);
+// 有终态条目才显示清除按钮；只清终态，running 保留
+const hasFinished = computed(() =>
+  backgroundTaskList.value.some(t => t.status !== 'running'));
 
 // running 任务的时长需要随时间跳动：低频 tick（1s）驱动重算，仅面板挂载期间运行。
 const nowTick = ref(Date.now());
@@ -43,6 +46,9 @@ function formatTokens(n?: number): string | null {
     <div class="btp-head">
       <span class="btp-title">后台任务</span>
       <span v-if="runningCount > 0" class="btp-count">{{ runningCount }} 运行中</span>
+      <button v-if="hasFinished" class="btp-clear" title="清除已结束任务" @click="clearFinishedBackgroundTasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
     </div>
     <div class="btp-list">
       <div
@@ -96,6 +102,25 @@ function formatTokens(n?: number): string | null {
     background: rgba(var(--accent-primary-rgb, 79, 172, 254), 0.14);
     border-radius: 8px;
     padding: 1px 8px;
+  }
+
+  .btp-clear {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    color: var(--text-tertiary);
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover { background: var(--surface-dim); color: var(--text-secondary); }
+    svg { width: 13px; height: 13px; }
   }
 }
 

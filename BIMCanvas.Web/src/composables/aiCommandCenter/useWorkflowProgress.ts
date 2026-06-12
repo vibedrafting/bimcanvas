@@ -183,6 +183,15 @@ function noteBackgroundTask(
   ensureBgSweeper()
 }
 
+/** bg-task-panel 清除按钮：只清终态条目（completed/failed），running 保留。 */
+function clearFinishedBackgroundTasks(): void {
+  const next = new Map<string, BackgroundTaskInfo>()
+  for (const [taskId, info] of backgroundTasks.value) {
+    if (info.status === 'running') next.set(taskId, info)
+  }
+  backgroundTasks.value = next
+}
+
 /** background_task.completed 收口：标完成态+endTime、保留条目（卡片显示），不删除。 */
 function completeBackgroundTask(taskId: string, status: 'completed' | 'failed' = 'completed'): void {
   const prev = backgroundTasks.value.get(taskId)
@@ -471,8 +480,8 @@ function resetWorkflow(): void {
   liveAgentPhase.value = new Map()
   predeclaredPhases.value = null
   predeclaredName.value = undefined
-  backgroundTasks.value = new Map()
-  if (bgSweeper) { clearInterval(bgSweeper); bgSweeper = null }
+  // 不碰 backgroundTasks：后台 Task 与 workflow 状态彻底分家，各自有清理入口
+  // （bg-task-panel 的清除按钮 → clearFinishedBackgroundTasks）
 }
 
 /** 把尚未钉定的 live agent 钉到当前阶段（首见即定，之后不变）。 */
@@ -546,6 +555,7 @@ export function useWorkflowProgress() {
     backgroundTaskList,
     noteBackgroundTask,
     completeBackgroundTask,
+    clearFinishedBackgroundTasks,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,
