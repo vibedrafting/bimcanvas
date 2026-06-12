@@ -764,6 +764,16 @@ watch(
   }
 );
 
+// 统一补滚动：overlay（todo 面板 / 后台活动灯）撑高滚动区底边后，scrollTop 不会自己变，
+// 贴底内容会被新裁切线吞掉。挂在高度总闸上，对两个住户一视同仁。
+// scrollToBottom 内部尊重 shouldAutoScroll，翻历史时不会被强拉到底。
+watch(todoProgressOverlayHeight, (newHeight, oldHeight) => {
+  if (newHeight <= (oldHeight ?? 0)) return; // 只在变高（侵占内容区）时补滚
+  nextTick(() => scrollToBottom());
+  // .window-chat-container 的 bottom 有 0.18s transition，过早滚会滚不到位，结束后再补一次
+  window.setTimeout(() => scrollToBottom(), 220);
+});
+
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
