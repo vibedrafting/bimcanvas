@@ -3,7 +3,6 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
-import type { SubAgent, ToolCall, ChatBubble } from '../../types/agent';
 import type { ChatAttachmentRef, ChatAttachmentSourceKind } from '../../types/chatAttachment';
 import { proposalMocks } from '../../constants/aiCommandCenter';
 import { useAgentConfig } from '../../composables/aiCommandCenter/useAgentConfig';
@@ -26,7 +25,6 @@ import SubAgentBubble from './SubAgentBubble.vue';
 import QuestionBubble from './QuestionBubble.vue';
 import RateLimitBanner from './RateLimitBanner.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
-import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import WorkflowProgressPanel from './WorkflowProgressPanel.vue';
 import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
 import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress';
@@ -613,76 +611,6 @@ const handleRestoreQueuedMessage = () => {
   nextTick(() => adjustTextareaHeight());
 };
 
-const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
-  const toolCalls: ToolCall[] = (bubble.childBubbles || [])
-    .filter(child => child.type === 'tool_call')
-    .map(child => ({
-      id: child.id,
-      toolName: child.toolName || '',
-      description: child.toolDescription,
-      params: child.toolParams || {},
-      output: child.toolOutput,
-      status: child.status === 'streaming' ? 'running' : child.status as ToolCall['status'],
-      startTime: child.timestamp,
-      error: child.toolError
-    }));
-
-  return {
-    id: bubble.id,
-    name: bubble.subAgentName || '',
-    type: bubble.subAgentType || 'general-purpose',
-    status: bubble.status === 'streaming' ? 'running' : bubble.status as SubAgent['status'],
-    toolCalls,
-    result: bubble.subAgentResult,
-    startTime: bubble.timestamp
-  };
-};
-
-const activeSubAgents = computed(() => {
-  const runningAgents: SubAgent[] = [];
-  chatMessages.value.forEach(msg => {
-    if (msg.bubbles) {
-      const runningBubbles = msg.bubbles.filter(
-        b => b.type === 'subagent' && b.status === 'streaming'
-      );
-      runningAgents.push(...runningBubbles.map(bubbleToSubAgent));
-    }
-  });
-
-  if (runningAgents.length > 0) {
-    return runningAgents;
-  }
-
-  for (let i = chatMessages.value.length - 1; i >= 0; i--) {
-    const msg = chatMessages.value[i];
-    if (!msg) {
-      continue;
-    }
-    if (msg.role === 'ai' && msg.bubbles) {
-      const subAgentBubbles = msg.bubbles.filter(b => b.type === 'subagent');
-      if (subAgentBubbles.length > 0) {
-        return subAgentBubbles.map(bubbleToSubAgent);
-      }
-    }
-  }
-
-  return [];
-});
-
-const taskWidgetExpanded = ref(false);
-
-watch(activeSubAgents, (newAgents, oldAgents) => {
-  const newRunning = newAgents.some(a => a.status === 'running');
-  const oldRunning = oldAgents?.some(a => a.status === 'running') ?? false;
-
-  if (newAgents.length > 0 && (!oldAgents || oldAgents.length === 0)) {
-    taskWidgetExpanded.value = true;
-  }
-  if (newRunning && !oldRunning) {
-    taskWidgetExpanded.value = true;
-  }
-}, { deep: true });
-
 const proposals = ref(proposalMocks);
 
 // Workflow 进度（Task 页可视化）。hasActiveWorkflow 锚到 workflow 工具调用触发信号（见 useChatStream tool.started）。
@@ -1179,12 +1107,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- View: Tasks (formerly Review) -->
         <div v-show="mode === 'tasks'" class="view-tasks">
-            <!-- Agent Activity Monitor (SubAgent tracking) -->
-            <TaskSummaryWidget
-                v-if="!hasFallback('hide-subtask-activity-panel')"
-                :sub-agents="activeSubAgents"
-                v-model:expanded="taskWidgetExpanded"
-            />
+            <!-- 回合内前台 SubAgent 监控（TaskSummaryWidget）已退役：Chat 流 SubAgentBubble 原生可视，
+                 Workflow / 后台 Task 由下方两个面板覆盖 -->
 
             <!-- Workflow 进度（有活跃/已完成 workflow 时显示，与下方占位 mock 互补） -->
             <WorkflowProgressPanel v-if="hasWorkflowView" />
