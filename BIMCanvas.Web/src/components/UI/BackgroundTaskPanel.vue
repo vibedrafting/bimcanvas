@@ -192,8 +192,8 @@ function stateText(t: TaskEntry): string {
 
       <div v-if="!runningGroups.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
 
-      <!-- 已结束：折叠区，默认收起 -->
-      <div v-if="finishedTasks.length" class="btp-finished">
+      <!-- 已结束：折叠区，默认收起；无运行区时去顶部分隔线（standalone），避免孤立分隔+空带 -->
+      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningGroups.length }">
         <div class="btp-finished-head" @click="finishedOpen = !finishedOpen">
           <svg class="btp-chev" :class="{ open: finishedOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span>已结束 {{ finishedTasks.length }} 项</span>
@@ -438,6 +438,12 @@ function stateText(t: TaskEntry): string {
 .btp-finished {
   border-top: 1px solid var(--border-dim);
   padding-top: 6px;
+
+  /* 全部已结束（无运行区）：折叠头直接贴面板头，无分隔线/空带 */
+  &.standalone {
+    border-top: none;
+    padding-top: 0;
+  }
   display: flex;
   flex-direction: column;
   gap: 6px;
