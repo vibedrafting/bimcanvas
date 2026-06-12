@@ -68,6 +68,12 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
           sdkSessionId: record.sdkSessionId,
           description: record.description,
           lastToolName: record.lastToolName,
+          // 归属链字段必须透传——此处曾手工重组 record 丢掉新字段，
+          // 导致分组/详情链路整体失效（2026-06-12 实测）
+          toolUseId: record.toolUseId,
+          ownerKind: record.ownerKind,
+          ownerId: record.ownerId,
+          taskKind: record.taskKind,
           usage: record.usage
         })
       },

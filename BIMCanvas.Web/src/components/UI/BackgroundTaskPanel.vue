@@ -41,11 +41,21 @@ function sectionize(tasks: TaskEntry[]): KindSection[] {
   return sections;
 }
 
+// agent-internal = 后台 Agent 的内部工具执行（CLI 登记为独立 task）——折叠展示，不与父任务平铺
+const isInternal = (t: TaskEntry) => t.ownerKind === 'agent-internal';
+
 const runningSections = computed(() =>
-  sectionize(backgroundTaskList.value.filter(t => t.status === 'running')));
+  sectionize(backgroundTaskList.value.filter(t => t.status === 'running' && !isInternal(t))));
+const runningInternal = computed(() =>
+  backgroundTaskList.value.filter(t => t.status === 'running' && isInternal(t))
+    .sort((a, b) => a.startTime - b.startTime));
+const internalOpen = ref(false);
+
 const finishedTasks = computed(() =>
   backgroundTaskList.value.filter(t => t.status !== 'running'));
-const finishedSections = computed(() => sectionize(finishedTasks.value));
+const finishedSections = computed(() => sectionize(finishedTasks.value.filter(t => !isInternal(t))));
+const finishedInternal = computed(() =>
+  finishedTasks.value.filter(isInternal).sort((a, b) => a.startTime - b.startTime));
 const finishedOpen = ref(false);
 // 只有一个分区时隐藏分区头（无对比意义）
 const showRunningSectionHead = computed(() => runningSections.value.length > 1);
@@ -197,10 +207,30 @@ function detailHasContent(d?: TaskDetail | null): boolean {
         </div>
       </template>
 
-      <div v-if="!runningSections.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
+      <!-- Agent 内部活动：折叠子列表（默认收起），不与父任务平铺 -->
+      <div v-if="runningInternal.length" class="btp-internal">
+        <div class="btp-finished-head" @click="internalOpen = !internalOpen">
+          <svg class="btp-chev" :class="{ open: internalOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          <span>Agent 内部活动 {{ runningInternal.length }} 项</span>
+        </div>
+        <template v-if="internalOpen">
+          <div v-for="t in runningInternal" :key="t.taskId" class="btp-card internal" :class="t.status">
+            <div class="btp-row">
+              <span class="btp-dot" :class="t.status"></span>
+              <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
+              <span v-if="t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
+            </div>
+            <div class="btp-meta">
+              <span class="btp-stat">{{ taskDuration(t) }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div v-if="!runningSections.length && !runningInternal.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
 
       <!-- 已结束：折叠区，默认收起；无运行区时去顶部分隔线（standalone），避免孤立分隔+空带 -->
-      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningSections.length }">
+      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningSections.length && !runningInternal.length }">
         <div class="btp-finished-head" @click="finishedOpen = !finishedOpen">
           <svg class="btp-chev" :class="{ open: finishedOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span>已结束 {{ finishedTasks.length }} 项</span>
@@ -248,6 +278,21 @@ function detailHasContent(d?: TaskDetail | null): boolean {
                     {{ details.get(t.taskId)!.data!.kind === 'bash' ? '该任务无输出' : '暂无可用详情' }}
                   </div>
                 </template>
+              </div>
+            </div>
+          </template>
+          <!-- 已结束的 Agent 内部活动：dim 段收尾 -->
+          <template v-if="finishedInternal.length">
+            <div class="btp-group-head dim">Agent 内部活动</div>
+            <div v-for="t in finishedInternal" :key="t.taskId" class="btp-card internal finished" :class="t.status">
+              <div class="btp-row">
+                <span class="btp-dot" :class="t.status"></span>
+                <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
+                <span v-if="t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
+              </div>
+              <div class="btp-meta">
+                <span class="btp-stat">{{ taskDuration(t) }}</span>
+                <span v-if="t.status === 'failed'" class="btp-state failed">失败</span>
               </div>
             </div>
           </template>
@@ -461,6 +506,17 @@ function detailHasContent(d?: TaskDetail | null): boolean {
   color: var(--text-tertiary);
   font-style: italic;
   padding: 2px 4px;
+}
+
+.btp-internal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btp-card.internal {
+  opacity: 0.8;
+  .btp-desc { font-weight: 500; font-size: 0.72rem; }
 }
 
 .btp-finished {

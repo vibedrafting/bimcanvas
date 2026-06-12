@@ -154,6 +154,9 @@ class MainAgent:
         # （二者心跳同走 kind=workflow_progress 通道，record 自身无别的判别字段）。
         self._workflow_tool_use_ids: set[str] = set()
         self._workflow_task_ids: set[str] = set()
+        # agent 型后台任务 id（Task/Agent 工具发起）：其内部工具执行会被 CLI 登记成独立 task，
+        # 心跳归类为 agent-internal 供前端折叠。跨回合常驻（detach 的后台 agent 跑过回合边界）。
+        self._bg_agent_task_ids: set[str] = set()
         # 并行工具调用安全的工具名跟踪：tool_use_id → tool_name（解决 _current_tool_name 单值覆盖问题）
         self._tool_name_by_id: dict[str, str] = {}
 
@@ -1068,7 +1071,6 @@ class MainAgent:
         usage = getattr(message, "usage", None)
         task_id = getattr(message, "task_id", None)
         tool_use_id = getattr(message, "tool_use_id", None)
-        owner_kind, owner_id = self._classify_bg_task_owner(task_id, tool_use_id)
         # 任务形态：agent=子代理型（Task/Agent 工具发起）| command=单次工具/Shell 型。
         # 经发起工具名反查（_tool_name_by_id 回合内常驻）；未命中（如 workflow 内派生）退 SDK task_type，再退 None。
         launch_tool = self._tool_name_by_id.get(tool_use_id) if tool_use_id else None
@@ -1078,6 +1080,9 @@ class MainAgent:
             task_kind = "command"
         else:
             task_kind = getattr(message, "task_type", None)
+        if task_kind == "agent" and task_id:
+            self._bg_agent_task_ids.add(task_id)
+        owner_kind, owner_id = self._classify_bg_task_owner(task_id, tool_use_id)
         record = {
             "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
             "taskId": task_id,
@@ -1118,6 +1123,14 @@ class MainAgent:
             return ("subagent", owner) if owner else ("main", None)
         if self._workflow_task_ids and not (task_id and task_id in self._workflow_task_ids):
             return "workflow", None
+        # 后台 agent 的内部工具执行（CLI 登记为独立 task）：tool_use 不经主控流、
+        # 且存在活跃的 agent 型后台任务（自身除外）→ 折叠展示用的 agent-internal
+        if (
+            self._bg_agent_task_ids
+            and not (task_id and task_id in self._bg_agent_task_ids)
+            and not (tool_use_id and tool_use_id in self._tool_name_by_id)
+        ):
+            return "agent-internal", None
         return "main", None
 
     @staticmethod
