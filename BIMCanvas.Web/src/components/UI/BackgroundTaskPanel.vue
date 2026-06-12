@@ -26,19 +26,9 @@ const runningCount = computed(() =>
 const hasFinished = computed(() =>
   backgroundTaskList.value.some(t => t.status !== 'running'));
 
-// === 形态分区：agent 区 / command 区（taskKind 缺省按 command 归并，避免第三个「未知」区） ===
-interface KindSection { kind: 'agent' | 'command'; label: string; tasks: TaskEntry[] }
-
-function sectionize(tasks: TaskEntry[]): KindSection[] {
-  const agents: TaskEntry[] = [];
-  const commands: TaskEntry[] = [];
-  for (const t of tasks) (t.taskKind === 'agent' ? agents : commands).push(t);
-  const byStart = (a: TaskEntry, b: TaskEntry) => a.startTime - b.startTime;
-  agents.sort(byStart); commands.sort(byStart);
-  const sections: KindSection[] = [];
-  if (agents.length) sections.push({ kind: 'agent', label: 'Agent 任务', tasks: agents });
-  if (commands.length) sections.push({ kind: 'command', label: '命令任务', tasks: commands });
-  return sections;
+// 形态不分区：单一列表按启动序，类型由行内 chip（Agent/Shell）表达
+function kindChip(t: TaskEntry): string {
+  return t.taskKind === 'agent' ? 'Agent' : 'Shell';
 }
 
 // agent-internal = 后台 Agent 的内部工具执行（CLI 登记为独立 task）——
@@ -47,11 +37,11 @@ function sectionize(tasks: TaskEntry[]): KindSection[] {
 // 未解析出归属前不显示（噪音行，几秒内可解析）。
 const isInternal = (t: TaskEntry) => t.ownerKind === 'agent-internal';
 
-const runningSections = computed(() =>
-  sectionize(backgroundTaskList.value.filter(t => t.status === 'running' && !isInternal(t))));
+const byStart = (a: TaskEntry, b: TaskEntry) => a.startTime - b.startTime;
+const runningTasks = computed(() =>
+  backgroundTaskList.value.filter(t => t.status === 'running' && !isInternal(t)).sort(byStart));
 const finishedTasks = computed(() =>
-  backgroundTaskList.value.filter(t => t.status !== 'running' && !isInternal(t)));
-const finishedSections = computed(() => sectionize(finishedTasks.value));
+  backgroundTaskList.value.filter(t => t.status !== 'running' && !isInternal(t)).sort(byStart));
 const finishedOpen = ref(false);
 
 // === 内部活动归属解析（taskId → 父任务的 toolUseId）===
@@ -88,9 +78,6 @@ function childrenOf(parent: TaskEntry): TaskEntry[] {
     .filter(c => isInternal(c) && originMap.value.get(c.taskId) === parent.toolUseId)
     .sort((a, b) => a.startTime - b.startTime);
 }
-// 只有一个分区时隐藏分区头（无对比意义）
-const showRunningSectionHead = computed(() => runningSections.value.length > 1);
-const showFinishedSectionHead = computed(() => finishedSections.value.length > 1);
 
 // 行内类型 chip：Agent / Shell（归属 ownerKind 保留在数据层，不再占用行内位置）
 
@@ -192,26 +179,23 @@ function detailHasContent(d?: TaskDetail | null): boolean {
     </div>
 
     <div class="btp-body">
-      <!-- 运行中：按形态分区常显 -->
-      <template v-for="sec in runningSections" :key="`run-${sec.kind}`">
-        <div v-if="showRunningSectionHead" class="btp-group-head">{{ sec.label }}</div>
+      <!-- 运行中：单一列表按启动序，类型由行内 chip 表达 -->
+      <template v-for="t in runningTasks" :key="t.taskId">
         <div
-          v-for="t in sec.tasks"
-          :key="t.taskId"
           class="btp-card"
           :class="t.status"
         >
           <div class="btp-row" @click="toggleExpand(t)">
             <span class="btp-dot" :class="t.status"></span>
             <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-            <span class="btp-tag">{{ sec.kind === 'agent' ? 'Agent' : 'Shell' }}</span>
+            <span class="btp-tag">{{ kindChip(t) }}</span>
             <svg class="btp-chev" :class="{ open: expanded.has(t.taskId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
           <div v-if="activityLine(t)" class="btp-activity">{{ activityLine(t) }}</div>
           <div class="btp-meta">
             <span class="btp-stat">{{ taskDuration(t) }}</span>
             <span v-if="formatTokens(t.usage?.totalTokens)" class="btp-stat">{{ formatTokens(t.usage?.totalTokens) }}</span>
-            <span v-if="sec.kind === 'agent' && t.lastToolName" class="btp-stat">{{ t.lastToolName }}</span>
+            <span v-if="t.taskKind === 'agent' && t.lastToolName" class="btp-stat">{{ t.lastToolName }}</span>
           </div>
           <!-- 内部活动子行（嵌套于父 Agent 卡内，对齐 wf-panel 层级做法） -->
           <div v-if="childrenOf(t).length" class="btp-children">
@@ -244,10 +228,10 @@ function detailHasContent(d?: TaskDetail | null): boolean {
         </div>
       </template>
 
-      <div v-if="!runningSections.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
+      <div v-if="!runningTasks.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
 
       <!-- 已结束：折叠区，默认收起；无运行区时去顶部分隔线（standalone），避免孤立分隔+空带 -->
-      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningSections.length && !runningInternal.length }">
+      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningTasks.length }">
         <div class="btp-finished-head" @click="finishedOpen = !finishedOpen">
           <svg class="btp-chev" :class="{ open: finishedOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span>已结束 {{ finishedTasks.length }} 项</span>
@@ -256,18 +240,15 @@ function detailHasContent(d?: TaskDetail | null): boolean {
           </span>
         </div>
         <template v-if="finishedOpen">
-          <template v-for="sec in finishedSections" :key="`fin-${sec.kind}`">
-            <div v-if="showFinishedSectionHead" class="btp-group-head dim">{{ sec.label }}</div>
+          <template v-for="t in finishedTasks" :key="t.taskId">
             <div
-              v-for="t in sec.tasks"
-              :key="t.taskId"
               class="btp-card finished"
               :class="t.status"
             >
               <div class="btp-row" @click="toggleExpand(t)">
                 <span class="btp-dot" :class="t.status"></span>
                 <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-                <span class="btp-tag">{{ sec.kind === 'agent' ? 'Agent' : 'Shell' }}</span>
+                <span class="btp-tag">{{ kindChip(t) }}</span>
                 <svg class="btp-chev" :class="{ open: expanded.has(t.taskId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </div>
               <div class="btp-meta">
@@ -362,16 +343,6 @@ function detailHasContent(d?: TaskDetail | null): boolean {
 }
 
 .btp-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
-
-.btp-group-head {
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-tertiary);
-  padding: 4px 4px 0;
-  &.dim { opacity: 0.8; }
-}
 
 .btp-card {
   background: var(--surface-card, var(--surface-dim));
