@@ -256,16 +256,24 @@ function completeBackgroundTask(
  */
 const BG_SWEEP_MS = 5_000
 const BG_SILENCE_MS = 15_000
-let bgSweeper: ReturnType<typeof setInterval> | null = null
+const BG_STREAM_ALIVE_MS = 6_000      // 近期有任意心跳 → SDK 进度流活跃，静默推断才有效
+const BG_HARD_BACKSTOP_MS = 600_000   // 10min 无条件兜底（带外 completed 永不到达时防永久 running）
+// 任意 background_task.progress（含 workflow 心跳）的最近到达时刻——"流活跃"证据。
+// 实测（2026-06-12）：SDK TaskProgress 只在主控回合存续期间流动，回合结束心跳全停；
+// 此时"任务心跳静默"≠任务结束（任务还在后台跑），盲目推断会提前误标完成 + 时长 0s。
+let lastAnyHeartbeat = 0
 function ensureBgSweeper(): void {
   if (bgSweeper) return
   bgSweeper = setInterval(() => {
     let anyRunning = false
     const now = Date.now()
     const connected = isInteractionChannelConnected()
+    const streamAlive = now - lastAnyHeartbeat < BG_STREAM_ALIVE_MS
     for (const [taskId, info] of backgroundTasks.value) {
       if (info.status !== 'running') continue
-      if (connected && now - info.lastHeartbeat > BG_SILENCE_MS) {
+      const silence = now - info.lastHeartbeat
+      // 推断收口仅当：SSE 在线 且（进度流活跃中本任务独自静默 / 超长兜底）
+      if (connected && ((streamAlive && silence > BG_SILENCE_MS) || silence > BG_HARD_BACKSTOP_MS)) {
         completeBackgroundTask(taskId, 'completed', 'inferred')
       } else {
         anyRunning = true
@@ -276,6 +284,19 @@ function ensureBgSweeper(): void {
       bgSweeper = null
     }
   }, BG_SWEEP_MS)
+}
+let bgSweeper: ReturnType<typeof setInterval> | null = null
+
+/** 回合结束时机检查：回合内已静默≥15s 的任务=已被回合内消费（CLI 不发通知），立即收口；
+ *  仍在心跳尾窗内的=真后台 detach，留给带外 completed 事件 / 后续推断。 */
+function noteTurnEnded(): void {
+  const now = Date.now()
+  for (const [taskId, info] of backgroundTasks.value) {
+    if (info.status !== 'running') continue
+    if (now - info.lastHeartbeat > BG_SILENCE_MS) {
+      completeBackgroundTask(taskId, 'completed', 'inferred')
+    }
+  }
 }
 
 function isRunning(): boolean {
@@ -408,6 +429,7 @@ function onWorkflowProgress(record: {
   taskKind?: string | null
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
 }): void {
+  lastAnyHeartbeat = Date.now()  // 流活跃证据（含 workflow 心跳），sweeper 静默推断的前提
   // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯/卡片集合，不开/不喂 workflow 视图。
   // isWorkflow 缺省（旧 Agent）按 workflow 处理——保留"刷新后首条心跳兜底重开视图"的恢复能力。
   if (record.isWorkflow === false) {
@@ -602,6 +624,7 @@ export function useWorkflowProgress() {
     noteBackgroundTask,
     completeBackgroundTask,
     clearFinishedBackgroundTasks,
+    noteTurnEnded,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,

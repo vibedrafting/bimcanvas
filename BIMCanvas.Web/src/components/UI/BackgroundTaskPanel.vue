@@ -41,22 +41,53 @@ function sectionize(tasks: TaskEntry[]): KindSection[] {
   return sections;
 }
 
-// agent-internal = 后台 Agent 的内部工具执行（CLI 登记为独立 task）——折叠展示，不与父任务平铺
+// agent-internal = 后台 Agent 的内部工具执行（CLI 登记为独立 task）——
+// 嵌套进所属父 Agent 卡内显示（对齐 wf-panel 的层级做法），不独立成块。
+// 实时心跳无父子关系，归属经 Server origins 端点按 toolUseId 反查父 agent jsonl；
+// 未解析出归属前不显示（噪音行，几秒内可解析）。
 const isInternal = (t: TaskEntry) => t.ownerKind === 'agent-internal';
 
 const runningSections = computed(() =>
   sectionize(backgroundTaskList.value.filter(t => t.status === 'running' && !isInternal(t))));
-const runningInternal = computed(() =>
-  backgroundTaskList.value.filter(t => t.status === 'running' && isInternal(t))
-    .sort((a, b) => a.startTime - b.startTime));
-const internalOpen = ref(false);
-
 const finishedTasks = computed(() =>
-  backgroundTaskList.value.filter(t => t.status !== 'running'));
-const finishedSections = computed(() => sectionize(finishedTasks.value.filter(t => !isInternal(t))));
-const finishedInternal = computed(() =>
-  finishedTasks.value.filter(isInternal).sort((a, b) => a.startTime - b.startTime));
+  backgroundTaskList.value.filter(t => t.status !== 'running' && !isInternal(t)));
+const finishedSections = computed(() => sectionize(finishedTasks.value));
 const finishedOpen = ref(false);
+
+// === 内部活动归属解析（taskId → 父任务的 toolUseId）===
+const originMap = ref<Map<string, string>>(new Map());
+async function resolveOrigins(): Promise<void> {
+  const unresolved = backgroundTaskList.value.filter(
+    t => isInternal(t) && t.toolUseId && !originMap.value.has(t.taskId));
+  if (!unresolved.length) return;
+  const sid = unresolved.find(t => t.sdkSessionId)?.sdkSessionId;
+  if (!sid) return;
+  const ids = [...new Set(unresolved.map(t => t.toolUseId!))];
+  try {
+    const resp = await fetch(
+      `${SERVER_BASE}/api/workflows/${encodeURIComponent(sid)}/tasks/origins?toolUseIds=${encodeURIComponent(ids.join(','))}`);
+    if (!resp.ok) return;
+    const arr = (await resp.json()) as { toolUseId: string; parentToolUseId?: string | null }[];
+    const byToolUse = new Map(
+      arr.filter(o => o.parentToolUseId).map(o => [o.toolUseId, o.parentToolUseId!] as const));
+    if (!byToolUse.size) return;
+    const next = new Map(originMap.value);
+    for (const t of unresolved) {
+      const p = t.toolUseId ? byToolUse.get(t.toolUseId) : undefined;
+      if (p) next.set(t.taskId, p);
+    }
+    originMap.value = next;
+  } catch { /* 下轮重试 */ }
+}
+let originTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 父任务卡内的内部活动子行 */
+function childrenOf(parent: TaskEntry): TaskEntry[] {
+  if (!parent.toolUseId) return [];
+  return backgroundTaskList.value
+    .filter(c => isInternal(c) && originMap.value.get(c.taskId) === parent.toolUseId)
+    .sort((a, b) => a.startTime - b.startTime);
+}
 // 只有一个分区时隐藏分区头（无对比意义）
 const showRunningSectionHead = computed(() => runningSections.value.length > 1);
 const showFinishedSectionHead = computed(() => finishedSections.value.length > 1);
@@ -88,8 +119,15 @@ function activityLine(t: TaskEntry): string | null {
 // === 时长 / tokens（统一墙钟；usage.durationMs 对 Agent 型任务不可靠，弃用） ===
 const nowTick = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | null = null;
-onMounted(() => { timer = setInterval(() => { nowTick.value = Date.now(); }, 1000); });
-onUnmounted(() => { if (timer) clearInterval(timer); });
+onMounted(() => {
+  timer = setInterval(() => { nowTick.value = Date.now(); }, 1000);
+  originTimer = setInterval(() => { void resolveOrigins(); }, 4000);
+  void resolveOrigins();
+});
+onUnmounted(() => {
+  if (timer) clearInterval(timer);
+  if (originTimer) clearInterval(originTimer);
+});
 
 function formatDuration(ms: number): string {
   if (!isFinite(ms) || ms < 0) return '—';
@@ -184,6 +222,14 @@ function detailHasContent(d?: TaskDetail | null): boolean {
             <span v-if="formatTokens(t.usage?.totalTokens)" class="btp-stat">{{ formatTokens(t.usage?.totalTokens) }}</span>
             <span v-if="sec.kind === 'agent' && t.lastToolName" class="btp-stat">{{ t.lastToolName }}</span>
           </div>
+          <!-- 内部活动子行（嵌套于父 Agent 卡内，对齐 wf-panel 层级做法） -->
+          <div v-if="childrenOf(t).length" class="btp-children">
+            <div v-for="c in childrenOf(t)" :key="c.taskId" class="btp-child">
+              <span class="btp-dot" :class="c.status"></span>
+              <span class="btp-child-desc" :title="c.description || c.taskId">{{ displayTitle(c) }}</span>
+              <span class="btp-stat">{{ taskDuration(c) }}</span>
+            </div>
+          </div>
           <div v-if="expanded.has(t.taskId)" class="btp-detail">
             <div v-if="details.get(t.taskId)?.status === 'loading'" class="btp-hint">正在加载详情…</div>
             <div v-else-if="details.get(t.taskId)?.status === 'error'" class="btp-hint">暂无可用详情</div>
@@ -207,27 +253,7 @@ function detailHasContent(d?: TaskDetail | null): boolean {
         </div>
       </template>
 
-      <!-- Agent 内部活动：折叠子列表（默认收起），不与父任务平铺 -->
-      <div v-if="runningInternal.length" class="btp-internal">
-        <div class="btp-finished-head" @click="internalOpen = !internalOpen">
-          <svg class="btp-chev" :class="{ open: internalOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          <span>Agent 内部活动 {{ runningInternal.length }} 项</span>
-        </div>
-        <template v-if="internalOpen">
-          <div v-for="t in runningInternal" :key="t.taskId" class="btp-card internal" :class="t.status">
-            <div class="btp-row">
-              <span class="btp-dot" :class="t.status"></span>
-              <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-              <span v-if="t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
-            </div>
-            <div class="btp-meta">
-              <span class="btp-stat">{{ taskDuration(t) }}</span>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <div v-if="!runningSections.length && !runningInternal.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
+      <div v-if="!runningSections.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
 
       <!-- 已结束：折叠区，默认收起；无运行区时去顶部分隔线（standalone），避免孤立分隔+空带 -->
       <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningSections.length && !runningInternal.length }">
@@ -259,6 +285,13 @@ function detailHasContent(d?: TaskDetail | null): boolean {
                 <span v-if="formatTokens(t.usage?.totalTokens)" class="btp-stat">{{ formatTokens(t.usage?.totalTokens) }}</span>
                 <span v-if="t.status === 'failed'" class="btp-state failed">失败</span>
               </div>
+              <div v-if="childrenOf(t).length" class="btp-children">
+                <div v-for="c in childrenOf(t)" :key="c.taskId" class="btp-child">
+                  <span class="btp-dot" :class="c.status"></span>
+                  <span class="btp-child-desc" :title="c.description || c.taskId">{{ displayTitle(c) }}</span>
+                  <span class="btp-stat">{{ taskDuration(c) }}</span>
+                </div>
+              </div>
               <div v-if="expanded.has(t.taskId)" class="btp-detail">
                 <div v-if="details.get(t.taskId)?.status === 'loading'" class="btp-hint">正在加载详情…</div>
                 <div v-else-if="details.get(t.taskId)?.status === 'error'" class="btp-hint">暂无可用详情</div>
@@ -278,21 +311,6 @@ function detailHasContent(d?: TaskDetail | null): boolean {
                     {{ details.get(t.taskId)!.data!.kind === 'bash' ? '该任务无输出' : '暂无可用详情' }}
                   </div>
                 </template>
-              </div>
-            </div>
-          </template>
-          <!-- 已结束的 Agent 内部活动：dim 段收尾 -->
-          <template v-if="finishedInternal.length">
-            <div class="btp-group-head dim">Agent 内部活动</div>
-            <div v-for="t in finishedInternal" :key="t.taskId" class="btp-card internal finished" :class="t.status">
-              <div class="btp-row">
-                <span class="btp-dot" :class="t.status"></span>
-                <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-                <span v-if="t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
-              </div>
-              <div class="btp-meta">
-                <span class="btp-stat">{{ taskDuration(t) }}</span>
-                <span v-if="t.status === 'failed'" class="btp-state failed">失败</span>
               </div>
             </div>
           </template>
@@ -508,15 +526,31 @@ function detailHasContent(d?: TaskDetail | null): boolean {
   padding: 2px 4px;
 }
 
-.btp-internal {
+/* 内部活动子行：嵌套于父 Agent 卡内 */
+.btp-children {
+  margin-top: 6px;
+  margin-left: 15px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border-dim);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
-
-.btp-card.internal {
-  opacity: 0.8;
-  .btp-desc { font-weight: 500; font-size: 0.72rem; }
+.btp-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  .btp-dot { width: 5px; height: 5px; }
+  .btp-child-desc {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .btp-stat { font-size: 0.62rem; color: var(--text-tertiary); font-family: var(--font-mono); flex-shrink: 0; }
 }
 
 .btp-finished {

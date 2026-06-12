@@ -100,7 +100,7 @@ const sourceUrl = computed(() => props.plugin?.sourceUrl ?? '(本地 plugin,无�
 
             <p class="footnote">
               如不确定,请先到 <a v-if="plugin.sourceUrl" :href="plugin.sourceUrl" target="_blank" rel="noopener noreferrer" class="link">仓库主页</a><span v-else>该插件来源</span>检查代码,或参阅 BIMCanvas 文档
-              <code>docs/plugin-security-model.md</code>。
+              <code>docs/Arch_Plugin.md</code>(安全模型章节)。
             </p>
           </div>
 

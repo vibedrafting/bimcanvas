@@ -627,8 +627,7 @@ public sealed class SettingsService
         {
             throw new InvalidOperationException(
                 $"检测到 config.json 含旧版 `{provider}.permissions` 字段。" +
-                "工具权限配置已重设计 (v3.2)，请参考迁移文档手工调整：" +
-                "docs/Tool_Permissions_Migration.md。" +
+                "工具权限配置已重设计 (v3.2+)，迁移说明见 docs/Arch_Plugin.md（权限模型章节）。" +
                 $"旧 `{provider}.permissions.allow / deny` → 新 `{provider}.tools.allow / deny`；" +
                 $"另外新增 `{provider}.agents.allow / deny` 块需添加 (可填空数组)。" +
                 "BIMCanvas 不会自动迁移旧结构。");
@@ -648,7 +647,7 @@ public sealed class SettingsService
                 Console.Error.WriteLine(
                     $"[WARN] config.json 的 `{provider}.{deprecatedField}` 字段在 v3.3 已废弃," +
                     $"工具权限改由 plugin manifest 接管,可以从配置文件中删除该字段。" +
-                    $"详见 docs/Tool_Permissions_Migration.md");
+                    $"详见 docs/Arch_Plugin.md");
             }
         }
     }

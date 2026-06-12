@@ -297,6 +297,52 @@ namespace BIMCanvas.Server.Services
             return result;
         }
 
+        // ============ 内部活动归属解析（bg-task-panel 嵌套展示） ============
+        // 后台 Agent 的内部工具执行（agent-internal 心跳）实时数据里没有父子关系；
+        // 其 toolUseId 会增量写进父 agent 的 {session}/subagents/agent-*.jsonl ——
+        // 按 toolUseId 扫描反查父 agent 的 meta.toolUseId，前端据此把内部活动嵌进父任务卡。
+        public List<TaskOriginResult> ResolveTaskOrigins(string sdkSessionId, IReadOnlyList<string> toolUseIds)
+        {
+            var results = new List<TaskOriginResult>();
+            var sessionDir = ResolveSessionDir(sdkSessionId);
+            if (sessionDir == null || toolUseIds.Count == 0) return results;
+            var subDir = Path.Combine(sessionDir, "subagents");
+            if (!Directory.Exists(subDir)) return results;
+
+            var pending = new HashSet<string>(toolUseIds.Where(s => !string.IsNullOrWhiteSpace(s)), StringComparer.Ordinal);
+            foreach (var jsonl in Directory.EnumerateFiles(subDir, "agent-*.jsonl", SearchOption.TopDirectoryOnly))
+            {
+                if (pending.Count == 0) break;
+                string text;
+                try { text = File.ReadAllText(jsonl); } catch { continue; }
+
+                string? parentToolUseId = null, parentLabel = null;
+                var agentId = ExtractAgentId(jsonl);
+                var metaPath = Path.Combine(subDir, $"agent-{agentId}.meta.json");
+                if (File.Exists(metaPath))
+                {
+                    try
+                    {
+                        var meta = JObject.Parse(File.ReadAllText(metaPath));
+                        parentToolUseId = (string?)meta["toolUseId"];
+                        parentLabel = (string?)meta["description"] ?? (string?)meta["agentType"];
+                    }
+                    catch { }
+                }
+                if (string.IsNullOrEmpty(parentToolUseId)) continue;
+
+                foreach (var id in pending.ToList())
+                {
+                    if (text.Contains(id, StringComparison.Ordinal))
+                    {
+                        results.Add(new TaskOriginResult { ToolUseId = id, ParentToolUseId = parentToolUseId, ParentLabel = parentLabel });
+                        pending.Remove(id);
+                    }
+                }
+            }
+            return results;
+        }
+
         // ============ 公共辅助 ============
         private static string? ResolveSessionDir(string sdkSessionId)
         {
@@ -627,5 +673,13 @@ namespace BIMCanvas.Server.Services
         /// <summary>Workflow 内派生任务：所属 agent 类型（精确归属）。</summary>
         public string? OriginAgentType { get; set; }
         public string? OriginRunId { get; set; }
+    }
+
+    /// <summary>内部活动归属解析结果：toolUseId → 父 agent 的发起 toolUseId（前端按此挂到父任务卡）。</summary>
+    public class TaskOriginResult
+    {
+        public string ToolUseId { get; set; } = "";
+        public string? ParentToolUseId { get; set; }
+        public string? ParentLabel { get; set; }
     }
 }

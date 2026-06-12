@@ -48,5 +48,22 @@ namespace BIMCanvas.Server.Controllers
             var result = _transcriptService.GetTaskDetail(sdkSessionId, taskId, toolUseId);
             return Ok(result);
         }
+
+        /// <summary>
+        /// 内部活动归属解析：按 toolUseId（逗号分隔）反查父 agent，前端据此把内部活动嵌进父任务卡。
+        /// 未解析出的 id 不在返回列表中（前端轮询重试至解析或任务结束）。
+        /// </summary>
+        [HttpGet("{sdkSessionId}/tasks/origins")]
+        public IActionResult ResolveTaskOrigins(string sdkSessionId, [FromQuery] string? toolUseIds = null)
+        {
+            if (string.IsNullOrWhiteSpace(sdkSessionId))
+            {
+                return BadRequest(new { success = false, message = "sdkSessionId 不能为空" });
+            }
+            var ids = (toolUseIds ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var result = _transcriptService.ResolveTaskOrigins(sdkSessionId, ids);
+            return Ok(result);
+        }
     }
 }
