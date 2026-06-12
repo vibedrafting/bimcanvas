@@ -188,6 +188,8 @@ class MainAgent:
         # CLI 收到 <task-notification> 会把它当 user 消息注入会话、让主控自动唤醒生成总结回合；
         # drain loop 据此把【原生总结文本】投递给前端，而非丢弃（修复 detach 后总结被吞）。
         self._bg_completion_pending: dict[str, Any] | None = None
+        # 已向前端投递过终态的 task_id（防"嗅探注入通知"与 TaskNotificationMessage 双路双发）
+        self._bg_completed_emitted: set[str] = set()
         self._bg_summary_parts: list[str] = []
         # 后台原生总结回合内是否出现过工具调用（仅作日志诊断）。
         # 注意：SDK 一个 response 只有一个 ResultMessage（response 内多次 tool-call 是
@@ -831,7 +833,12 @@ class MainAgent:
                         f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
                         f"bare task_id={message.task_id}, status={message.status})"
                     )
-                await self._emit_bare_background_completion(message)
+                await self._emit_bare_background_completion(
+                    message.task_id, str(message.status),
+                    summary=message.summary or "",
+                    output_file=message.output_file or None,
+                    sdk_session_id=message.session_id,
+                )
             else:
                 # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
                 # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
@@ -898,6 +905,8 @@ class MainAgent:
                     self._bg_completion_pending = None
                     self._bg_summary_parts = []
                     self._bg_round_had_tool = False
+                    if pending.get("taskId"):
+                        self._bg_completed_emitted.add(pending["taskId"])  # 嗅探路径去重
                     if self.verbose:
                         self._agent_logger.log_info(
                             f"[Background] 原生总结回合收口（content 非空，含工具轮亦收口）→ 投递完成汇报 "
@@ -920,7 +929,11 @@ class MainAgent:
             await self._push_background_progress(message)
         elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
             # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
+            await self._sniff_injected_task_notifications(message)
             self._collect_bg_turn_events(message)
+        elif isinstance(message, UserMessage):
+            # 注入式 task-notification 嗅探（终态投递第三路径），其余内容仍静默
+            await self._sniff_injected_task_notifications(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
             # 逐 token 流式增量 / 工具结果 / 系统事件 / 非汇报态的整段回复：
             # 与回合内路径的聚合纪律一致——静默丢弃、不逐条 log，避免刷屏。
@@ -1016,35 +1029,94 @@ class MainAgent:
             except Exception as e:
                 logger.warning(f"[Background] map bg turn chunk failed: {e}")
 
-    async def _emit_bare_background_completion(self, message: Any) -> None:
-        """N1 单槽被占期间到达的并行任务完成通知：不抢总结槽（归首任务），立即裸投递
-        completed 事件——只为前端 Task 面板收口终态，无富总结、不消费回合 events 缓冲。
+    async def _emit_bare_background_completion(
+        self,
+        task_id: str,
+        status: str,
+        summary: str = "",
+        output_file: str | None = None,
+        sdk_session_id: str | None = None,
+    ) -> None:
+        """裸投递后台任务终态：只为前端 Task 面板收口，无富总结、不消费回合 events 缓冲。
 
-        2026-06-12 实测教训：丢弃会让并行后台 Agent 卡片永久 running——回合结束后
-        SDK 心跳通道关闭，前端的静默推断收口也无从触发（流死寂时不推断是有意设计）。
+        两个调用场景（2026-06-12 实测教训：丢失终态会让卡片永久 running——回合结束后
+        SDK 心跳通道关闭，前端的静默推断收口无从触发，流死寂时不推断是有意设计）：
+        ① N1 单槽被占期间到达的并行 TaskNotificationMessage（总结槽归首任务）；
+        ② CLI 把 <task-notification> 注入主控 prompt 流（回合内消费，宿主收不到
+           TaskNotificationMessage）——经 _sniff_injected_task_notifications 嗅探。
         """
-        if self._background_push is None:
+        if self._background_push is None or not task_id:
             return
+        if task_id in self._bg_completed_emitted:
+            return
+        self._bg_completed_emitted.add(task_id)
         ctx = self._last_runtime_context or {}
-        status = str(message.status)
         record = {
             "kind": "background_task",
-            "taskId": message.task_id,
+            "taskId": task_id,
             "status": status,
             "hasSummary": False,   # 前端只收口面板，不渲染气泡、不落 history
-            "content": self._compose_background_text(status, message.summary or ""),
+            "content": self._compose_background_text(status, summary),
             "events": [],
-            "summary": message.summary or "",
-            "outputFile": message.output_file or None,
+            "summary": summary,
+            "outputFile": output_file,
             "windowId": ctx.get("windowId"),
             "sessionId": ctx.get("sessionId"),
-            "sdkSessionId": message.session_id,
+            "sdkSessionId": sdk_session_id,
             "turnId": ctx.get("turnId"),
         }
         try:
             await self._background_push(record)
         except Exception as e:
             logger.warning(f"background_push (bare) callback failed: {e}")
+
+    _TASK_NOTIFICATION_RE = re.compile(
+        r"<task-notification>(.*?)</task-notification>", re.DOTALL
+    )
+
+    async def _sniff_injected_task_notifications(self, message: Any) -> None:
+        """嗅探 CLI 注入主控 prompt 流的 <task-notification> 块并裸投递终态。
+
+        实测（2026-06-12 18:22 金凤127）：同回合多任务完成时，CLI 可能只给宿主发一条
+        TaskNotificationMessage，其余通知直接作为 user 消息注入主控 prompt（主控因此
+        "知道"完成，宿主却收不到）——这是终态投递的第三条路径，必须在消息流里嗅探。
+        与 TaskNotificationMessage 双到达时由 _bg_completed_emitted 去重。
+        """
+        content = getattr(message, "content", None)
+        texts: list[str] = []
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            for b in content:
+                t = getattr(b, "text", None)
+                if isinstance(t, str):
+                    texts.append(t)
+                elif isinstance(b, dict) and isinstance(b.get("text"), str):
+                    texts.append(b["text"])
+        if not texts:
+            return
+        for blob in self._TASK_NOTIFICATION_RE.findall("\n".join(texts)):
+            task_id = self._extract_tag(blob, "task-id")
+            if not task_id or task_id in self._bg_completed_emitted:
+                continue
+            status = self._extract_tag(blob, "status") or "completed"
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Background] 嗅探到注入式 task-notification → 裸投递 "
+                    f"(task_id={task_id}, status={status})"
+                )
+            await self._emit_bare_background_completion(
+                task_id,
+                status,
+                summary=self._extract_tag(blob, "summary") or "",
+                output_file=self._extract_tag(blob, "output-file"),
+                sdk_session_id=getattr(message, "session_id", None),
+            )
+
+    @staticmethod
+    def _extract_tag(blob: str, tag: str) -> str | None:
+        m = re.search(rf"<{tag}>(.*?)</{tag}>", blob, re.DOTALL)
+        return m.group(1).strip() if m else None
 
     async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
         """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
@@ -2030,6 +2102,8 @@ class MainAgent:
 
             # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
             elif isinstance(message, UserMessage):
+                # 注入式 task-notification 嗅探（CLI 回合内消费的完成通知，宿主唯一可见处）
+                await self._sniff_injected_task_notifications(message)
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
@@ -2186,7 +2260,12 @@ class MainAgent:
                             f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
                             f"bare task_id={message.task_id})"
                         )
-                    await self._emit_bare_background_completion(message)
+                    await self._emit_bare_background_completion(
+                        message.task_id, str(message.status),
+                        summary=message.summary or "",
+                        output_file=message.output_file or None,
+                        sdk_session_id=message.session_id,
+                    )
                 else:
                     self._bg_completion_pending = {
                         "taskId": message.task_id,
