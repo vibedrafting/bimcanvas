@@ -823,15 +823,15 @@ class MainAgent:
                     f"summary_len={len(message.summary or '')} (background)"
                 )
             if self._bg_completion_pending is not None:
-                # N1 防覆写：上一后台原生总结回合的 pending 尚未收口（多轮 agentic 仍在进行）。
-                # 新 TaskNotification 不得覆写——否则最终 emit 会误归属前端陌生的新 task_id（次生 bug）。
-                # 保留首个 task_id（前端可识别），忽略新通知身份。
+                # N1 防覆写：总结槽归首任务，不覆写身份；但并行完成的任务终态不能丢——
+                # 立即裸投递 completed（无富总结），否则前端卡片永久 running（2026-06-12 实测）。
                 if self.verbose:
                     self._agent_logger.log_info(
-                        f"[Background] pending 未收口，忽略 TaskNotification 覆写 "
+                        f"[Background] pending 占用中，并行完成通知裸投递 "
                         f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
-                        f"new task_id={message.task_id}, new status={message.status})"
+                        f"bare task_id={message.task_id}, status={message.status})"
                     )
+                await self._emit_bare_background_completion(message)
             else:
                 # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
                 # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
@@ -1015,6 +1015,36 @@ class MainAgent:
                 self._bg_turn_events.extend(mapper.map_chunk(chunk))
             except Exception as e:
                 logger.warning(f"[Background] map bg turn chunk failed: {e}")
+
+    async def _emit_bare_background_completion(self, message: Any) -> None:
+        """N1 单槽被占期间到达的并行任务完成通知：不抢总结槽（归首任务），立即裸投递
+        completed 事件——只为前端 Task 面板收口终态，无富总结、不消费回合 events 缓冲。
+
+        2026-06-12 实测教训：丢弃会让并行后台 Agent 卡片永久 running——回合结束后
+        SDK 心跳通道关闭，前端的静默推断收口也无从触发（流死寂时不推断是有意设计）。
+        """
+        if self._background_push is None:
+            return
+        ctx = self._last_runtime_context or {}
+        status = str(message.status)
+        record = {
+            "kind": "background_task",
+            "taskId": message.task_id,
+            "status": status,
+            "hasSummary": False,   # 前端只收口面板，不渲染气泡、不落 history
+            "content": self._compose_background_text(status, message.summary or ""),
+            "events": [],
+            "summary": message.summary or "",
+            "outputFile": message.output_file or None,
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+            "sdkSessionId": message.session_id,
+            "turnId": ctx.get("turnId"),
+        }
+        try:
+            await self._background_push(record)
+        except Exception as e:
+            logger.warning(f"background_push (bare) callback failed: {e}")
 
     async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
         """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
@@ -2149,13 +2179,14 @@ class MainAgent:
                         f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
                 if self._bg_completion_pending is not None:
-                    # N1 防覆写：已有未收口的后台 pending，不覆写（保留首个 task_id）。
+                    # N1 防覆写：总结槽归首任务；并行完成通知裸投递终态，不丢弃（同 background 分支）。
                     if self.verbose:
                         self._agent_logger.log_info(
-                            f"[TaskNotification] pending 未收口，忽略覆写 "
+                            f"[TaskNotification] pending 占用中，并行完成通知裸投递 "
                             f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
-                            f"new task_id={message.task_id})"
+                            f"bare task_id={message.task_id})"
                         )
+                    await self._emit_bare_background_completion(message)
                 else:
                     self._bg_completion_pending = {
                         "taskId": message.task_id,
