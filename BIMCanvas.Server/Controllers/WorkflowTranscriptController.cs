@@ -33,5 +33,20 @@ namespace BIMCanvas.Server.Controllers
             var result = _transcriptService.GetTranscript(sdkSessionId, taskId);
             return Ok(result);
         }
+
+        /// <summary>
+        /// 后台 Task 详情（bg-task-panel 行展开按需拉取）：Bash 输出尾部 / Agent 型 outcome / Workflow 内派生归属。
+        /// 未找到任何详情时返回 kind=null（200），前端按"无详情"渲染。
+        /// </summary>
+        [HttpGet("{sdkSessionId}/tasks/{taskId}")]
+        public IActionResult GetTaskDetail(string sdkSessionId, string taskId, [FromQuery] string? toolUseId = null)
+        {
+            if (string.IsNullOrWhiteSpace(sdkSessionId) || string.IsNullOrWhiteSpace(taskId))
+            {
+                return BadRequest(new { success = false, message = "sdkSessionId / taskId 不能为空" });
+            }
+            var result = _transcriptService.GetTaskDetail(sdkSessionId, taskId, toolUseId);
+            return Ok(result);
+        }
     }
 }

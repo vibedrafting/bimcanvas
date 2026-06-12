@@ -147,8 +147,17 @@ export interface BackgroundTaskInfo {
   startTime: number
   status: 'running' | 'completed' | 'failed'
   endTime?: number
-  /** 最近一条 SSE 心跳到达时刻——reapStaleBackgroundTasks 的静默判据 */
+  /** 最近一条 SSE 心跳到达时刻——sweeper 的静默判据 */
   lastHeartbeat: number
+  /** 归属分类（Agent 端 best-effort）：main | subagent | workflow，缺省=unknown */
+  ownerKind?: string
+  ownerId?: string
+  /** 发起该任务的 tool_use id（详情端点定位用） */
+  toolUseId?: string
+  /** 详情端点需要的会话 id */
+  sdkSessionId?: string
+  /** 终态来源：event=带外 completed 事件（权威）；inferred=心跳静默推断 */
+  finishSource?: 'event' | 'inferred'
 }
 const backgroundTasks = ref<Map<string, BackgroundTaskInfo>>(new Map())
 
@@ -166,7 +175,10 @@ const backgroundTaskList = computed(() =>
 
 function noteBackgroundTask(
   taskId: string,
-  data?: { description?: string; lastToolName?: string; usage?: BackgroundTaskInfo['usage'] }
+  data?: {
+    description?: string; lastToolName?: string; usage?: BackgroundTaskInfo['usage']
+    ownerKind?: string; ownerId?: string; toolUseId?: string; sdkSessionId?: string
+  }
 ): void {
   const next = new Map(backgroundTasks.value)
   const prev = next.get(taskId)
@@ -177,6 +189,11 @@ function noteBackgroundTask(
     description: data?.description ?? prev?.description,
     lastToolName: data?.lastToolName ?? prev?.lastToolName,
     usage: data?.usage ?? prev?.usage,
+    ownerKind: data?.ownerKind ?? prev?.ownerKind,
+    ownerId: data?.ownerId ?? prev?.ownerId,
+    toolUseId: data?.toolUseId ?? prev?.toolUseId,
+    sdkSessionId: data?.sdkSessionId ?? prev?.sdkSessionId,
+    finishSource: prev?.finishSource,
     lastHeartbeat: Date.now()
   })
   backgroundTasks.value = next
@@ -192,12 +209,17 @@ function clearFinishedBackgroundTasks(): void {
   backgroundTasks.value = next
 }
 
-/** background_task.completed 收口：标完成态+endTime、保留条目（卡片显示），不删除。 */
-function completeBackgroundTask(taskId: string, status: 'completed' | 'failed' = 'completed'): void {
+/** background_task.completed 收口：标完成态+endTime、保留条目（卡片显示），不删除。
+ *  source: event=带外事件（权威）；inferred=sweeper 心跳静默推断（UI 弱化显示）。 */
+function completeBackgroundTask(
+  taskId: string,
+  status: 'completed' | 'failed' = 'completed',
+  source: 'event' | 'inferred' = 'event'
+): void {
   const prev = backgroundTasks.value.get(taskId)
   if (!prev || prev.status !== 'running') return
   const next = new Map(backgroundTasks.value)
-  next.set(taskId, { ...prev, status, endTime: Date.now() })
+  next.set(taskId, { ...prev, status, endTime: Date.now(), finishSource: source })
   backgroundTasks.value = next
 }
 
@@ -229,7 +251,7 @@ function ensureBgSweeper(): void {
     for (const [taskId, info] of backgroundTasks.value) {
       if (info.status !== 'running') continue
       if (connected && now - info.lastHeartbeat > BG_SILENCE_MS) {
-        completeBackgroundTask(taskId, 'completed')
+        completeBackgroundTask(taskId, 'completed', 'inferred')
       } else {
         anyRunning = true
       }
@@ -365,6 +387,9 @@ function onWorkflowProgress(record: {
   sdkSessionId?: string | null
   description?: string | null
   lastToolName?: string | null
+  toolUseId?: string | null
+  ownerKind?: string | null
+  ownerId?: string | null
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
 }): void {
   // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯/卡片集合，不开/不喂 workflow 视图。
@@ -374,6 +399,10 @@ function onWorkflowProgress(record: {
       noteBackgroundTask(record.taskId, {
         description: record.description ?? undefined,
         lastToolName: record.lastToolName ?? undefined,
+        ownerKind: record.ownerKind ?? undefined,
+        ownerId: record.ownerId ?? undefined,
+        toolUseId: record.toolUseId ?? undefined,
+        sdkSessionId: record.sdkSessionId ?? undefined,
         usage: record.usage
           ? {
               totalTokens: record.usage.total_tokens,

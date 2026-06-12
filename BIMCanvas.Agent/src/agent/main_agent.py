@@ -1067,6 +1067,8 @@ class MainAgent:
         ctx = self._last_runtime_context or {}
         usage = getattr(message, "usage", None)
         task_id = getattr(message, "task_id", None)
+        tool_use_id = getattr(message, "tool_use_id", None)
+        owner_kind, owner_id = self._classify_bg_task_owner(task_id, tool_use_id)
         record = {
             "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
             "taskId": task_id,
@@ -1075,6 +1077,10 @@ class MainAgent:
             "usage": dict(usage) if usage else None,
             "lastToolName": getattr(message, "last_tool_name", None),
             "description": getattr(message, "description", None),
+            # 归属链（Task 页后台任务卡分组 + 详情端点定位用）
+            "toolUseId": tool_use_id,
+            "ownerKind": owner_kind,   # main | subagent | workflow（best-effort，见 _classify_bg_task_owner）
+            "ownerId": owner_id,
             "windowId": ctx.get("windowId"),
             "sessionId": ctx.get("sessionId"),
             "sdkSessionId": getattr(message, "session_id", None),
@@ -1083,6 +1089,26 @@ class MainAgent:
             await self._background_progress_push(record)
         except Exception as e:
             logger.warning(f"background_progress_push callback failed: {e}")
+
+    def _classify_bg_task_owner(
+        self, task_id: str | None, tool_use_id: str | None
+    ) -> tuple[str, str | None]:
+        """后台任务归属判定（best-effort，供 Task 页分组展示）。
+
+        - subagent：发起工具调用经主控流、且归属某回合内 Task 子代理（_tool_to_subagent 命中非空）。
+        - main：发起工具调用经主控流、主控自身（命中但值为 None）。
+        - workflow：tool_use 未经主控流（Workflow 编排内 agent 的工具转后台不进主控消息循环），
+          且本会话存在 workflow 任务——组级归类，精确到哪个 agent 由详情端点按 toolUseId 反查。
+        注意 _tool_to_subagent 在工具结果到达时 pop、回合开始时 clear——自动转后台的 Bash
+        其结果（"running in background"）可能先于 TaskStarted 到达，命中率非 100%，未命中时
+        按会话有无 workflow 退化归类。
+        """
+        if tool_use_id and tool_use_id in self._tool_to_subagent:
+            owner = self._tool_to_subagent.get(tool_use_id)
+            return ("subagent", owner) if owner else ("main", None)
+        if self._workflow_task_ids and not (task_id and task_id in self._workflow_task_ids):
+            return "workflow", None
+        return "main", None
 
     @staticmethod
     def _parse_workflow_meta(script: str) -> dict[str, Any]:

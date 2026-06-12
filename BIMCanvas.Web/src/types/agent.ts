@@ -174,6 +174,11 @@ export interface WorkflowProgressRecord {
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
   lastToolName?: string | null;
   description?: string | null;
+  /** 归属链（bg-task-panel 分组 + 详情端点定位）：发起该任务的 tool_use id */
+  toolUseId?: string | null;
+  /** 归属分类（Agent 端 best-effort）：main=主控 | subagent=回合内子代理 | workflow=Workflow 内派生 */
+  ownerKind?: string | null;
+  ownerId?: string | null;
   windowId?: string | null;
   sessionId?: string | null;
   sdkSessionId?: string | null;

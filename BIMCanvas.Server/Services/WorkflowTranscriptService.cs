@@ -206,6 +206,97 @@ namespace BIMCanvas.Server.Services
             result.TotalTokens = liveAgents.Sum(a => a.Tokens ?? 0);
         }
 
+        // ============ 后台 Task 详情（bg-task-panel 行展开按需拉取） ============
+        // 三路定位，命中即填、可叠加：
+        //  ① Bash 转后台：输出文件 %TEMP%\claude\{slug}\{sdkSessionId}\tasks\{taskId}.output（尾部截取）
+        //  ② Agent 型后台任务：{session}/subagents/agent-*.meta.json 的 toolUseId 命中 → 读对应 jsonl
+        //     补 prompt/outcome/tools/model/tokens（复用 EnrichAgentDetail）
+        //  ③ Workflow 内派生：toolUseId 出现在 {session}/subagents/workflows/*/agent-*.jsonl →
+        //     反查所属 agent（精确归属，弥补心跳 ownerKind 只能组级归类）
+        public BackgroundTaskDetail GetTaskDetail(string sdkSessionId, string taskId, string? toolUseId)
+        {
+            var result = new BackgroundTaskDetail { TaskId = taskId };
+
+            // ① Bash 输出文件
+            try
+            {
+                var tempClaude = Path.Combine(Path.GetTempPath(), "claude");
+                if (Directory.Exists(tempClaude))
+                {
+                    foreach (var slugDir in Directory.EnumerateDirectories(tempClaude))
+                    {
+                        var outputPath = Path.Combine(slugDir, sdkSessionId, "tasks", $"{taskId}.output");
+                        if (!File.Exists(outputPath)) continue;
+                        const int tailBytes = 8 * 1024;
+                        var fi = new FileInfo(outputPath);
+                        using var fs = new FileStream(outputPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        if (fi.Length > tailBytes)
+                        {
+                            fs.Seek(-tailBytes, SeekOrigin.End);
+                            result.OutputTruncated = true;
+                        }
+                        using var reader = new StreamReader(fs);
+                        result.OutputTail = reader.ReadToEnd();
+                        result.Kind = "bash";
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "task detail: 读输出文件失败 {TaskId}", taskId); }
+
+            var sessionDir = ResolveSessionDir(sdkSessionId);
+            if (sessionDir == null || string.IsNullOrEmpty(toolUseId)) return result;
+
+            // ② Agent 型：meta.json 的 toolUseId 匹配
+            try
+            {
+                var subDir = Path.Combine(sessionDir, "subagents");
+                if (Directory.Exists(subDir))
+                {
+                    foreach (var metaPath in Directory.EnumerateFiles(subDir, "agent-*.meta.json", SearchOption.TopDirectoryOnly))
+                    {
+                        JObject meta;
+                        try { meta = JObject.Parse(File.ReadAllText(metaPath)); } catch { continue; }
+                        if (!string.Equals((string?)meta["toolUseId"], toolUseId, StringComparison.Ordinal)) continue;
+                        var agent = new WorkflowTranscriptAgent { AgentId = ExtractAgentId(metaPath).Replace(".meta", "") };
+                        try { EnrichAgentDetail(agent, subDir); } catch (Exception ex) { _logger.LogWarning(ex, "task detail enrich {Id}", agent.AgentId); }
+                        agent.Label = (string?)meta["description"] ?? (string?)meta["agentType"];
+                        result.Agent = agent;
+                        result.Kind = "agent";
+                        return result;
+                    }
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "task detail: agent meta 扫描失败 {TaskId}", taskId); }
+
+            // ③ Workflow 内派生：在 workflow agent jsonl 里找 toolUseId → 所属 agent 类型
+            try
+            {
+                var wfRoot = Path.Combine(sessionDir, "subagents", "workflows");
+                if (Directory.Exists(wfRoot))
+                {
+                    foreach (var runDir in Directory.EnumerateDirectories(wfRoot, "wf_*"))
+                    {
+                        foreach (var jsonl in Directory.EnumerateFiles(runDir, "agent-*.jsonl"))
+                        {
+                            bool hit;
+                            try { hit = File.ReadAllText(jsonl).Contains(toolUseId, StringComparison.Ordinal); }
+                            catch { continue; }
+                            if (!hit) continue;
+                            var agentId = ExtractAgentId(jsonl);
+                            result.OriginAgentType = ReadAgentType(runDir, agentId) ?? agentId;
+                            result.OriginRunId = Path.GetFileName(runDir);
+                            if (result.Kind == null) result.Kind = "workflow-origin";
+                            return result;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "task detail: workflow 反查失败 {TaskId}", taskId); }
+
+            return result;
+        }
+
         // ============ 公共辅助 ============
         private static string? ResolveSessionDir(string sdkSessionId)
         {
@@ -521,5 +612,20 @@ namespace BIMCanvas.Server.Services
     {
         public string Name { get; set; } = "";
         public string? Input { get; set; }
+    }
+
+    /// <summary>后台 Task 详情（bg-task-panel 行展开）。Kind: bash | agent | workflow-origin | null=无可用详情。</summary>
+    public class BackgroundTaskDetail
+    {
+        public string TaskId { get; set; } = "";
+        public string? Kind { get; set; }
+        /// <summary>Bash 转后台任务的输出文件尾部（最多 8KB）。</summary>
+        public string? OutputTail { get; set; }
+        public bool OutputTruncated { get; set; }
+        /// <summary>Agent 型任务详情（prompt/outcome/tools/model/tokens）。</summary>
+        public WorkflowTranscriptAgent? Agent { get; set; }
+        /// <summary>Workflow 内派生任务：所属 agent 类型（精确归属）。</summary>
+        public string? OriginAgentType { get; set; }
+        public string? OriginRunId { get; set; }
     }
 }
