@@ -104,6 +104,8 @@ export interface WorkflowTranscript {
   agentCount?: number
   /** true=运行态(增量 transcript)：phases 仅作步进条、agent 在 liveAgents 扁平列表 */
   live?: boolean
+  /** 脚本 log() 叙事线（仅完成态有：wf_json.logs；运行态 journal 无 log 行） */
+  logs?: string[]
   phases: WorkflowPhase[]
   liveAgents?: WorkflowTranscriptAgent[]
 }

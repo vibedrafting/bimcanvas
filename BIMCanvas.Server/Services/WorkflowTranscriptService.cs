@@ -76,6 +76,16 @@ namespace BIMCanvas.Server.Services
             result.TotalTokens = (int?)root["totalTokens"];
             result.AgentCount = (int?)root["agentCount"];
 
+            // 脚本 log() 叙事线（字符串数组）：护栏重试/认输/闸门未过等控制流剧情，面板 narrator 区块渲染
+            if (root["logs"] is JArray logsArr)
+            {
+                result.Logs = logsArr
+                    .Select(t => t.Type == JTokenType.String ? (string?)t : t.ToString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(s => s!)
+                    .ToList();
+            }
+
             var phases = new List<WorkflowPhase>();
             if (root["phases"] is JArray phaseArr)
             {
@@ -133,6 +143,8 @@ namespace BIMCanvas.Server.Services
             {
                 foreach (var ph in phases) if (byPhase.TryGetValue(ph.Index, out var l)) ph.Agents = l;
                 if (orphans.Count > 0) phases[0].Agents.AddRange(orphans);
+                // 显式按启动时间排序：不依赖 workflowProgress 数组原序恰好等于启动序的脆弱契约
+                foreach (var ph in phases) ph.Agents = ph.Agents.OrderBy(a => a.StartedAt ?? long.MaxValue).ToList();
             }
             result.Phases = phases;
         }
@@ -186,8 +198,8 @@ namespace BIMCanvas.Server.Services
                     ?? LabelFromOutcomeOrPrompt(agent.Outcome, agent.Prompt) ?? agentId;
                 liveAgents.Add(agent);
             }
-            // 让 done 的排前面、稳定可读
-            liveAgents = liveAgents.OrderBy(a => a.State == "done" ? 0 : 1).ToList();
+            // 按启动时间稳定排序（StartedAt 来自 jsonl 首行）：done 前置会让 agent 完成瞬间跳位，弃用
+            liveAgents = liveAgents.OrderBy(a => a.StartedAt ?? long.MaxValue).ToList();
 
             result.LiveAgents = liveAgents;
             result.AgentCount = liveAgents.Count;
@@ -473,6 +485,8 @@ namespace BIMCanvas.Server.Services
         public int? TotalTokens { get; set; }
         public int? AgentCount { get; set; }
         public bool Live { get; set; }
+        /// <summary>脚本 log() 叙事线（完成态 wf_json.logs；运行态 journal 无 log 行，拿不到）。</summary>
+        public List<string> Logs { get; set; } = new();
         public List<WorkflowPhase> Phases { get; set; } = new();
         public List<WorkflowTranscriptAgent> LiveAgents { get; set; } = new();
     }

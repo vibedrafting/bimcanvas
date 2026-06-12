@@ -288,6 +288,11 @@ const dismiss = () => {
       详情加载失败 <button class="wf-retry" @click="loadTranscript(true)">重试</button>
     </div>
 
+    <!-- 脚本 log() 叙事线（完成态）：护栏重试/认输/闸门未过等控制流剧情 -->
+    <div v-if="showTranscript && transcript?.logs?.length" class="wf-logs">
+      <div v-for="(l, i) in transcript.logs" :key="i" class="wf-log">{{ l }}</div>
+    </div>
+
     <!-- ============ Phase 树（运行态与完成态统一；运行态默认展开+所有阶段预留，完成态可折叠默认折叠） ============ -->
     <div v-if="showTranscript || isLiveView" class="wf-body">
       <div v-for="ph in displayPhases" :key="ph.index" class="phase">
@@ -425,6 +430,16 @@ const dismiss = () => {
   padding: 12px 14px; font-size: 0.74rem; color: var(--text-tertiary); font-style: italic;
   &.error { color: var(--accent-danger); font-style: normal; }
   .wf-retry { margin-left: 8px; background: transparent; border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-secondary); cursor: pointer; padding: 1px 8px; font-size: 0.7rem; &:hover { background: var(--surface-dim); } }
+}
+
+.wf-logs {
+  padding: 8px 14px 2px;
+  display: flex; flex-direction: column; gap: 3px;
+  .wf-log {
+    font-size: 0.66rem; font-family: var(--font-mono); color: var(--text-secondary);
+    line-height: 1.5; word-break: break-word;
+    &::before { content: '›'; color: var(--accent-primary); margin-right: 6px; }
+  }
 }
 
 .wf-body { padding: 6px 0 8px; }
