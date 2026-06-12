@@ -4,12 +4,13 @@
  *
  * 数据源 = useWorkflowProgress 单例的 backgroundTaskList（SSE 心跳 merge 维护 + 自治 sweeper 收口）。
  * 展示结构：
- *  - 按归属分组（ownerKind：main=主控派发 / workflow=Workflow 派生 / subagent=子代理派生），
- *    组内 running 在前、按 startTime 升序——解决多任务并行时的归属混淆。
- *  - 终态条目折叠进「已结束 N 项」（默认收起），running 常显——监控面板不变成清理负担。
+ *  - 按任务形态分区（taskKind：agent=子代理型 / command=单次工具·Shell 型），running 在前；
+ *    归属（主控/子代理/Workflow）以行内 chip 标注，不再做组头（单一来源时是纯噪音）。
+ *  - 标题=首条心跳钉死的任务名；Agent 型任务的逐 tick 活动名落 currentActivity 副行（仅 running 显示）。
+ *  - 终态条目折叠进「已结束 N 项」（默认收起），running 常显。
  *  - 行可展开：按需 GET /api/workflows/{sdkSessionId}/tasks/{taskId} 拉详情
- *    （Bash 输出尾部 / Agent 型 outcome / Workflow 内派生精确归属），失败不再是死胡同。
- *  - 终态来源标注：事件确认（实）vs 心跳静默推断（虚，「·推断」弱化后缀）。
+ *    （Bash 输出尾部 / Agent 型 outcome / Workflow 内派生精确归属）。
+ *  - 极简状态：绿点即完成（含推断收口），仅失败保留文字。
  */
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress';
@@ -25,50 +26,56 @@ const runningCount = computed(() =>
 const hasFinished = computed(() =>
   backgroundTaskList.value.some(t => t.status !== 'running'));
 
-// === 分组（归属分类） ===
-const OWNER_LABELS: Record<string, string> = {
-  main: '主控派发',
-  workflow: 'Workflow 派生',
-  subagent: '子代理派生'
-};
-const OWNER_ORDER = ['main', 'subagent', 'workflow', 'unknown'];
+// === 形态分区：agent 区 / command 区（taskKind 缺省按 command 归并，避免第三个「未知」区） ===
+interface KindSection { kind: 'agent' | 'command'; label: string; tasks: TaskEntry[] }
 
-interface TaskGroup { ownerKind: string; label: string; tasks: TaskEntry[] }
-
-function groupTasks(tasks: TaskEntry[]): TaskGroup[] {
-  const byOwner = new Map<string, TaskEntry[]>();
-  for (const t of tasks) {
-    const kind = t.ownerKind && OWNER_LABELS[t.ownerKind] ? t.ownerKind : 'unknown';
-    if (!byOwner.has(kind)) byOwner.set(kind, []);
-    byOwner.get(kind)!.push(t);
-  }
-  const groups: TaskGroup[] = [];
-  for (const kind of OWNER_ORDER) {
-    const list = byOwner.get(kind);
-    if (!list?.length) continue;
-    list.sort((a, b) => a.startTime - b.startTime);
-    groups.push({ ownerKind: kind, label: OWNER_LABELS[kind] ?? '其他', tasks: list });
-  }
-  return groups;
+function sectionize(tasks: TaskEntry[]): KindSection[] {
+  const agents: TaskEntry[] = [];
+  const commands: TaskEntry[] = [];
+  for (const t of tasks) (t.taskKind === 'agent' ? agents : commands).push(t);
+  const byStart = (a: TaskEntry, b: TaskEntry) => a.startTime - b.startTime;
+  agents.sort(byStart); commands.sort(byStart);
+  const sections: KindSection[] = [];
+  if (agents.length) sections.push({ kind: 'agent', label: 'Agent 任务', tasks: agents });
+  if (commands.length) sections.push({ kind: 'command', label: '命令任务', tasks: commands });
+  return sections;
 }
 
-const runningGroups = computed(() =>
-  groupTasks(backgroundTaskList.value.filter(t => t.status === 'running')));
+const runningSections = computed(() =>
+  sectionize(backgroundTaskList.value.filter(t => t.status === 'running')));
 const finishedTasks = computed(() =>
   backgroundTaskList.value.filter(t => t.status !== 'running'));
-const finishedGroups = computed(() => groupTasks(finishedTasks.value));
+const finishedSections = computed(() => sectionize(finishedTasks.value));
 const finishedOpen = ref(false);
+// 只有一个分区时隐藏分区头（无对比意义）
+const showRunningSectionHead = computed(() => runningSections.value.length > 1);
+const showFinishedSectionHead = computed(() => finishedSections.value.length > 1);
 
-// === 标题清洗：命令行型 description 截取首个可读片段 ===
+// === 归属 chip（行内标注，unknown 不显示） ===
+const OWNER_LABELS: Record<string, string> = {
+  main: '主控',
+  subagent: '子代理',
+  workflow: 'Workflow'
+};
+function ownerLabel(t: TaskEntry): string | null {
+  return (t.ownerKind && OWNER_LABELS[t.ownerKind]) || null;
+}
+
+// === 标题清洗：命令行型 description 截取首行限长 ===
 function displayTitle(t: TaskEntry): string {
   const d = (t.description || '').trim();
   if (!d) return t.taskId;
-  // 形如 "Running python -c " import json, ..." 的原始命令描述：截到引号/换行前并限长
   const firstLine = d.split('\n')[0] ?? d;
   return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
 }
+// 当前活动副行（仅 running、且与标题不同时有值）
+function activityLine(t: TaskEntry): string | null {
+  if (t.status !== 'running' || !t.currentActivity) return null;
+  const a = t.currentActivity.trim();
+  return a && a !== (t.description || '').trim() ? a : null;
+}
 
-// === 时长 / tokens ===
+// === 时长 / tokens（统一墙钟；usage.durationMs 对 Agent 型任务不可靠，弃用） ===
 const nowTick = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => { timer = setInterval(() => { nowTick.value = Date.now(); }, 1000); });
@@ -81,8 +88,6 @@ function formatDuration(ms: number): string {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 function taskDuration(t: TaskEntry): string {
-  // 终态优先用心跳里的权威 durationMs（墙钟含收口延迟，会虚涨）
-  if (typeof t.usage?.durationMs === 'number' && t.status !== 'running') return formatDuration(t.usage.durationMs);
   const end = t.status === 'running' ? nowTick.value : (t.endTime ?? nowTick.value);
   return formatDuration(end - t.startTime);
 }
@@ -131,7 +136,6 @@ async function toggleExpand(t: TaskEntry): Promise<void> {
   }
 }
 
-// 极简状态显示：绿点即"已完成"（含推断收口，不另加文字），仅失败保留文字提示。
 function detailHasContent(d?: TaskDetail | null): boolean {
   return !!(d && (d.originAgentType || d.agent?.outcome || (d.outputTail && d.outputTail.trim())));
 }
@@ -148,11 +152,11 @@ function detailHasContent(d?: TaskDetail | null): boolean {
     </div>
 
     <div class="btp-body">
-      <!-- 运行中：按归属分组常显 -->
-      <template v-for="g in runningGroups" :key="`run-${g.ownerKind}`">
-        <div class="btp-group-head">{{ g.label }}</div>
+      <!-- 运行中：按形态分区常显 -->
+      <template v-for="sec in runningSections" :key="`run-${sec.kind}`">
+        <div v-if="showRunningSectionHead" class="btp-group-head">{{ sec.label }}</div>
         <div
-          v-for="t in g.tasks"
+          v-for="t in sec.tasks"
           :key="t.taskId"
           class="btp-card"
           :class="t.status"
@@ -160,12 +164,15 @@ function detailHasContent(d?: TaskDetail | null): boolean {
           <div class="btp-row" @click="toggleExpand(t)">
             <span class="btp-dot" :class="t.status"></span>
             <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-            <span v-if="t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
+            <span v-if="ownerLabel(t)" class="btp-owner">{{ ownerLabel(t) }}</span>
+            <span v-if="sec.kind === 'command' && t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
             <svg class="btp-chev" :class="{ open: expanded.has(t.taskId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </div>
+          <div v-if="activityLine(t)" class="btp-activity">{{ activityLine(t) }}</div>
           <div class="btp-meta">
             <span class="btp-stat">{{ taskDuration(t) }}</span>
             <span v-if="formatTokens(t.usage?.totalTokens)" class="btp-stat">{{ formatTokens(t.usage?.totalTokens) }}</span>
+            <span v-if="sec.kind === 'agent' && t.lastToolName" class="btp-stat">{{ t.lastToolName }}</span>
           </div>
           <div v-if="expanded.has(t.taskId)" class="btp-detail">
             <div v-if="details.get(t.taskId)?.status === 'loading'" class="btp-hint">正在加载详情…</div>
@@ -190,10 +197,10 @@ function detailHasContent(d?: TaskDetail | null): boolean {
         </div>
       </template>
 
-      <div v-if="!runningGroups.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
+      <div v-if="!runningSections.length && !finishedTasks.length" class="btp-hint">暂无后台任务</div>
 
       <!-- 已结束：折叠区，默认收起；无运行区时去顶部分隔线（standalone），避免孤立分隔+空带 -->
-      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningGroups.length }">
+      <div v-if="finishedTasks.length" class="btp-finished" :class="{ standalone: !runningSections.length }">
         <div class="btp-finished-head" @click="finishedOpen = !finishedOpen">
           <svg class="btp-chev" :class="{ open: finishedOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           <span>已结束 {{ finishedTasks.length }} 项</span>
@@ -202,10 +209,10 @@ function detailHasContent(d?: TaskDetail | null): boolean {
           </span>
         </div>
         <template v-if="finishedOpen">
-          <template v-for="g in finishedGroups" :key="`fin-${g.ownerKind}`">
-            <div class="btp-group-head dim">{{ g.label }}</div>
+          <template v-for="sec in finishedSections" :key="`fin-${sec.kind}`">
+            <div v-if="showFinishedSectionHead" class="btp-group-head dim">{{ sec.label }}</div>
             <div
-              v-for="t in g.tasks"
+              v-for="t in sec.tasks"
               :key="t.taskId"
               class="btp-card finished"
               :class="t.status"
@@ -213,7 +220,8 @@ function detailHasContent(d?: TaskDetail | null): boolean {
               <div class="btp-row" @click="toggleExpand(t)">
                 <span class="btp-dot" :class="t.status"></span>
                 <span class="btp-desc" :title="t.description || t.taskId">{{ displayTitle(t) }}</span>
-                <span v-if="t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
+                <span v-if="ownerLabel(t)" class="btp-owner">{{ ownerLabel(t) }}</span>
+                <span v-if="sec.kind === 'command' && t.lastToolName" class="btp-tag">{{ t.lastToolName }}</span>
                 <svg class="btp-chev" :class="{ open: expanded.has(t.taskId) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </div>
               <div class="btp-meta">
@@ -232,11 +240,13 @@ function detailHasContent(d?: TaskDetail | null): boolean {
                     <div class="btp-label">Outcome</div>
                     <pre class="btp-pre">{{ details.get(t.taskId)!.data!.agent!.outcome }}</pre>
                   </div>
-                  <div v-if="details.get(t.taskId)!.data!.outputTail" class="btp-block">
+                  <div v-if="details.get(t.taskId)!.data!.outputTail?.trim()" class="btp-block">
                     <div class="btp-label">Output{{ details.get(t.taskId)!.data!.outputTruncated ? '（尾部）' : '' }}</div>
                     <pre class="btp-pre">{{ details.get(t.taskId)!.data!.outputTail }}</pre>
                   </div>
-                  <div v-if="!details.get(t.taskId)!.data!.kind" class="btp-hint">暂无可用详情</div>
+                  <div v-if="!detailHasContent(details.get(t.taskId)?.data)" class="btp-hint">
+                    {{ details.get(t.taskId)!.data!.kind === 'bash' ? '该任务无输出' : '暂无可用详情' }}
+                  </div>
                 </template>
               </div>
             </div>
@@ -356,6 +366,15 @@ function detailHasContent(d?: TaskDetail | null): boolean {
   text-overflow: ellipsis;
 }
 
+.btp-owner {
+  flex-shrink: 0;
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+  background: var(--surface-dim);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
 .btp-tag {
   flex-shrink: 0;
   font-size: 0.6rem;
@@ -376,6 +395,17 @@ function detailHasContent(d?: TaskDetail | null): boolean {
   &.open { transform: rotate(180deg); }
 }
 
+.btp-activity {
+  margin-top: 3px;
+  padding-left: 15px;
+  font-size: 0.66rem;
+  font-family: var(--font-mono);
+  color: var(--accent-primary, rgba(79, 172, 254, 0.95));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .btp-meta {
   display: flex;
   align-items: center;
@@ -388,8 +418,6 @@ function detailHasContent(d?: TaskDetail | null): boolean {
   .btp-state {
     font-size: 0.64rem;
     font-weight: 600;
-    &.running { color: var(--accent-primary); }
-    &.completed { color: var(--accent-success, #4ade80); }
     &.failed { color: var(--accent-danger, #ef4444); }
   }
 }
@@ -438,15 +466,15 @@ function detailHasContent(d?: TaskDetail | null): boolean {
 .btp-finished {
   border-top: 1px solid var(--border-dim);
   padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 
   /* 全部已结束（无运行区）：折叠头直接贴面板头，无分隔线/空带 */
   &.standalone {
     border-top: none;
     padding-top: 0;
   }
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 
   .btp-finished-head {
     display: flex;

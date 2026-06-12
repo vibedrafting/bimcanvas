@@ -179,6 +179,8 @@ export interface WorkflowProgressRecord {
   /** 归属分类（Agent 端 best-effort）：main=主控 | subagent=回合内子代理 | workflow=Workflow 内派生 */
   ownerKind?: string | null;
   ownerId?: string | null;
+  /** 任务形态：agent=子代理型 | command=单次工具/Shell 型 */
+  taskKind?: string | null;
   windowId?: string | null;
   sessionId?: string | null;
   sdkSessionId?: string | null;

@@ -1069,6 +1069,15 @@ class MainAgent:
         task_id = getattr(message, "task_id", None)
         tool_use_id = getattr(message, "tool_use_id", None)
         owner_kind, owner_id = self._classify_bg_task_owner(task_id, tool_use_id)
+        # 任务形态：agent=子代理型（Task/Agent 工具发起）| command=单次工具/Shell 型。
+        # 经发起工具名反查（_tool_name_by_id 回合内常驻）；未命中（如 workflow 内派生）退 SDK task_type，再退 None。
+        launch_tool = self._tool_name_by_id.get(tool_use_id) if tool_use_id else None
+        if launch_tool in ("Task", "Agent"):
+            task_kind = "agent"
+        elif launch_tool:
+            task_kind = "command"
+        else:
+            task_kind = getattr(message, "task_type", None)
         record = {
             "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
             "taskId": task_id,
@@ -1081,6 +1090,7 @@ class MainAgent:
             "toolUseId": tool_use_id,
             "ownerKind": owner_kind,   # main | subagent | workflow（best-effort，见 _classify_bg_task_owner）
             "ownerId": owner_id,
+            "taskKind": task_kind,     # agent | command | None（面板按形态分区）
             "windowId": ctx.get("windowId"),
             "sessionId": ctx.get("sessionId"),
             "sdkSessionId": getattr(message, "session_id", None),

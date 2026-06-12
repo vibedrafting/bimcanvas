@@ -141,7 +141,10 @@ const liveAgentPhase = ref<Map<string, string>>(new Map())
 // 供统一后台活动灯计数（只数 running）与 Task 页 BackgroundTaskPanel 卡片，不进 workflow 阶段树。
 // 进=心跳（merge 更新）；完成=background_task.completed 标完成态保留（卡片显示），resetWorkflow 清空。
 export interface BackgroundTaskInfo {
+  /** 固定标题：首条心跳的 description 钉死（Agent 型任务后续心跳是逐 tick 活动名，不覆盖） */
   description?: string
+  /** 当前活动（仅 running 显示）：后续心跳 description 与标题不同时落这里 */
+  currentActivity?: string
   lastToolName?: string
   usage?: { totalTokens?: number; toolUses?: number; durationMs?: number }
   startTime: number
@@ -152,6 +155,8 @@ export interface BackgroundTaskInfo {
   /** 归属分类（Agent 端 best-effort）：main | subagent | workflow，缺省=unknown */
   ownerKind?: string
   ownerId?: string
+  /** 任务形态（Agent 端按发起工具反查）：agent=子代理型 | command=单次工具/Shell 型 */
+  taskKind?: string
   /** 发起该任务的 tool_use id（详情端点定位用） */
   toolUseId?: string
   /** 详情端点需要的会话 id */
@@ -177,20 +182,28 @@ function noteBackgroundTask(
   taskId: string,
   data?: {
     description?: string; lastToolName?: string; usage?: BackgroundTaskInfo['usage']
-    ownerKind?: string; ownerId?: string; toolUseId?: string; sdkSessionId?: string
+    ownerKind?: string; ownerId?: string; taskKind?: string; toolUseId?: string; sdkSessionId?: string
   }
 ): void {
   const next = new Map(backgroundTasks.value)
   const prev = next.get(taskId)
+  // 标题钉死：首条心跳的 description 即任务名；后续不同的 description 是 Agent 型任务的
+  // 逐 tick 当前活动 → 落 currentActivity 副行，不覆盖标题（修「任务名被活动名冲掉」bug）
+  const title = prev?.description ?? data?.description
+  const activity = (prev?.description && data?.description && data.description !== prev.description)
+    ? data.description
+    : prev?.currentActivity
   next.set(taskId, {
     startTime: prev?.startTime ?? Date.now(),
     status: prev?.status ?? 'running',
     endTime: prev?.endTime,
-    description: data?.description ?? prev?.description,
+    description: title,
+    currentActivity: activity,
     lastToolName: data?.lastToolName ?? prev?.lastToolName,
     usage: data?.usage ?? prev?.usage,
     ownerKind: data?.ownerKind ?? prev?.ownerKind,
     ownerId: data?.ownerId ?? prev?.ownerId,
+    taskKind: prev?.taskKind ?? data?.taskKind,
     toolUseId: data?.toolUseId ?? prev?.toolUseId,
     sdkSessionId: data?.sdkSessionId ?? prev?.sdkSessionId,
     finishSource: prev?.finishSource,
@@ -219,7 +232,9 @@ function completeBackgroundTask(
   const prev = backgroundTasks.value.get(taskId)
   if (!prev || prev.status !== 'running') return
   const next = new Map(backgroundTasks.value)
-  next.set(taskId, { ...prev, status, endTime: Date.now(), finishSource: source })
+  // 推断收口的真实结束时刻≈最后一条心跳（now 含 15s 静默窗口，会虚涨时长）
+  const endTime = source === 'inferred' ? prev.lastHeartbeat : Date.now()
+  next.set(taskId, { ...prev, status, endTime, finishSource: source })
   backgroundTasks.value = next
 }
 
@@ -390,6 +405,7 @@ function onWorkflowProgress(record: {
   toolUseId?: string | null
   ownerKind?: string | null
   ownerId?: string | null
+  taskKind?: string | null
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
 }): void {
   // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯/卡片集合，不开/不喂 workflow 视图。
@@ -401,6 +417,7 @@ function onWorkflowProgress(record: {
         lastToolName: record.lastToolName ?? undefined,
         ownerKind: record.ownerKind ?? undefined,
         ownerId: record.ownerId ?? undefined,
+        taskKind: record.taskKind ?? undefined,
         toolUseId: record.toolUseId ?? undefined,
         sdkSessionId: record.sdkSessionId ?? undefined,
         usage: record.usage
