@@ -63,10 +63,10 @@ dotnet run --project BIMCanvas.Server
 
 - **自然语言 → 家具布置方案**：AI 解析意图，Server 计算几何，结果落盘为 JSON
 - **多 LLM Provider 适配**：Claude / GPT / Gemini / DeepSeek 等通过 ProviderAdapter 接入
-- **Git 分支 × 多方案并行**：策略走分支、SubAgent 走 Worktree，多个 AI 同时设计互不冲突
+- **多方案并行**：方案候选走变体目录（采纳 = 翻指针）、并行设计走 Git Worktree、战略 pivot 走分支
 - **三层文件驱动架构**：`baseline/` 只读 · `computed/` 派生 · `schemes/` 可写——详见 [Schema](docs/Schema.md)
 - **2.5D Web 画布**：Vue 3 + Three.js 实时编辑，人机协作
-- **Canvas-MCP 工具接口**：Agent 与 Server 之间标准化通信——详见 [Arch_MCP_Tools](docs/Arch_MCP_Tools.md)
+- **Canvas-MCP 工具接口**：Agent 与 Server 之间标准化通信——详见 [Arch_Plugin](docs/Arch_Plugin.md)
 - **Revit 双向同步**：导出（→ `.bcp`）已实现；回写到 Revit 在 Phase 4
 - **Git 原生版本管理**：每次 AI 决策进 Git 历史，可追、可 diff、可回滚
 
@@ -82,7 +82,7 @@ dotnet run --project BIMCanvas.Server
 | [**Web**](BIMCanvas.Web/README.md) | 画布渲染 · 拖拽编辑 · AI 对话 UI | Vue 3 + TypeScript |
 | [**Revit**](BIMCanvas.Revit/README.md) | 户型导出 · 方案回写 (WIP) | .NET FW 4.7.2 |
 
-详细架构：[docs/Architecture.md](docs/Architecture.md) · [.bcp 项目格式](docs/Schema.md) · [Agent 设计](docs/Agent_Design.md)
+详细架构：[docs/Architecture.md](docs/Architecture.md) · [.bcp 项目格式](docs/Schema.md) · [Workflow 执行](docs/Arch_Workflow.md)
 
 ## Project Structure
 
@@ -105,18 +105,19 @@ BIMCanvas/
 |---|---|
 | 整体架构 | [docs/Architecture.md](docs/Architecture.md) |
 | `.bcp` 项目格式 | [docs/Schema.md](docs/Schema.md) |
-| Agent 决策模型 | [docs/Agent_Design.md](docs/Agent_Design.md) |
-| Agent 工作流 | [docs/Agent_Workflows.md](docs/Agent_Workflows.md) |
-| Canvas-MCP 工具 | [docs/Arch_MCP_Tools.md](docs/Arch_MCP_Tools.md) |
-| Git Worktree 并行 | [docs/Arch_Parallel_Development.md](docs/Arch_Parallel_Development.md) |
+| 空间几何与约束 | [docs/Arch_Spatial.md](docs/Arch_Spatial.md) |
+| Workflow 执行架构 | [docs/Arch_Workflow.md](docs/Arch_Workflow.md) |
+| 设计交付物模型 | [docs/Arch_Design_Delivery.md](docs/Arch_Design_Delivery.md) |
+| 平台 / 插件体系 | [docs/Arch_Plugin.md](docs/Arch_Plugin.md) |
+| Agent↔Web 流协议 | [docs/Arch_Stream_Protocol.md](docs/Arch_Stream_Protocol.md) |
+| SDK 参数配置 | [docs/Doc_SDK_Config.md](docs/Doc_SDK_Config.md) |
 | 完整索引 | [docs/README.md](docs/README.md) |
 
 ## Roadmap
 
 - ✅ 文件驱动 `.bcp` 项目格式
-- ✅ 主控 Agent + Skill 工作流
-- ✅ 语义方案三段链路（spatial-skeleton → strategic-plan → construction-brief）
-- ✅ 参考分析（v1 客观 → v4+ 修订）
+- ✅ 确定性 Workflow 五段流编排（感知 → 规划推演 → 多方案 → 落地 → 对比）
+- ✅ 指针式多方案：候选平级共存、采纳 = 翻指针
 - ✅ 网格选择集
 - 🔶 Git Worktree 多方案并行（开发中）
 - 🔶 Server Docker 化部署（开发中）
