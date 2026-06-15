@@ -133,4 +133,4 @@ workflow 卡片状态 `running / completed / failed`（`useWorkflowProgress.ts`�
 
 - 事故复盘记忆：`~/.claude/projects/.../memory/agent-web-stream-contract-drift.md`
 - 相关代码：`main_agent.py`（producer）、`main_stream.py`（映射）、`store.py`（通道 B）、`http_server.py`（host/SSE）、`useChatStream.ts` / `useWorkflowProgress.ts` / `useBackgroundTask.ts` / `BackgroundTaskService.ts`（consumer）。
-- 架构总览：`docs/Architecture.md`、`docs/Arch_MCP_Tools.md`。
+- 架构总览：`docs/Architecture.md`、`docs/Arch_Plugin.md`（MCP 契约）。
