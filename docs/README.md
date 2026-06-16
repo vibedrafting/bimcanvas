@@ -12,7 +12,8 @@ Architecture（总览 · 组件 · 数据流 · 文档地图）
 ├ 核心机制   Arch_Spatial（空间几何）· Arch_Workflow（AI 编排）
 ├ 前端       Arch_Web（渲染/状态/插件 Web 扩展）
 ├ 通信       Arch_Stream_Protocol
-└ 扩展       Arch_Plugin · Doc_SDK_Config
+├ 扩展       Arch_Plugin · Doc_SDK_Config
+└ 设计经验   Design_Insights（让 AI 胜任室内设计的有效灵感）
 ```
 
 ## 文档清单
@@ -24,6 +25,7 @@ Architecture（总览 · 组件 · 数据流 · 文档地图）
 | [Arch_Design_Delivery](./Arch_Design_Delivery.md) | 设计交付物模型：指针式多方案、Zone 递归嵌套、采纳=翻指针 |
 | [Arch_Spatial](./Arch_Spatial.md) | 空间几何与约束：Y-up 坐标、OBB 规划师、几何转换、validate 两道防线 |
 | [Arch_Web](./Arch_Web.md) | 前端架构：Three.js 渲染分层、状态/通信、两种运行时、插件 Web 扩展边界 |
+| [Design_Insights](./Design_Insights.md) | 设计经验：让 AI 胜任室内设计提炼的有效灵感（OBB 规划师 / 决策外化 / 结构性解法 / 目标驱动 / 双层知识 / 激活而非注入 / 两道防线…） |
 | [Arch_Workflow](./Arch_Workflow.md) | Workflow 执行架构：五层 / 五段流 / 确定性控制流 / 实测教训 |
 | [Arch_Stream_Protocol](./Arch_Stream_Protocol.md) | Agent↔Web 实时流协议契约 |
 | [Arch_Plugin](./Arch_Plugin.md) | 平台 / 插件体系：生命周期、安全模型、manifest、MCP 契约 |
