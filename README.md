@@ -112,6 +112,7 @@ BIMCanvas/
 | 整体架构 | [docs/Architecture.md](docs/Architecture.md) |
 | `.bcp` 项目格式 | [docs/Schema.md](docs/Schema.md) |
 | 空间几何与约束 | [docs/Arch_Spatial.md](docs/Arch_Spatial.md) |
+| 前端架构 | [docs/Arch_Web.md](docs/Arch_Web.md) |
 | Workflow 执行架构 | [docs/Arch_Workflow.md](docs/Arch_Workflow.md) |
 | 设计交付物模型 | [docs/Arch_Design_Delivery.md](docs/Arch_Design_Delivery.md) |
 | 平台 / 插件体系 | [docs/Arch_Plugin.md](docs/Arch_Plugin.md) |
