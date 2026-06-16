@@ -38,11 +38,12 @@
 
 ## 1. 配置落地真相（先看这个）
 
-> 把传给 SDK 的每个参数按「从哪来」归类。这是判断「能改什么 / 为什么改不了」的唯一权威表。Agent 在 `main_agent.py:_create_options()`（约 `:305-333`）构造 `ClaudeAgentOptions`。
+> 把传给 SDK 的每个参数按「从哪来」归类。这是判断「能改什么 / 为什么改不了」的唯一权威表。Agent 在 `main_agent.py:_create_options()` 构造 `ClaudeAgentOptions`。
+> ⚠️ 本文出现的 `:NNN` 行号锚点会随代码漂移，**以符号名为准**（`_create_options` / `_auto_approve_tool` / `materialize_system_prompt_file` / `subagents.py:create_subagents`），行号仅作当时参考。
 
 ### 1.1 ⚙️ 可通过 `instance.config.json` 修改
 
-> 全部在 `agent.claude` 段。改完重启 Agent 生效。用法详见 §2。
+> 除末行 `imageRecognition` 外全部在 `agent.claude` 段。改完重启 Agent 生效。用法详见 §2。
 
 | 配置键 | 对应 SDK 参数 | 功能（简短） | 取值 / 默认 | 变动 |
 |--------|--------------|-------------|------------|------|
@@ -55,6 +56,7 @@
 | `claude.baseUrl` | `env: ANTHROPIC_BASE_URL` | 直连 API endpoint | 字符串；CCR 托管时由网关 env 接管 | — |
 | `claude.apiKey` | `env: ANTHROPIC_API_KEY` | 直连 API key | 字符串；推荐改用环境变量 | — |
 | `claude.env` | `env`（`ClaudeAgentOptions.env`） | 透传给 Claude CLI 子进程的环境变量 | `dict[str,str]` | 🆕`0.2.87` **新增字段**（透传 SDK 0.2.87 env 入口） |
+| `imageRecognition.*` | （非 SDK 参数，`canvas_vision` 工具消费） | 识图后端多 provider 配置 | 见 §2.5 | 🆕`2026-06-08` R4-4 新增 apiyi provider |
 
 ### 1.2 📦 plugin manifest / ConfigBundle 驱动（不在 instance.config.json）
 
@@ -62,7 +64,7 @@
 
 | SDK 参数 | 功能（简短） | 真源 | 位置 |
 |---------|-------------|------|------|
-| `system_prompt`（内容） | 系统提示词内容 | plugin `BIMCANVAS.md`（core-base + domain 两层叠加） | `:237-246,306`（落盘机制见 §1.3） |
+| `system_prompt`（内容） | 系统提示词内容 | plugin `BIMCANVAS.md`（core-base + domain 两层叠加）+ 运行时追加三项:项目路径 / 工作目录 / **插件根**（🆕`2026-06` Workflow 机制需要:主控用它拼 `scriptPath=<插件根>/workflows/*.workflow.js` 绝对路径,统一正斜杠;无 domain plugin 不注入） | `_create_options` 开头（落盘机制见 §1.3） |
 | `allowed_tools` | 工具白名单（空=全开） | plugin manifest `tools.allow` | `:253,310` |
 | `disallowed_tools` | 工具黑名单（deny 优先） | plugin manifest `tools.deny` | `:254,311` |
 | `mcp_servers` | in-process MCP 服务器 | ConfigBundle（canvas + plugin `mcp_tools/*.py`） | `:282,319` |
@@ -154,7 +156,27 @@ SDK 支持但 Agent 未传的 25 个 `ClaudeAgentOptions` 字段 + 8 个 `AgentD
 
 `runtimeProvider="openai"` 路径已大幅偏离当前架构、不维护（项目 CLAUDE.md §12）。日常仅维护 `claude` 段。
 
-### 2.5 不在 `instance.config.json` 的相关配置
+### 2.5 `agent.imageRecognition` 段（canvas_vision 识图后端，🆕`2026-06-08`）
+
+> 非 SDK 参数，由 `mcp__canvas__canvas_vision` 工具消费。加载逻辑:`BIMCanvas.Agent/src/image_recognition/config.py:load_recognition_config`。
+
+```jsonc
+"agent": {
+  "imageRecognition": {
+    "provider": "apiyi",                 // apiyi(默认,OpenAI Chat Completions 格式) | aoment(multipart);env IMAGE_RECOGNITION_PROVIDER 覆盖
+    "providers": {
+      "apiyi":  { "apiKey": "", "endpoint": "https://api.apiyi.com/v1/chat/completions", "model": "gemini-3.5-flash", "timeoutSeconds": 90 },
+      "aoment": { "apiKey": "", "endpoint": "https://www.aoment.com/api/aoment/v1/image/recognitions", "model": "image-recognition-g2", "timeoutSeconds": 90 }
+    }
+  }
+}
+```
+
+- 优先级:provider 专属环境变量（`APIYI_API_KEY` / `AOMENT_API_KEY`）> `providers.<provider>` 字段 > 代码默认值。
+- `apiKey` 缺失 → 工具调用时抛 `RecognitionConfigError`（含注册引导链接），不影响 Agent 启动。
+- `timeoutSeconds` 钳制到 [30, 600]，非法值回落 90。
+
+### 2.6 不在 `instance.config.json` 的相关配置
 
 | 配置 | 真源 |
 |------|------|
@@ -338,13 +360,14 @@ SDK 支持但 Agent 未传的 25 个 `ClaudeAgentOptions` 字段 + 8 个 `AgentD
 
 | 日期 | SDK 版本 | 本版新增/变动（🆕 项汇总） |
 |------|---------|--------------------------|
+| 2026-06-12 | 0.2.87 | 文档对账修订:补 `agent.imageRecognition` 段（§1.1/§2.5,2026-06-08 R4-4 canvas_vision 多 provider）;补 system_prompt 运行时追加「插件根」（Workflow scriptPath 用）;声明行号锚点以符号名为准;§6 触发清单纳入 `image_recognition/config.py`。 |
 | 2026-05-29 | 0.2.87 | **可配置**:新增 `claude.env`、`defaultEffort` 接受 `xhigh`。**硬编码**:`setting_sources`(None→[])、`system_prompt`(SystemPromptFile)、`skills="all"`、`strict_mcp_config=True`、`maxResultSizeChars=500K`、`AgentDefinition.disallowedTools` 回填。**输出侧**:M1 块兜底、S3 错误协议、S4 类型化消息、W3 cache 埋点。计划未落地:O3 阶段2、O4。 |
 
 ---
 
 ## 6. 维护规范（必读）
 
-**触发**:升级 SDK 版本，或改动 `main_agent.py:_create_options` / `subagents.py` / `settings.py` / `instance.config.json` schema。
+**触发**:升级 SDK 版本，或改动 `main_agent.py:_create_options` / `subagents.py` / `settings.py` / `image_recognition/config.py` / **任何新增 `instance.config.json` `agent` 段配置键的代码**（不限于上述文件——2026-06-12 对账发现 imageRecognition 段因加在清单外文件而漏记，引以为戒）。
 
 **🆕 标记口径**:`🆕vX.Y.Z` 只标「相对**上一份本文记录的版本**新增或变动」的参数/配置——只标 delta，不标存量。
 

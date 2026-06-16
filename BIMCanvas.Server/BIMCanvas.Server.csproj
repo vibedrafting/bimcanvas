@@ -49,12 +49,10 @@
 
   <!-- Plugin JSONSchema 资源：StaticPluginValidator 运行时从 Schemas/ 目录加载 -->
   <ItemGroup>
-    <Content Include="..\docs\plugin-manifest-schema.json"
-             LinkBase="Schemas"
+    <Content Update="Schemas\plugin-manifest-schema.json"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\docs\bcp-scenes-schema.json"
-             LinkBase="Schemas"
+    <Content Update="Schemas\bcp-scenes-schema.json"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

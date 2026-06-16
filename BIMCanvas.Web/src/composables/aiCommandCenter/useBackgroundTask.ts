@@ -27,6 +27,11 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
         return
       }
       seenKeys.add(key)
+      // 普通后台 Task 收口：标完成态保留条目（Task 页卡片显示）；对 workflow 的 taskId 调用无害（集合里本来没有）
+      workflowProgress.completeBackgroundTask(
+        record.taskId,
+        record.status === 'failed' ? 'failed' : 'completed'
+      )
     }
 
     // ① Task 面板收口（始终）——携带 sdkSessionId 供 tier C 拉 transcript。
@@ -55,12 +60,20 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
     getBackgroundTaskService(options.agentApiBase).startListening({
       onCompleted: handleCompleted,
       onProgress: (record) => {
-        // 后台 Workflow 实时进度 → Task 页 workflow 视图（detach 后唯一实时来源）
+        // 后台任务实时进度：isWorkflow=false 在 onWorkflowProgress 内分流进普通任务集合，
+        // 其余 → Task 页 workflow 视图（detach 后唯一实时来源）
         workflowProgress.onWorkflowProgress({
           taskId: record.taskId,
+          isWorkflow: record.isWorkflow,
           sdkSessionId: record.sdkSessionId,
           description: record.description,
           lastToolName: record.lastToolName,
+          // 归属链字段必须透传——此处曾手工重组 record 丢掉新字段，
+          // 导致分组/详情链路整体失效（2026-06-12 实测）
+          toolUseId: record.toolUseId,
+          ownerKind: record.ownerKind,
+          ownerId: record.ownerId,
+          taskKind: record.taskKind,
           usage: record.usage
         })
       },

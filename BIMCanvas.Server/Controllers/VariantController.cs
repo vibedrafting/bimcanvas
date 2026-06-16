@@ -169,7 +169,8 @@ namespace BIMCanvas.Server.Controllers
                     result[dzId] = new VariantSummaryEntry
                     {
                         Count = slugs.Count,
-                        VariantSlugs = slugs
+                        VariantSlugs = slugs,
+                        HasAdopted = !string.IsNullOrWhiteSpace(adopted)
                     };
                 }
             }
@@ -833,10 +834,13 @@ namespace BIMCanvas.Server.Controllers
 
     /// <summary>
     /// GET /api/scheme/variants/summary 的字典值（designZone-level 索引）。
+    /// HasAdopted：该设计区是否存在 adopted 方案——Web 端据此决定 (current/total) 是否含 canonical 槽、
+    /// 以及无 adopted 时自动激活首个变体显示（多方案待用户终选时无 adopted 是常态而非异常）。
     /// </summary>
     public class VariantSummaryEntry
     {
         public int Count { get; set; }
         public List<string> VariantSlugs { get; set; } = new List<string>();
+        public bool HasAdopted { get; set; }
     }
 }

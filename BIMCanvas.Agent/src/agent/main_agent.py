@@ -149,6 +149,14 @@ class MainAgent:
         # meta.phases 暂存（key=tool_use_id=block.id），TaskStarted 拿到 task_id 后再推前端。
         # 不依赖闭源 CLI 写的 per-run 脚本副本/wf_*.json（运行态常缺失/runId 错位）。
         self._pending_workflow_meta: dict[str, dict[str, Any]] = {}
+        # Workflow 身份标记：拦截 Workflow tool_use 记 tool_use_id；TaskStarted 命中后记 task_id。
+        # 进度心跳据此带 isWorkflow 字段——前端统一后台活动灯需要区分"Workflow"与"普通后台 Task"
+        # （二者心跳同走 kind=workflow_progress 通道，record 自身无别的判别字段）。
+        self._workflow_tool_use_ids: set[str] = set()
+        self._workflow_task_ids: set[str] = set()
+        # agent 型后台任务 id（Task/Agent 工具发起）：其内部工具执行会被 CLI 登记成独立 task，
+        # 心跳归类为 agent-internal 供前端折叠。跨回合常驻（detach 的后台 agent 跑过回合边界）。
+        self._bg_agent_task_ids: set[str] = set()
         # 并行工具调用安全的工具名跟踪：tool_use_id → tool_name（解决 _current_tool_name 单值覆盖问题）
         self._tool_name_by_id: dict[str, str] = {}
 
@@ -180,6 +188,8 @@ class MainAgent:
         # CLI 收到 <task-notification> 会把它当 user 消息注入会话、让主控自动唤醒生成总结回合；
         # drain loop 据此把【原生总结文本】投递给前端，而非丢弃（修复 detach 后总结被吞）。
         self._bg_completion_pending: dict[str, Any] | None = None
+        # 已向前端投递过终态的 task_id（防"嗅探注入通知"与 TaskNotificationMessage 双路双发）
+        self._bg_completed_emitted: set[str] = set()
         self._bg_summary_parts: list[str] = []
         # 后台原生总结回合内是否出现过工具调用（仅作日志诊断）。
         # 注意：SDK 一个 response 只有一个 ResultMessage（response 内多次 tool-call 是
@@ -815,15 +825,20 @@ class MainAgent:
                     f"summary_len={len(message.summary or '')} (background)"
                 )
             if self._bg_completion_pending is not None:
-                # N1 防覆写：上一后台原生总结回合的 pending 尚未收口（多轮 agentic 仍在进行）。
-                # 新 TaskNotification 不得覆写——否则最终 emit 会误归属前端陌生的新 task_id（次生 bug）。
-                # 保留首个 task_id（前端可识别），忽略新通知身份。
+                # N1 防覆写：总结槽归首任务，不覆写身份；但并行完成的任务终态不能丢——
+                # 立即裸投递 completed（无富总结），否则前端卡片永久 running（2026-06-12 实测）。
                 if self.verbose:
                     self._agent_logger.log_info(
-                        f"[Background] pending 未收口，忽略 TaskNotification 覆写 "
+                        f"[Background] pending 占用中，并行完成通知裸投递 "
                         f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
-                        f"new task_id={message.task_id}, new status={message.status})"
+                        f"bare task_id={message.task_id}, status={message.status})"
                     )
+                await self._emit_bare_background_completion(
+                    message.task_id, str(message.status),
+                    summary=message.summary or "",
+                    output_file=message.output_file or None,
+                    sdk_session_id=message.session_id,
+                )
             else:
                 # 记录待汇报状态，开始收集随后到达的【原生总结回合】文本；
                 # 不在此处推送（TaskNotification.summary 只是标题，真正内容由原生总结回合给出）。
@@ -890,6 +905,8 @@ class MainAgent:
                     self._bg_completion_pending = None
                     self._bg_summary_parts = []
                     self._bg_round_had_tool = False
+                    if pending.get("taskId"):
+                        self._bg_completed_emitted.add(pending["taskId"])  # 嗅探路径去重
                     if self.verbose:
                         self._agent_logger.log_info(
                             f"[Background] 原生总结回合收口（content 非空，含工具轮亦收口）→ 投递完成汇报 "
@@ -908,10 +925,15 @@ class MainAgent:
                 )
             # Task 页运行态全阶段预声明（detach 后 workflow 任务的 TaskStarted 走此路径时也兜底）
             await self._maybe_emit_workflow_phases(message)
+            # 启动即推心跳（在 phases 之后——先记 workflow task_id，isWorkflow 标记才正确）
             await self._push_background_progress(message)
         elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
             # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
+            await self._sniff_injected_task_notifications(message)
             self._collect_bg_turn_events(message)
+        elif isinstance(message, UserMessage):
+            # 注入式 task-notification 嗅探（终态投递第三路径），其余内容仍静默
+            await self._sniff_injected_task_notifications(message)
         elif hasattr(message, 'event') or isinstance(message, (AssistantMessage, UserMessage, SystemMessage)):
             # 逐 token 流式增量 / 工具结果 / 系统事件 / 非汇报态的整段回复：
             # 与回合内路径的聚合纪律一致——静默丢弃、不逐条 log，避免刷屏。
@@ -1007,6 +1029,95 @@ class MainAgent:
             except Exception as e:
                 logger.warning(f"[Background] map bg turn chunk failed: {e}")
 
+    async def _emit_bare_background_completion(
+        self,
+        task_id: str,
+        status: str,
+        summary: str = "",
+        output_file: str | None = None,
+        sdk_session_id: str | None = None,
+    ) -> None:
+        """裸投递后台任务终态：只为前端 Task 面板收口，无富总结、不消费回合 events 缓冲。
+
+        两个调用场景（2026-06-12 实测教训：丢失终态会让卡片永久 running——回合结束后
+        SDK 心跳通道关闭，前端的静默推断收口无从触发，流死寂时不推断是有意设计）：
+        ① N1 单槽被占期间到达的并行 TaskNotificationMessage（总结槽归首任务）；
+        ② CLI 把 <task-notification> 注入主控 prompt 流（回合内消费，宿主收不到
+           TaskNotificationMessage）——经 _sniff_injected_task_notifications 嗅探。
+        """
+        if self._background_push is None or not task_id:
+            return
+        if task_id in self._bg_completed_emitted:
+            return
+        self._bg_completed_emitted.add(task_id)
+        ctx = self._last_runtime_context or {}
+        record = {
+            "kind": "background_task",
+            "taskId": task_id,
+            "status": status,
+            "hasSummary": False,   # 前端只收口面板，不渲染气泡、不落 history
+            "content": self._compose_background_text(status, summary),
+            "events": [],
+            "summary": summary,
+            "outputFile": output_file,
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+            "sdkSessionId": sdk_session_id,
+            "turnId": ctx.get("turnId"),
+        }
+        try:
+            await self._background_push(record)
+        except Exception as e:
+            logger.warning(f"background_push (bare) callback failed: {e}")
+
+    _TASK_NOTIFICATION_RE = re.compile(
+        r"<task-notification>(.*?)</task-notification>", re.DOTALL
+    )
+
+    async def _sniff_injected_task_notifications(self, message: Any) -> None:
+        """嗅探 CLI 注入主控 prompt 流的 <task-notification> 块并裸投递终态。
+
+        实测（2026-06-12 18:22 金凤127）：同回合多任务完成时，CLI 可能只给宿主发一条
+        TaskNotificationMessage，其余通知直接作为 user 消息注入主控 prompt（主控因此
+        "知道"完成，宿主却收不到）——这是终态投递的第三条路径，必须在消息流里嗅探。
+        与 TaskNotificationMessage 双到达时由 _bg_completed_emitted 去重。
+        """
+        content = getattr(message, "content", None)
+        texts: list[str] = []
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            for b in content:
+                t = getattr(b, "text", None)
+                if isinstance(t, str):
+                    texts.append(t)
+                elif isinstance(b, dict) and isinstance(b.get("text"), str):
+                    texts.append(b["text"])
+        if not texts:
+            return
+        for blob in self._TASK_NOTIFICATION_RE.findall("\n".join(texts)):
+            task_id = self._extract_tag(blob, "task-id")
+            if not task_id or task_id in self._bg_completed_emitted:
+                continue
+            status = self._extract_tag(blob, "status") or "completed"
+            if self.verbose:
+                self._agent_logger.log_info(
+                    f"[Background] 嗅探到注入式 task-notification → 裸投递 "
+                    f"(task_id={task_id}, status={status})"
+                )
+            await self._emit_bare_background_completion(
+                task_id,
+                status,
+                summary=self._extract_tag(blob, "summary") or "",
+                output_file=self._extract_tag(blob, "output-file"),
+                sdk_session_id=getattr(message, "session_id", None),
+            )
+
+    @staticmethod
+    def _extract_tag(blob: str, tag: str) -> str | None:
+        m = re.search(rf"<{tag}>(.*?)</{tag}>", blob, re.DOTALL)
+        return m.group(1).strip() if m else None
+
     async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
         """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
 
@@ -1060,13 +1171,33 @@ class MainAgent:
             return
         ctx = self._last_runtime_context or {}
         usage = getattr(message, "usage", None)
+        task_id = getattr(message, "task_id", None)
+        tool_use_id = getattr(message, "tool_use_id", None)
+        # 任务形态：agent=子代理型（Task/Agent 工具发起）| command=单次工具/Shell 型。
+        # 经发起工具名反查（_tool_name_by_id 回合内常驻）；未命中（如 workflow 内派生）退 SDK task_type，再退 None。
+        launch_tool = self._tool_name_by_id.get(tool_use_id) if tool_use_id else None
+        if launch_tool in ("Task", "Agent"):
+            task_kind = "agent"
+        elif launch_tool:
+            task_kind = "command"
+        else:
+            task_kind = getattr(message, "task_type", None)
+        if task_kind == "agent" and task_id:
+            self._bg_agent_task_ids.add(task_id)
+        owner_kind, owner_id = self._classify_bg_task_owner(task_id, tool_use_id)
         record = {
             "kind": "workflow_progress",  # 前端通道判别字段（与 background_task / interaction 区分）
-            "taskId": getattr(message, "task_id", None),
+            "taskId": task_id,
+            "isWorkflow": bool(task_id and task_id in self._workflow_task_ids),  # 区分 Workflow / 普通后台 Task（统一活动灯用）
             "status": "running",
             "usage": dict(usage) if usage else None,
             "lastToolName": getattr(message, "last_tool_name", None),
             "description": getattr(message, "description", None),
+            # 归属链（Task 页后台任务卡分组 + 详情端点定位用）
+            "toolUseId": tool_use_id,
+            "ownerKind": owner_kind,   # main | subagent | workflow（best-effort，见 _classify_bg_task_owner）
+            "ownerId": owner_id,
+            "taskKind": task_kind,     # agent | command | None（面板按形态分区）
             "windowId": ctx.get("windowId"),
             "sessionId": ctx.get("sessionId"),
             "sdkSessionId": getattr(message, "session_id", None),
@@ -1075,6 +1206,34 @@ class MainAgent:
             await self._background_progress_push(record)
         except Exception as e:
             logger.warning(f"background_progress_push callback failed: {e}")
+
+    def _classify_bg_task_owner(
+        self, task_id: str | None, tool_use_id: str | None
+    ) -> tuple[str, str | None]:
+        """后台任务归属判定（best-effort，供 Task 页分组展示）。
+
+        - subagent：发起工具调用经主控流、且归属某回合内 Task 子代理（_tool_to_subagent 命中非空）。
+        - main：发起工具调用经主控流、主控自身（命中但值为 None）。
+        - workflow：tool_use 未经主控流（Workflow 编排内 agent 的工具转后台不进主控消息循环），
+          且本会话存在 workflow 任务——组级归类，精确到哪个 agent 由详情端点按 toolUseId 反查。
+        注意 _tool_to_subagent 在工具结果到达时 pop、回合开始时 clear——自动转后台的 Bash
+        其结果（"running in background"）可能先于 TaskStarted 到达，命中率非 100%，未命中时
+        按会话有无 workflow 退化归类。
+        """
+        if tool_use_id and tool_use_id in self._tool_to_subagent:
+            owner = self._tool_to_subagent.get(tool_use_id)
+            return ("subagent", owner) if owner else ("main", None)
+        if self._workflow_task_ids and not (task_id and task_id in self._workflow_task_ids):
+            return "workflow", None
+        # 后台 agent 的内部工具执行（CLI 登记为独立 task）：tool_use 不经主控流、
+        # 且存在活跃的 agent 型后台任务（自身除外）→ 折叠展示用的 agent-internal
+        if (
+            self._bg_agent_task_ids
+            and not (task_id and task_id in self._bg_agent_task_ids)
+            and not (tool_use_id and tool_use_id in self._tool_name_by_id)
+        ):
+            return "agent-internal", None
+        return "main", None
 
     @staticmethod
     def _parse_workflow_meta(script: str) -> dict[str, Any]:
@@ -1110,6 +1269,9 @@ class MainAgent:
         """拦截 Workflow tool_use：读 scriptPath 指向的插件源脚本（稳定常在）或 inline script，
         解析 meta 暂存（key=block.id=tool_use_id），待 TaskStarted 拿到 task_id 再推前端。
         """
+        # 无论 meta 解析成败都记下"这个 tool_use 是 Workflow"——isWorkflow 标记不依赖脚本可读
+        if getattr(block, "id", None):
+            self._workflow_tool_use_ids.add(block.id)
         try:
             inp = getattr(block, "input", None) or {}
             script_path = inp.get("scriptPath")
@@ -1150,6 +1312,11 @@ class MainAgent:
         tool_use_id = getattr(message, "tool_use_id", None)
         if not tool_use_id:
             return
+        # Workflow 工具发起的 task → 记 task_id，后续进度心跳带 isWorkflow=true
+        if tool_use_id in self._workflow_tool_use_ids:
+            task_id = getattr(message, "task_id", None)
+            if task_id:
+                self._workflow_task_ids.add(task_id)
         meta = self._pending_workflow_meta.pop(tool_use_id, None)
         if not meta:
             return
@@ -1935,6 +2102,8 @@ class MainAgent:
 
             # 处理 UserMessage 中的 ToolResultBlock（工具调用完成）
             elif isinstance(message, UserMessage):
+                # 注入式 task-notification 嗅探（CLI 回合内消费的完成通知，宿主唯一可见处）
+                await self._sniff_injected_task_notifications(message)
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
                         block_tool_use_id = getattr(block, 'tool_use_id', None)
@@ -2047,6 +2216,10 @@ class MainAgent:
                     )
                 # Task 页运行态全阶段预声明:workflow 任务启动即推完整 phases（命中暂存才推）
                 await self._maybe_emit_workflow_phases(message)
+                # 回合内也推 SSE 心跳（双通道：chat 流 subagent_* 照旧）：活动灯/后台任务卡片的
+                # 数据源只接 SSE——此前回合内静默，导致 todo 面板与后台任务灯永远无法同屏。
+                # 须在 phases 之后（先记 workflow task_id，isWorkflow 标记才正确）。
+                await self._push_background_progress(message)
 
             # S4: TaskProgressMessage 分支（SDK 0.1.46+）
             # 通过 tool_use_id 反查 subagent_id（_active_subagents 当前结构 dict[tool_use_id, subagent_id]）。
@@ -2063,11 +2236,16 @@ class MainAgent:
                     tool_name=message.last_tool_name,
                     usage=dict(message.usage) if message.usage else None,
                 )
+                # 回合内也推 SSE 心跳（双通道）：理由同 TaskStartedMessage 分支——
+                # 活动灯/后台任务卡片只接 SSE，回合内静默会让它们在回合期间不可见。
+                await self._push_background_progress(message)
 
             # S4: TaskNotificationMessage 分支（SDK 0.1.46+）
-            # 边界场景：后台 Workflow 在本回合流式过程中完成（消息落到活跃回合）。
-            # 只登记待汇报状态——主控的【原生总结回合】会在本回合结束后到达（回合外），
-            # 届时由 _handle_background_message 收集并投递，与回合外路径完全一致。
+            # 注意：实测（2026-06-11 金凤127 chat_20260611_153658.log）CLI 在回合内不向宿主
+            # 投递 task_notification——通知作为 queued_command 注入主控 prompt 流后从队列
+            # remove，本分支在"回合内完成"场景不触发；该场景的前端收口由 Web 端
+            # reapStaleBackgroundTasks（回合结束+心跳静默）兜底。本分支保留作 CLI 未来
+            # 行为变化的防御：若真触发，登记 pending 后由回合末 _flush_pending_background 收口。
             elif isinstance(message, TaskNotificationMessage):
                 if self.verbose:
                     self._agent_logger.log_info(
@@ -2075,13 +2253,19 @@ class MainAgent:
                         f"output_file={message.output_file}, summary_len={len(message.summary or '')}"
                     )
                 if self._bg_completion_pending is not None:
-                    # N1 防覆写：已有未收口的后台 pending，不覆写（保留首个 task_id）。
+                    # N1 防覆写：总结槽归首任务；并行完成通知裸投递终态，不丢弃（同 background 分支）。
                     if self.verbose:
                         self._agent_logger.log_info(
-                            f"[TaskNotification] pending 未收口，忽略覆写 "
+                            f"[TaskNotification] pending 占用中，并行完成通知裸投递 "
                             f"(keep task_id={self._bg_completion_pending.get('taskId')}, "
-                            f"new task_id={message.task_id})"
+                            f"bare task_id={message.task_id})"
                         )
+                    await self._emit_bare_background_completion(
+                        message.task_id, str(message.status),
+                        summary=message.summary or "",
+                        output_file=message.output_file or None,
+                        sdk_session_id=message.session_id,
+                    )
                 else:
                     self._bg_completion_pending = {
                         "taskId": message.task_id,
@@ -2105,6 +2289,12 @@ class MainAgent:
                     self._agent_logger.log_warning(
                         f"[UnknownMessage] Unhandled top-level message: {type(message).__name__}"
                     )
+
+        # 回合末兜底 flush：实测 CLI 在回合内不向宿主投递 task_notification（pending 在
+        # "回合内完成"场景从不登记，此调用通常 no-op）——保留以防御 CLI 未来行为变化 /
+        # 极端时序下回合内登记了 pending 的情形（content="" → 前端仅收口面板、不注气泡）。
+        # "回合内完成"场景的前端收口由 Web 端 reapStaleBackgroundTasks 负责。
+        await self._flush_pending_background()
 
         if self.verbose:
             self._agent_logger.log_complete(model=self._completion_model_stamp())

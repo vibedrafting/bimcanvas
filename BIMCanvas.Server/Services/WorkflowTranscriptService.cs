@@ -76,6 +76,16 @@ namespace BIMCanvas.Server.Services
             result.TotalTokens = (int?)root["totalTokens"];
             result.AgentCount = (int?)root["agentCount"];
 
+            // 脚本 log() 叙事线（字符串数组）：护栏重试/认输/闸门未过等控制流剧情，面板 narrator 区块渲染
+            if (root["logs"] is JArray logsArr)
+            {
+                result.Logs = logsArr
+                    .Select(t => t.Type == JTokenType.String ? (string?)t : t.ToString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(s => s!)
+                    .ToList();
+            }
+
             var phases = new List<WorkflowPhase>();
             if (root["phases"] is JArray phaseArr)
             {
@@ -133,6 +143,8 @@ namespace BIMCanvas.Server.Services
             {
                 foreach (var ph in phases) if (byPhase.TryGetValue(ph.Index, out var l)) ph.Agents = l;
                 if (orphans.Count > 0) phases[0].Agents.AddRange(orphans);
+                // 显式按启动时间排序：不依赖 workflowProgress 数组原序恰好等于启动序的脆弱契约
+                foreach (var ph in phases) ph.Agents = ph.Agents.OrderBy(a => a.StartedAt ?? long.MaxValue).ToList();
             }
             result.Phases = phases;
         }
@@ -186,12 +198,149 @@ namespace BIMCanvas.Server.Services
                     ?? LabelFromOutcomeOrPrompt(agent.Outcome, agent.Prompt) ?? agentId;
                 liveAgents.Add(agent);
             }
-            // 让 done 的排前面、稳定可读
-            liveAgents = liveAgents.OrderBy(a => a.State == "done" ? 0 : 1).ToList();
+            // 按启动时间稳定排序（StartedAt 来自 jsonl 首行）：done 前置会让 agent 完成瞬间跳位，弃用
+            liveAgents = liveAgents.OrderBy(a => a.StartedAt ?? long.MaxValue).ToList();
 
             result.LiveAgents = liveAgents;
             result.AgentCount = liveAgents.Count;
             result.TotalTokens = liveAgents.Sum(a => a.Tokens ?? 0);
+        }
+
+        // ============ 后台 Task 详情（bg-task-panel 行展开按需拉取） ============
+        // 三路定位，命中即填、可叠加：
+        //  ① Bash 转后台：输出文件 %TEMP%\claude\{slug}\{sdkSessionId}\tasks\{taskId}.output（尾部截取）
+        //  ② Agent 型后台任务：{session}/subagents/agent-*.meta.json 的 toolUseId 命中 → 读对应 jsonl
+        //     补 prompt/outcome/tools/model/tokens（复用 EnrichAgentDetail）
+        //  ③ Workflow 内派生：toolUseId 出现在 {session}/subagents/workflows/*/agent-*.jsonl →
+        //     反查所属 agent（精确归属，弥补心跳 ownerKind 只能组级归类）
+        public BackgroundTaskDetail GetTaskDetail(string sdkSessionId, string taskId, string? toolUseId)
+        {
+            var result = new BackgroundTaskDetail { TaskId = taskId };
+
+            // ① Bash 输出文件
+            try
+            {
+                var tempClaude = Path.Combine(Path.GetTempPath(), "claude");
+                if (Directory.Exists(tempClaude))
+                {
+                    foreach (var slugDir in Directory.EnumerateDirectories(tempClaude))
+                    {
+                        var outputPath = Path.Combine(slugDir, sdkSessionId, "tasks", $"{taskId}.output");
+                        if (!File.Exists(outputPath)) continue;
+                        const int tailBytes = 8 * 1024;
+                        var fi = new FileInfo(outputPath);
+                        using var fs = new FileStream(outputPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        if (fi.Length > tailBytes)
+                        {
+                            fs.Seek(-tailBytes, SeekOrigin.End);
+                            result.OutputTruncated = true;
+                        }
+                        using var reader = new StreamReader(fs);
+                        result.OutputTail = reader.ReadToEnd();
+                        result.Kind = "bash";
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "task detail: 读输出文件失败 {TaskId}", taskId); }
+
+            var sessionDir = ResolveSessionDir(sdkSessionId);
+            if (sessionDir == null || string.IsNullOrEmpty(toolUseId)) return result;
+
+            // ② Agent 型：meta.json 的 toolUseId 匹配
+            try
+            {
+                var subDir = Path.Combine(sessionDir, "subagents");
+                if (Directory.Exists(subDir))
+                {
+                    foreach (var metaPath in Directory.EnumerateFiles(subDir, "agent-*.meta.json", SearchOption.TopDirectoryOnly))
+                    {
+                        JObject meta;
+                        try { meta = JObject.Parse(File.ReadAllText(metaPath)); } catch { continue; }
+                        if (!string.Equals((string?)meta["toolUseId"], toolUseId, StringComparison.Ordinal)) continue;
+                        var agent = new WorkflowTranscriptAgent { AgentId = ExtractAgentId(metaPath).Replace(".meta", "") };
+                        try { EnrichAgentDetail(agent, subDir); } catch (Exception ex) { _logger.LogWarning(ex, "task detail enrich {Id}", agent.AgentId); }
+                        agent.Label = (string?)meta["description"] ?? (string?)meta["agentType"];
+                        result.Agent = agent;
+                        result.Kind = "agent";
+                        return result;
+                    }
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "task detail: agent meta 扫描失败 {TaskId}", taskId); }
+
+            // ③ Workflow 内派生：在 workflow agent jsonl 里找 toolUseId → 所属 agent 类型
+            try
+            {
+                var wfRoot = Path.Combine(sessionDir, "subagents", "workflows");
+                if (Directory.Exists(wfRoot))
+                {
+                    foreach (var runDir in Directory.EnumerateDirectories(wfRoot, "wf_*"))
+                    {
+                        foreach (var jsonl in Directory.EnumerateFiles(runDir, "agent-*.jsonl"))
+                        {
+                            bool hit;
+                            try { hit = File.ReadAllText(jsonl).Contains(toolUseId, StringComparison.Ordinal); }
+                            catch { continue; }
+                            if (!hit) continue;
+                            var agentId = ExtractAgentId(jsonl);
+                            result.OriginAgentType = ReadAgentType(runDir, agentId) ?? agentId;
+                            result.OriginRunId = Path.GetFileName(runDir);
+                            if (result.Kind == null) result.Kind = "workflow-origin";
+                            return result;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "task detail: workflow 反查失败 {TaskId}", taskId); }
+
+            return result;
+        }
+
+        // ============ 内部活动归属解析（bg-task-panel 嵌套展示） ============
+        // 后台 Agent 的内部工具执行（agent-internal 心跳）实时数据里没有父子关系；
+        // 其 toolUseId 会增量写进父 agent 的 {session}/subagents/agent-*.jsonl ——
+        // 按 toolUseId 扫描反查父 agent 的 meta.toolUseId，前端据此把内部活动嵌进父任务卡。
+        public List<TaskOriginResult> ResolveTaskOrigins(string sdkSessionId, IReadOnlyList<string> toolUseIds)
+        {
+            var results = new List<TaskOriginResult>();
+            var sessionDir = ResolveSessionDir(sdkSessionId);
+            if (sessionDir == null || toolUseIds.Count == 0) return results;
+            var subDir = Path.Combine(sessionDir, "subagents");
+            if (!Directory.Exists(subDir)) return results;
+
+            var pending = new HashSet<string>(toolUseIds.Where(s => !string.IsNullOrWhiteSpace(s)), StringComparer.Ordinal);
+            foreach (var jsonl in Directory.EnumerateFiles(subDir, "agent-*.jsonl", SearchOption.TopDirectoryOnly))
+            {
+                if (pending.Count == 0) break;
+                string text;
+                try { text = File.ReadAllText(jsonl); } catch { continue; }
+
+                string? parentToolUseId = null, parentLabel = null;
+                var agentId = ExtractAgentId(jsonl);
+                var metaPath = Path.Combine(subDir, $"agent-{agentId}.meta.json");
+                if (File.Exists(metaPath))
+                {
+                    try
+                    {
+                        var meta = JObject.Parse(File.ReadAllText(metaPath));
+                        parentToolUseId = (string?)meta["toolUseId"];
+                        parentLabel = (string?)meta["description"] ?? (string?)meta["agentType"];
+                    }
+                    catch { }
+                }
+                if (string.IsNullOrEmpty(parentToolUseId)) continue;
+
+                foreach (var id in pending.ToList())
+                {
+                    if (text.Contains(id, StringComparison.Ordinal))
+                    {
+                        results.Add(new TaskOriginResult { ToolUseId = id, ParentToolUseId = parentToolUseId, ParentLabel = parentLabel });
+                        pending.Remove(id);
+                    }
+                }
+            }
+            return results;
         }
 
         // ============ 公共辅助 ============
@@ -473,6 +622,8 @@ namespace BIMCanvas.Server.Services
         public int? TotalTokens { get; set; }
         public int? AgentCount { get; set; }
         public bool Live { get; set; }
+        /// <summary>脚本 log() 叙事线（完成态 wf_json.logs；运行态 journal 无 log 行，拿不到）。</summary>
+        public List<string> Logs { get; set; } = new();
         public List<WorkflowPhase> Phases { get; set; } = new();
         public List<WorkflowTranscriptAgent> LiveAgents { get; set; } = new();
     }
@@ -507,5 +658,28 @@ namespace BIMCanvas.Server.Services
     {
         public string Name { get; set; } = "";
         public string? Input { get; set; }
+    }
+
+    /// <summary>后台 Task 详情（bg-task-panel 行展开）。Kind: bash | agent | workflow-origin | null=无可用详情。</summary>
+    public class BackgroundTaskDetail
+    {
+        public string TaskId { get; set; } = "";
+        public string? Kind { get; set; }
+        /// <summary>Bash 转后台任务的输出文件尾部（最多 8KB）。</summary>
+        public string? OutputTail { get; set; }
+        public bool OutputTruncated { get; set; }
+        /// <summary>Agent 型任务详情（prompt/outcome/tools/model/tokens）。</summary>
+        public WorkflowTranscriptAgent? Agent { get; set; }
+        /// <summary>Workflow 内派生任务：所属 agent 类型（精确归属）。</summary>
+        public string? OriginAgentType { get; set; }
+        public string? OriginRunId { get; set; }
+    }
+
+    /// <summary>内部活动归属解析结果：toolUseId → 父 agent 的发起 toolUseId（前端按此挂到父任务卡）。</summary>
+    public class TaskOriginResult
+    {
+        public string ToolUseId { get; set; } = "";
+        public string? ParentToolUseId { get; set; }
+        public string? ParentLabel { get; set; }
     }
 }

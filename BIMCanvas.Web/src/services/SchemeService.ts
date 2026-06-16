@@ -54,10 +54,12 @@ export interface AdoptVariantRequest {
 /**
  * /api/scheme/variants/summary 的字典值（designZone-level 索引）。
  * variantSlugs 按目录创建时间升序排序，与 listVariants 顺序一致；用于反查 active variant 在序列中的位置。
+ * hasAdopted：该设计区是否存在 adopted 方案——决定角标是否含 canonical 槽 + 无 adopted 时自动激活首个变体。
  */
 export interface VariantSummaryEntry {
     count: number;
     variantSlugs: string[];
+    hasAdopted: boolean;
 }
 
 /**

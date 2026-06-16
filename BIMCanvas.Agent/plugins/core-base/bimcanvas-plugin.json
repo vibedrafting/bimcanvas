@@ -1,5 +1,5 @@
 {
-  "$schema": "../../../../docs/plugin-manifest-schema.json",
+  "$schema": "../../../../BIMCanvas.Server/Schemas/plugin-manifest-schema.json",
 
   "name": "core-base",
   "version": "1.0.0",

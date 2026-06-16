@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import type { SubAgentStatus } from '../../types/agent'
 import { SERVER_BASE } from '../../config/api'
+import { isInteractionChannelConnected } from '../../services/InteractionChannelService'
 
 // ============================================================================
 // Workflow 进度状态层（平台级 · Task 页可视化）
@@ -104,6 +105,8 @@ export interface WorkflowTranscript {
   agentCount?: number
   /** true=运行态(增量 transcript)：phases 仅作步进条、agent 在 liveAgents 扁平列表 */
   live?: boolean
+  /** 脚本 log() 叙事线（仅完成态有：wf_json.logs；运行态 journal 无 log 行） */
+  logs?: string[]
   phases: WorkflowPhase[]
   liveAgents?: WorkflowTranscriptAgent[]
 }
@@ -134,11 +137,167 @@ const predeclaredName = ref<string | undefined>(undefined)
 // 用于把已完成的前序阶段 agent 留在原阶段，而非随当前阶段漂移（运行态精确归属不在增量数据里，靠此近似）。
 const liveAgentPhase = ref<Map<string, string>>(new Map())
 
+// 普通后台 Task 集合（非 Workflow 工具发起，心跳 record.isWorkflow===false）：
+// 供统一后台活动灯计数（只数 running）与 Task 页 BackgroundTaskPanel 卡片，不进 workflow 阶段树。
+// 进=心跳（merge 更新）；完成=background_task.completed 标完成态保留（卡片显示），resetWorkflow 清空。
+export interface BackgroundTaskInfo {
+  /** 固定标题：首条心跳的 description 钉死（Agent 型任务后续心跳是逐 tick 活动名，不覆盖） */
+  description?: string
+  /** 当前活动（仅 running 显示）：后续心跳 description 与标题不同时落这里 */
+  currentActivity?: string
+  lastToolName?: string
+  usage?: { totalTokens?: number; toolUses?: number; durationMs?: number }
+  startTime: number
+  status: 'running' | 'completed' | 'failed'
+  endTime?: number
+  /** 最近一条 SSE 心跳到达时刻——sweeper 的静默判据 */
+  lastHeartbeat: number
+  /** 归属分类（Agent 端 best-effort）：main | subagent | workflow，缺省=unknown */
+  ownerKind?: string
+  ownerId?: string
+  /** 任务形态（Agent 端按发起工具反查）：agent=子代理型 | command=单次工具/Shell 型 */
+  taskKind?: string
+  /** 发起该任务的 tool_use id（详情端点定位用） */
+  toolUseId?: string
+  /** 详情端点需要的会话 id */
+  sdkSessionId?: string
+  /** 终态来源：event=带外 completed 事件（权威）；inferred=心跳静默推断 */
+  finishSource?: 'event' | 'inferred'
+}
+const backgroundTasks = ref<Map<string, BackgroundTaskInfo>>(new Map())
+
 const hasActiveWorkflow = computed(() => workflow.value?.status === 'running')
 const hasCompletedWorkflow = computed(
   () => !!workflow.value && workflow.value.status !== 'running'
 )
 const workflowAgents = computed<WorkflowAgentState[]>(() => workflow.value?.agents ?? [])
+// 活动灯口径：只数 running——完成态条目保留给 Task 页卡片，不该让灯常亮
+const backgroundTaskCount = computed(() =>
+  [...backgroundTasks.value.values()].filter(t => t.status === 'running').length)
+// Task 页 BackgroundTaskPanel 消费（含完成态）
+const backgroundTaskList = computed(() =>
+  [...backgroundTasks.value.entries()].map(([taskId, info]) => ({ taskId, ...info })))
+
+function noteBackgroundTask(
+  taskId: string,
+  data?: {
+    description?: string; lastToolName?: string; usage?: BackgroundTaskInfo['usage']
+    ownerKind?: string; ownerId?: string; taskKind?: string; toolUseId?: string; sdkSessionId?: string
+  }
+): void {
+  const next = new Map(backgroundTasks.value)
+  const prev = next.get(taskId)
+  // 标题钉死：首条心跳的 description 即任务名；后续不同的 description 是 Agent 型任务的
+  // 逐 tick 当前活动 → 落 currentActivity 副行，不覆盖标题（修「任务名被活动名冲掉」bug）
+  const title = prev?.description ?? data?.description
+  const activity = (prev?.description && data?.description && data.description !== prev.description)
+    ? data.description
+    : prev?.currentActivity
+  next.set(taskId, {
+    startTime: prev?.startTime ?? Date.now(),
+    status: prev?.status ?? 'running',
+    endTime: prev?.endTime,
+    description: title,
+    currentActivity: activity,
+    lastToolName: data?.lastToolName ?? prev?.lastToolName,
+    usage: data?.usage ?? prev?.usage,
+    ownerKind: data?.ownerKind ?? prev?.ownerKind,
+    ownerId: data?.ownerId ?? prev?.ownerId,
+    taskKind: prev?.taskKind ?? data?.taskKind,
+    toolUseId: data?.toolUseId ?? prev?.toolUseId,
+    sdkSessionId: data?.sdkSessionId ?? prev?.sdkSessionId,
+    finishSource: prev?.finishSource,
+    lastHeartbeat: Date.now()
+  })
+  backgroundTasks.value = next
+  ensureBgSweeper()
+}
+
+/** bg-task-panel 清除按钮：只清终态条目（completed/failed），running 保留。 */
+function clearFinishedBackgroundTasks(): void {
+  const next = new Map<string, BackgroundTaskInfo>()
+  for (const [taskId, info] of backgroundTasks.value) {
+    if (info.status === 'running') next.set(taskId, info)
+  }
+  backgroundTasks.value = next
+}
+
+/** background_task.completed 收口：标完成态+endTime、保留条目（卡片显示），不删除。
+ *  source: event=带外事件（权威）；inferred=sweeper 心跳静默推断（UI 弱化显示）。 */
+function completeBackgroundTask(
+  taskId: string,
+  status: 'completed' | 'failed' = 'completed',
+  source: 'event' | 'inferred' = 'event'
+): void {
+  const prev = backgroundTasks.value.get(taskId)
+  if (!prev || prev.status !== 'running') return
+  const next = new Map(backgroundTasks.value)
+  // 推断收口的真实结束时刻≈最后一条心跳（now 含 15s 静默窗口，会虚涨时长）
+  const endTime = source === 'inferred' ? prev.lastHeartbeat : Date.now()
+  next.set(taskId, { ...prev, status, endTime, finishSource: source })
+  backgroundTasks.value = next
+}
+
+/**
+ * 后台 Task 自治收口：持续的心跳静默 sweeper，与 workflow / turn 生命周期完全解耦。
+ *
+ * 背景：CLI 不向宿主投递回合内完成的 task_notification（实测 2026-06-11 金凤127
+ * chat_20260611_153658.log：通知被注入主控 prompt 流后从队列 remove，宿主收不到），
+ * background_task.completed 在"主控回合内消费结果"场景下永远不来。旧实现把静默检查
+ * 锚定在 turn.completed/failed 的一次性宽限期——主控长回合（如等 Workflow）期间任务
+ * 中途完成时，回合不结束就没人检查，卡片虚挂 running 直到回合边界（实测 2026-06-12
+ * 金凤127：3 个后台任务完成后陪 Workflow 多挂 3 分钟）。
+ *
+ * 现判据：running 期间 SDK TaskProgress 逐 tick 推心跳（秒级），存在 running 条目时
+ * sweeper 每 SWEEP_MS 检查一次，静默超 SILENCE_MS → 标 completed；无 running 条目自停。
+ * 真终态（含 failed）仍以带外 background_task.completed 为权威（先到先得，
+ * completeBackgroundTask 自带幂等守卫）。SSE 断连期间跳过检查——断连时心跳静默
+ * 不代表任务结束，误收口比晚收口更糟。
+ */
+const BG_SWEEP_MS = 5_000
+const BG_SILENCE_MS = 15_000
+const BG_STREAM_ALIVE_MS = 6_000      // 近期有任意心跳 → SDK 进度流活跃，静默推断才有效
+const BG_HARD_BACKSTOP_MS = 600_000   // 10min 无条件兜底（带外 completed 永不到达时防永久 running）
+// 任意 background_task.progress（含 workflow 心跳）的最近到达时刻——"流活跃"证据。
+// 实测（2026-06-12）：SDK TaskProgress 只在主控回合存续期间流动，回合结束心跳全停；
+// 此时"任务心跳静默"≠任务结束（任务还在后台跑），盲目推断会提前误标完成 + 时长 0s。
+let lastAnyHeartbeat = 0
+function ensureBgSweeper(): void {
+  if (bgSweeper) return
+  bgSweeper = setInterval(() => {
+    let anyRunning = false
+    const now = Date.now()
+    const connected = isInteractionChannelConnected()
+    const streamAlive = now - lastAnyHeartbeat < BG_STREAM_ALIVE_MS
+    for (const [taskId, info] of backgroundTasks.value) {
+      if (info.status !== 'running') continue
+      const silence = now - info.lastHeartbeat
+      // 推断收口仅当：SSE 在线 且（进度流活跃中本任务独自静默 / 超长兜底）
+      if (connected && ((streamAlive && silence > BG_SILENCE_MS) || silence > BG_HARD_BACKSTOP_MS)) {
+        completeBackgroundTask(taskId, 'completed', 'inferred')
+      } else {
+        anyRunning = true
+      }
+    }
+    if (!anyRunning && bgSweeper) {
+      clearInterval(bgSweeper)
+      bgSweeper = null
+    }
+  }, BG_SWEEP_MS)
+}
+let bgSweeper: ReturnType<typeof setInterval> | null = null
+
+/** 回合结束时机检查：回合内已静默≥15s 的任务=已被回合内消费（CLI 不发通知），立即收口；
+ *  仍在心跳尾窗内的=真后台 detach，留给带外 completed 事件 / 后续推断。 */
+function noteTurnEnded(): void {
+  const now = Date.now()
+  for (const [taskId, info] of backgroundTasks.value) {
+    if (info.status !== 'running') continue
+    if (now - info.lastHeartbeat > BG_SILENCE_MS) {
+      completeBackgroundTask(taskId, 'completed', 'inferred')
+    }
+  }
+}
 
 function isRunning(): boolean {
   return workflow.value?.status === 'running'
@@ -260,11 +419,40 @@ function onSubtaskProgress(
  */
 function onWorkflowProgress(record: {
   taskId?: string | null
+  isWorkflow?: boolean | null
   sdkSessionId?: string | null
   description?: string | null
   lastToolName?: string | null
+  toolUseId?: string | null
+  ownerKind?: string | null
+  ownerId?: string | null
+  taskKind?: string | null
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null
 }): void {
+  lastAnyHeartbeat = Date.now()  // 流活跃证据（含 workflow 心跳），sweeper 静默推断的前提
+  // 普通后台 Task（Agent 端显式标记 isWorkflow=false）→ 只进活动灯/卡片集合，不开/不喂 workflow 视图。
+  // isWorkflow 缺省（旧 Agent）按 workflow 处理——保留"刷新后首条心跳兜底重开视图"的恢复能力。
+  if (record.isWorkflow === false) {
+    if (record.taskId) {
+      noteBackgroundTask(record.taskId, {
+        description: record.description ?? undefined,
+        lastToolName: record.lastToolName ?? undefined,
+        ownerKind: record.ownerKind ?? undefined,
+        ownerId: record.ownerId ?? undefined,
+        taskKind: record.taskKind ?? undefined,
+        toolUseId: record.toolUseId ?? undefined,
+        sdkSessionId: record.sdkSessionId ?? undefined,
+        usage: record.usage
+          ? {
+              totalTokens: record.usage.total_tokens,
+              toolUses: record.usage.tool_uses,
+              durationMs: record.usage.duration_ms
+            }
+          : undefined
+      })
+    }
+    return
+  }
   // 已完成的 workflow 收到迟到进度 → 不复活
   if (workflow.value && workflow.value.status !== 'running') return
   if (!workflow.value) {
@@ -360,6 +548,8 @@ function resetWorkflow(): void {
   liveAgentPhase.value = new Map()
   predeclaredPhases.value = null
   predeclaredName.value = undefined
+  // 不碰 backgroundTasks：后台 Task 与 workflow 状态彻底分家，各自有清理入口
+  // （bg-task-panel 的清除按钮 → clearFinishedBackgroundTasks）
 }
 
 /** 把尚未钉定的 live agent 钉到当前阶段（首见即定，之后不变）。 */
@@ -428,6 +618,13 @@ export function useWorkflowProgress() {
     hasActiveWorkflow,
     hasCompletedWorkflow,
     workflowAgents,
+    // 普通后台 Task 集合（统一后台活动灯 + Task 页卡片）
+    backgroundTaskCount,
+    backgroundTaskList,
+    noteBackgroundTask,
+    completeBackgroundTask,
+    clearFinishedBackgroundTasks,
+    noteTurnEnded,
     // trigger predicates
     isWorkflowTool,
     isWorkflowTaskType,

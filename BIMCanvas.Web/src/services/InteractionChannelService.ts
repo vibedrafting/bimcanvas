@@ -49,6 +49,11 @@ export class InteractionChannelService {
     };
   }
 
+  /** SSE 通道是否在线——后台任务心跳静默 sweeper 的守卫（断连期间心跳静默≠任务结束） */
+  isConnected(): boolean {
+    return this.eventSource?.readyState === EventSource.OPEN;
+  }
+
   stopListening(listener?: InteractionEventListener): void {
     if (listener) {
       this.listeners.delete(listener);
@@ -129,6 +134,14 @@ export class InteractionChannelService {
 }
 
 const instances = new Map<string, InteractionChannelService>();
+
+/** 任一 interaction SSE 通道在线即 true（实践中单实例 AGENT_API）。无实例 = 从未监听 = 视为断连。 */
+export function isInteractionChannelConnected(): boolean {
+  for (const instance of instances.values()) {
+    if (instance.isConnected()) return true;
+  }
+  return false;
+}
 
 export function getInteractionChannelService(serverUrl: string = AGENT_API): InteractionChannelService {
   const normalizedUrl = serverUrl || AGENT_API;

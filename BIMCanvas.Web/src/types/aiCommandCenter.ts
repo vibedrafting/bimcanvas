@@ -69,6 +69,8 @@ export interface TodoProgressItem {
   content: string;
   status: TodoProgressItemStatus;
   activeForm?: string;
+  /** Task 工具系（TaskCreate/TaskUpdate）模式下的任务 id（从 TaskCreate 结果解析）；TodoWrite 模式无 */
+  taskId?: string;
 }
 
 export interface TodoProgressState {

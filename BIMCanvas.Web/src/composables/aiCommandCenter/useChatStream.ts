@@ -102,6 +102,10 @@ const ASSISTANT_EVENT_TYPES = new Set([
   'runtime.rate_limit'
 ]);
 const STREAM_DELTA_EVENT_TYPES = new Set(['text.delta', 'thinking.delta']);
+// 仅在实时流中有意义的"运行态信号"事件：重放（history 重建 / 后台 turn 注入）时必须跳过。
+// 实测 bug：launch 回合落盘的 workflow_detached 被 history 重建重放 → 等待态被重新点亮，
+// 而重放路径没有回合 finally 兜底清除 → "正在等待后台任务..."常驻。
+const RUNTIME_ONLY_EVENT_TYPES = new Set(['workflow_detached', 'task_output_polling']);
 const HISTORY_POLL_INTERVAL_MS = 1000;
 const HISTORY_POLL_MAX_ATTEMPTS = 30 * 60;
 
@@ -311,7 +315,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const systemStore = useSystemStore();
   const agentStatus = ref<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const currentProjectPath = ref('');
-  const isPollingBackground = ref(false);
+  // 主控正在阻塞等待后台任务结果（仅 task_output_polling 置位）——统一后台活动灯的"等待态"文案来源。
+  const isAwaitingTaskResult = ref(false);
+  // workflow 本回合已脱离到真后台（仅 workflow_detached 置位）——只作回合 finally 的收口守卫，
+  // 不接任何 UI（控制位与显示位分离：此前两职责同住 isPollingBackground，重放泄漏即成常驻横幅）。
+  const workflowDetachedInTurn = ref(false);
   const activeHistoryPollingWindows = new Set<string>();
   const todoDismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -389,6 +397,110 @@ export const useChatStream = (options: ChatStreamOptions) => {
       scheduleTodoDismiss(windowState, 1500);
     }
 
+    return true;
+  };
+
+  // ── Task 工具系（TaskCreate/TaskUpdate）→ todo 面板适配 ──
+  // SDK 新版以 TaskCreate/TaskUpdate 任务系取代 TodoWrite（实测主控只调前者，面板锚旧工具名永不亮）。
+  // 与 TodoWrite 的差异：TodoWrite 一次带全量 todos 数组；Task 系是增量（Create 一条、Update 一条），
+  // 且任务 id 在 TaskCreate 的 result 文本里（"Task #N created..."）——故 started 时先以对象引用入列，
+  // completed 时回填 taskId 供后续 TaskUpdate 匹配。
+  const pendingTaskCreates = new Map<string, TodoProgressItem>();
+
+  const ensureTaskProgress = (
+    windowState: ChatWindow,
+    event: NormalizedStreamEvent
+  ): TodoProgressState => {
+    clearTodoDismissTimer(windowState.id);
+    const turnId = getEventTurnId(event);
+    const existing = windowState.todoProgress;
+    if (existing && existing.status === 'running') {
+      // 跨回合继续更新任务时刷新 turnId，让 turn.completed 的收口判定锚到最新回合
+      if (turnId) existing.turnId = turnId;
+      existing.updatedAt = Date.now();
+      return existing;
+    }
+    windowState.todoProgress = {
+      todos: [],
+      status: 'running',
+      isCollapsed: false,
+      updatedAt: Date.now(),
+      ...(turnId ? { turnId } : {})
+    };
+    return windowState.todoProgress;
+  };
+
+  /** TaskCreate tool.started：subject/activeForm 入列（taskId 待 completed 回填）。返回 true=已更新面板（气泡照常渲染）。 */
+  const handleTaskCreateStarted = (
+    windowState: ChatWindow | undefined,
+    event: NormalizedStreamEvent,
+    toolCallId: string,
+    params: Record<string, any> | undefined
+  ): boolean => {
+    const subject = typeof params?.subject === 'string' ? params.subject.trim() : '';
+    if (!subject) return false;
+    if (!windowState) return true;
+    const progress = ensureTaskProgress(windowState, event);
+    const item: TodoProgressItem = {
+      content: subject,
+      status: 'pending',
+      ...(typeof params?.activeForm === 'string' && params.activeForm ? { activeForm: params.activeForm } : {})
+    };
+    progress.todos.push(item);
+    pendingTaskCreates.set(toolCallId, item);
+    return true;
+  };
+
+  /** TaskCreate tool.completed：从结果文本解析任务 id 回填；失败则把该条目移除。返回 true=已更新面板。 */
+  const handleTaskCreateCompleted = (
+    windowState: ChatWindow | undefined,
+    toolCallId: string,
+    output: string | undefined,
+    success: boolean | undefined
+  ): boolean => {
+    const item = pendingTaskCreates.get(toolCallId);
+    if (!item) return false;
+    pendingTaskCreates.delete(toolCallId);
+    const progress = windowState?.todoProgress;
+    if (!progress) return true;
+    if (success === false) {
+      progress.todos = progress.todos.filter(t => t !== item);
+      return true;
+    }
+    const match = (output ?? '').match(/Task #(\S+) created/i);
+    if (match?.[1]) item.taskId = match[1];
+    progress.updatedAt = Date.now();
+    return true;
+  };
+
+  /** TaskUpdate tool.started：按 taskId 更新条目状态（deleted=移除）；全部完成则收口面板。返回 true=已更新面板。 */
+  const handleTaskUpdateStarted = (
+    windowState: ChatWindow | undefined,
+    event: NormalizedStreamEvent,
+    params: Record<string, any> | undefined
+  ): boolean => {
+    const taskId = params?.taskId != null ? String(params.taskId) : '';
+    const status = typeof params?.status === 'string' ? params.status : '';
+    if (!taskId || !status) return false;
+    if (!windowState?.todoProgress) return true;
+    const progress = ensureTaskProgress(windowState, event);
+    const item = progress.todos.find(t => t.taskId === taskId);
+    if (item) {
+      if (status === 'deleted') {
+        progress.todos = progress.todos.filter(t => t !== item);
+      } else if (status === 'pending' || status === 'in_progress' || status === 'completed') {
+        item.status = status;
+      }
+    }
+    const allCompleted = progress.todos.length > 0 && progress.todos.every(t => t.status === 'completed');
+    // updatedAt 必须先于 scheduleTodoDismiss 更新：dismiss timer 以调度时刻的 updatedAt 做
+    // 失效守卫，若先调度再 bump，1.5s 后守卫必然失配 → 面板永不消失。
+    progress.updatedAt = Date.now();
+    if (allCompleted) {
+      progress.status = 'completed';
+      progress.message = '全部完成';
+      scheduleTodoDismiss(windowState, 1500);
+    }
     return true;
   };
 
@@ -826,6 +938,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
           enterWaitingState(currentMsg.waitingState, getRandomWaitingVerb);
           break;
         }
+        // Task 工具系 → 同一 todo 面板。不吞工具气泡（用户裁定）：面板与气泡并存，气泡保留完整执行痕迹。
+        if (toolName === 'TaskCreate') {
+          handleTaskCreateStarted(windowState, normalizedEvent, toolCallId, toolParams);
+        } else if (toolName === 'TaskUpdate') {
+          handleTaskUpdateStarted(windowState, normalizedEvent, toolParams);
+        }
 
         // Workflow 触发信号(必修2):主控自身调用 workflow 工具(无 subtaskId,工具名命中触发信号)即开 workflow,
         // 让 Chat 气泡 + Task 页在"调用 workflow 时"就亮起,不等首个子 agent。
@@ -918,6 +1036,15 @@ export const useChatStream = (options: ChatStreamOptions) => {
           break;
         }
 
+        // TaskCreate 完成：从结果文本回填任务 id（供后续 TaskUpdate 按 id 匹配条目）。
+        // 不 break：继续走下方工具气泡的 output/complete 流程（面板与气泡并存）。
+        handleTaskCreateCompleted(
+          windowState,
+          toolCallId,
+          getString(payload.output) ?? getString(raw.toolOutput),
+          getBoolean(payload.success) ?? getBoolean(raw.success)
+        );
+
         const toolBubble = findBubbleByIdDeep(currentMsg.bubbles, toolCallId);
         if (toolBubble && toolBubble.type === 'tool_call') {
           const output = getString(payload.output) ?? getString(raw.toolOutput);
@@ -939,7 +1066,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         break;
       }
       case 'task_output_polling': {
-        isPollingBackground.value = true;
+        isAwaitingTaskResult.value = true;
         const timeout = Number(raw.timeout ?? payload.timeout ?? 0);
         const streamingSubAgents = findStreamingSubAgents(currentMsg.bubbles);
         for (const bubble of streamingSubAgents) {
@@ -950,13 +1077,17 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'workflow_detached': {
         // workflow 已脱离到真后台：完成将经 background_task.completed 旁路到达。
-        // 置此标记 → sendMessage 的 finally 跳过"前台回合结束即内联收口"（:1435 守卫），
-        // 避免回合一结束就把仍在后台跑的 workflow 误标 completed。
-        isPollingBackground.value = true;
+        // 置守卫标记 → 回合 finally 跳过"前台回合结束即内联收口"，避免回合一结束就把
+        // 仍在后台跑的 workflow 误标 completed。纯控制位，不点亮任何 UI（活动灯由
+        // hasActiveWorkflow 负责，tool.started 起就亮着）。
+        workflowDetachedInTurn.value = true;
         break;
       }
       case 'turn.completed': {
         finalizeStreamingMessage(currentMsg);
+        // 后台 Task 收口主体自治（心跳静默 sweeper）；回合结束补一次时机检查：
+        // 回合内已静默的任务=被回合内消费（CLI 不发通知），此刻收口。
+        workflowProgress.noteTurnEnded();
         const eventTurnId = getEventTurnId(normalizedEvent);
         const todoTurnId = windowState?.todoProgress?.turnId;
         if (
@@ -974,6 +1105,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       case 'turn.failed': {
         finalizeStreamingMessage(currentMsg);
+        workflowProgress.noteTurnEnded();
         // WP-Web: 读后端 WP-1 新增的 error.code(RATE_LIMITED / CLIENT_ERROR / UPSTREAM_ERROR / PROVIDER_SDK_ERROR)
         // 与 error.details.httpStatus,按 code 给用户视角文案;httpStatus 仅供 console 诊断。
         const errorObj = getObject(payload.error);
@@ -1148,6 +1280,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       waitingState: { isWaiting: false, waitingVerb: '', waitingSince: 0 }
     });
     targetWin.isStreaming = true;
+    workflowDetachedInTurn.value = false;   // 每回合重置 detach 守卫
 
     targetWin.shouldAutoScroll = true;
     await nextTick();
@@ -1453,12 +1586,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       // 内联 workflow 收口（7.4）：未 detach 后台的 workflow 在主控回合结束时不会再有
       // background_task.completed（那是后台路径专属），在此统一收口，避免 Task 面板卡 Running。
-      // detach 到后台的（isPollingBackground）留给 background_task.completed，不在此提前完成。
-      if (isLatestRequest && !isPollingBackground.value
+      // detach 到后台的（workflowDetachedInTurn 守卫）留给 background_task.completed，不在此提前完成。
+      if (isLatestRequest && !workflowDetachedInTurn.value
           && workflowProgress.workflow.value?.status === 'running') {
         workflowProgress.onWorkflowCompleted({ status: completedSuccessfully ? 'completed' : 'failed' });
       }
-      isPollingBackground.value = false;
+      workflowDetachedInTurn.value = false;   // 守卫消费完毕，复位
+      isAwaitingTaskResult.value = false;     // 回合结束，阻塞等待态终结
       await nextTick();
       options.scrollToBottom({ windowId: targetWindowId });
 
@@ -1714,7 +1848,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
         const aiMessage = ensureAiMessageForTurn(entry.turnId, item.timestamp);
         const normalizedEvent = normalizeStreamEvent(entry.event);
-        if (!normalizedEvent) {
+        if (!normalizedEvent || RUNTIME_ONLY_EVENT_TYPES.has(normalizedEvent.eventType)) {
           continue;
         }
         applyNormalizedEventToMessage(
@@ -1790,6 +1924,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     content: string,
     timestamp?: number
   ): void => {
+    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
+    isAwaitingTaskResult.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState) return;
@@ -1820,6 +1956,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     events: Record<string, unknown>[],
     timestamp?: number
   ): void => {
+    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
+    isAwaitingTaskResult.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState || !Array.isArray(events) || events.length === 0) return;
@@ -1828,7 +1966,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const aiMessage = createRestoredAiMessage(ts);
     for (const ev of events) {
       const normalized = normalizeStreamEvent(ev);
-      if (normalized) applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+      if (normalized && !RUNTIME_ONLY_EVENT_TYPES.has(normalized.eventType)) {
+        applyNormalizedEventToMessage(aiMessage, normalized, undefined);
+      }
     }
     aiMessage.isStreaming = false;
     aiMessage.endTime = ts;
@@ -2173,7 +2313,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
   return {
     agentStatus,
     currentProjectPath,
-    isPollingBackground,
+    isAwaitingTaskResult,
     streamWelcomeMessage,
     sendMessage,
     sendQueuedMessageNow,

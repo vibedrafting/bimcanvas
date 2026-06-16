@@ -154,12 +154,14 @@ export const useCanvasStore = defineStore('canvas', () => {
     // canonical zones 快照（含 subZones）：同 canonicalModulesSnapshot，供来源② 切换时 patch / 还原 adopted 分区线。
     const canonicalZonesSnapshot = ref<Zone[] | null>(null);
 
-    // variantInfoByDesignZone：项目级缓存"哪些设计区有几份变体 + slug 列表"。
+    // variantInfoByDesignZone：项目级缓存"哪些设计区有几份变体 + slug 列表 + 是否已有采纳"。
     // 键为 designZoneId。Zone label 上 (current/total) 分页号——
     // current 通过 active variantSlug 在 variantSlugs 列表里的 index 反算而来。
+    // hasAdopted=false（多方案待用户终选）时角标不含 canonical 槽，且自动激活首个变体显示。
     interface VariantInfo {
         count: number;
         variantSlugs: string[];
+        hasAdopted: boolean;
     }
     const variantInfoByDesignZone = ref<Map<string, VariantInfo>>(new Map());
 
@@ -216,11 +218,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (dz !== zoneId) return null;
         const info = variantInfoByDesignZone.value.get(dz);
         if (!info || info.count <= 0) return null;
-        const total = info.count + 1;
+        // canonical 槽只在确有 adopted 方案时存在——口径与 VariantNavigatorBar 的 sequence 一致；
+        // 无 adopted（多方案待用户终选）时 total 不再 +1，避免 (1/2) 与导航条 (1/1) 漂移。
+        const total = info.count + (info.hasAdopted ? 1 : 0);
         const activeSlug = activeVariantByDesignZone.value.get(dz) ?? null;
         if (!activeSlug) return { current: 1, total };
         const idx = info.variantSlugs.indexOf(activeSlug);
-        return { current: idx >= 0 ? idx + 2 : 1, total };
+        return { current: idx >= 0 ? idx + (info.hasAdopted ? 2 : 1) : 1, total };
     }
 
     /**
@@ -239,9 +243,20 @@ export const useCanvasStore = defineStore('canvas', () => {
                     ? [...(rawEntry as { variantSlugs: string[] }).variantSlugs]
                     : [];
                 if (count <= 0) continue;
-                next.set(designZoneId, { count, variantSlugs });
+                const hasAdopted = (rawEntry as { hasAdopted?: boolean }).hasAdopted === true;
+                next.set(designZoneId, { count, variantSlugs, hasAdopted });
             }
             variantInfoByDesignZone.value = next;
+
+            // 无 adopted 的设计区：自动激活首个可见变体，避免画布默认渲染空 canonical。
+            // （多方案待用户终选时无 adopted 是常态终态——不自动激活则 Agent 设计完成后画布一片空白，
+            //  需要用户手动点导航条切换才看得见方案。）已有 active / 已有 adopted 的设计区不动。
+            for (const [dz, info] of next) {
+                const firstSlug = info.variantSlugs[0];
+                if (!info.hasAdopted && firstSlug && !activeVariantByDesignZone.value.has(dz)) {
+                    void setActiveVariant(dz, firstSlug);
+                }
+            }
         } catch (err: any) {
             debugStore.warn(`[Store] 变体摘要拉取失败: ${err?.message ?? err}`);
             variantInfoByDesignZone.value = new Map();

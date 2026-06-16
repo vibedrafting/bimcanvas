@@ -168,10 +168,19 @@ export type WorkflowProgressEventName = 'background_task.progress';
 export interface WorkflowProgressRecord {
   kind: 'workflow_progress';
   taskId?: string | null;
+  /** Agent 端按"是否 Workflow 工具发起"标记；false=普通后台 Task（统一活动灯据此分流），缺省=旧 Agent 兼容（按 workflow 处理） */
+  isWorkflow?: boolean | null;
   status?: string | null;
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number } | null;
   lastToolName?: string | null;
   description?: string | null;
+  /** 归属链（bg-task-panel 分组 + 详情端点定位）：发起该任务的 tool_use id */
+  toolUseId?: string | null;
+  /** 归属分类（Agent 端 best-effort）：main=主控 | subagent=回合内子代理 | workflow=Workflow 内派生 */
+  ownerKind?: string | null;
+  ownerId?: string | null;
+  /** 任务形态：agent=子代理型 | command=单次工具/Shell 型 */
+  taskKind?: string | null;
   windowId?: string | null;
   sessionId?: string | null;
   sdkSessionId?: string | null;

@@ -3,7 +3,6 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
-import type { SubAgent, ToolCall, ChatBubble } from '../../types/agent';
 import type { ChatAttachmentRef, ChatAttachmentSourceKind } from '../../types/chatAttachment';
 import { proposalMocks } from '../../constants/aiCommandCenter';
 import { useAgentConfig } from '../../composables/aiCommandCenter/useAgentConfig';
@@ -26,8 +25,8 @@ import SubAgentBubble from './SubAgentBubble.vue';
 import QuestionBubble from './QuestionBubble.vue';
 import RateLimitBanner from './RateLimitBanner.vue';
 import WaitingIndicator from './WaitingIndicator.vue';
-import TaskSummaryWidget from './TaskSummaryWidget.vue';
 import WorkflowProgressPanel from './WorkflowProgressPanel.vue';
+import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
 import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkflowProgress';
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
@@ -506,7 +505,7 @@ const toggleAttachmentMenu = () => {
 const {
   agentStatus,
   currentProjectPath,
-  isPollingBackground,
+  isAwaitingTaskResult,
   streamWelcomeMessage,
   sendMessage,
   sendQueuedMessageNow,
@@ -540,7 +539,7 @@ const {
   buildContextSnapshot: (spatialMarks = pendingSpatialMarks.value) => buildContextSnapshot(spatialMarks)
 });
 
-const hasProgressOverlay = computed(() => !!activeTodoProgress.value || isPollingBackground.value || hasActiveWorkflow.value);
+const hasProgressOverlay = computed(() => !!activeTodoProgress.value || hasBackgroundActivity.value);
 
 const {
   showScreenshotOverlay,
@@ -612,82 +611,27 @@ const handleRestoreQueuedMessage = () => {
   nextTick(() => adjustTextareaHeight());
 };
 
-const bubbleToSubAgent = (bubble: ChatBubble): SubAgent => {
-  const toolCalls: ToolCall[] = (bubble.childBubbles || [])
-    .filter(child => child.type === 'tool_call')
-    .map(child => ({
-      id: child.id,
-      toolName: child.toolName || '',
-      description: child.toolDescription,
-      params: child.toolParams || {},
-      output: child.toolOutput,
-      status: child.status === 'streaming' ? 'running' : child.status as ToolCall['status'],
-      startTime: child.timestamp,
-      error: child.toolError
-    }));
-
-  return {
-    id: bubble.id,
-    name: bubble.subAgentName || '',
-    type: bubble.subAgentType || 'general-purpose',
-    status: bubble.status === 'streaming' ? 'running' : bubble.status as SubAgent['status'],
-    toolCalls,
-    result: bubble.subAgentResult,
-    startTime: bubble.timestamp
-  };
-};
-
-const activeSubAgents = computed(() => {
-  const runningAgents: SubAgent[] = [];
-  chatMessages.value.forEach(msg => {
-    if (msg.bubbles) {
-      const runningBubbles = msg.bubbles.filter(
-        b => b.type === 'subagent' && b.status === 'streaming'
-      );
-      runningAgents.push(...runningBubbles.map(bubbleToSubAgent));
-    }
-  });
-
-  if (runningAgents.length > 0) {
-    return runningAgents;
-  }
-
-  for (let i = chatMessages.value.length - 1; i >= 0; i--) {
-    const msg = chatMessages.value[i];
-    if (!msg) {
-      continue;
-    }
-    if (msg.role === 'ai' && msg.bubbles) {
-      const subAgentBubbles = msg.bubbles.filter(b => b.type === 'subagent');
-      if (subAgentBubbles.length > 0) {
-        return subAgentBubbles.map(bubbleToSubAgent);
-      }
-    }
-  }
-
-  return [];
-});
-
-const taskWidgetExpanded = ref(false);
-
-watch(activeSubAgents, (newAgents, oldAgents) => {
-  const newRunning = newAgents.some(a => a.status === 'running');
-  const oldRunning = oldAgents?.some(a => a.status === 'running') ?? false;
-
-  if (newAgents.length > 0 && (!oldAgents || oldAgents.length === 0)) {
-    taskWidgetExpanded.value = true;
-  }
-  if (newRunning && !oldRunning) {
-    taskWidgetExpanded.value = true;
-  }
-}, { deep: true });
-
 const proposals = ref(proposalMocks);
 
 // Workflow 进度（Task 页可视化）。hasActiveWorkflow 锚到 workflow 工具调用触发信号（见 useChatStream tool.started）。
-const { hasActiveWorkflow, hasCompletedWorkflow } = useWorkflowProgress();
+const { hasActiveWorkflow, hasCompletedWorkflow, backgroundTaskCount, backgroundTaskList } = useWorkflowProgress();
 // 占位 mock 与 workflow 进度面板互补：有 workflow（进行中或已完成留存）→ 隐占位、显进度。
 const hasWorkflowView = computed(() => hasActiveWorkflow.value || hasCompletedWorkflow.value);
+// 普通后台任务卡片（含完成态留存）：有则显示面板并同样让 mock 临时让位。
+const hasBackgroundTaskView = computed(() => backgroundTaskList.value.length > 0);
+
+// 统一后台活动灯：合并原 polling-indicator / workflow-indicator 两盏灯——用户视角只关心
+// "AI 还有事没干完吗"，类型区分（workflow 阶段树 / 普通任务）下沉到 Task 页。
+// 文案按信息量分级：阻塞等待 > workflow（附普通任务计数） > 仅普通任务。
+const hasBackgroundActivity = computed(() =>
+  isAwaitingTaskResult.value || hasActiveWorkflow.value || backgroundTaskCount.value > 0);
+const bgActivityClickable = computed(() => !isAwaitingTaskResult.value);
+const bgActivityText = computed(() => {
+  if (isAwaitingTaskResult.value) return '正在等待后台任务结果...';
+  const n = backgroundTaskCount.value;
+  if (hasActiveWorkflow.value) return n > 0 ? `Workflow 后台运行中 (+${n})` : 'Workflow 后台运行中';
+  return `后台任务运行中 (${n})`;
+});
 
 // workflow 运行中 → Chat 底部气泡 → 点击跳 Task 页。
 const goToTasks = () => { mode.value = 'tasks'; };
@@ -747,6 +691,16 @@ watch(
     });
   }
 );
+
+// 统一补滚动：overlay（todo 面板 / 后台活动灯）撑高滚动区底边后，scrollTop 不会自己变，
+// 贴底内容会被新裁切线吞掉。挂在高度总闸上，对两个住户一视同仁。
+// scrollToBottom 内部尊重 shouldAutoScroll，翻历史时不会被强拉到底。
+watch(todoProgressOverlayHeight, (newHeight, oldHeight) => {
+  if (newHeight <= (oldHeight ?? 0)) return; // 只在变高（侵占内容区）时补滚
+  nextTick(() => scrollToBottom());
+  // .window-chat-container 的 bottom 有 0.18s transition，过早滚会滚不到位，结束后再补一次
+  window.setTimeout(() => scrollToBottom(), 220);
+});
 
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -1122,6 +1076,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
           </div>
 
           <transition name="todo-panel-fade">
+            <!-- 容器=布局壳：两个住户（todo 面板 / 后台活动灯）共享输入框上方锚位，状态机互不相干。
+                 todo 在上（前台回合计划，turn 结束收口）、活动灯贴底（跨回合后台状态）。 -->
             <div
               v-if="hasProgressOverlay"
               class="todo-progress-overlay"
@@ -1133,16 +1089,16 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 @toggle="toggleTodoProgressCollapsed"
               />
               <transition name="slide-down">
-                <div v-if="isPollingBackground" class="polling-indicator">
-                  <span class="polling-dot"></span>
-                  <span class="polling-text">正在等待后台任务...</span>
-                </div>
-              </transition>
-              <transition name="slide-down">
-                <div v-if="hasActiveWorkflow" class="workflow-indicator" @click="goToTasks" title="点击查看 Task 页进度">
-                  <span class="workflow-dot"></span>
-                  <span class="workflow-text">Workflow 后台运行中</span>
-                  <span class="workflow-link">查看进度 →</span>
+                <div
+                  v-if="hasBackgroundActivity"
+                  class="bg-activity-indicator"
+                  :class="{ 'is-waiting': isAwaitingTaskResult, 'is-clickable': bgActivityClickable }"
+                  :title="bgActivityClickable ? '点击查看 Task 页进度' : undefined"
+                  @click="bgActivityClickable && goToTasks()"
+                >
+                  <span class="bg-activity-dot"></span>
+                  <span class="bg-activity-text">{{ bgActivityText }}</span>
+                  <span v-if="bgActivityClickable" class="bg-activity-link">查看进度 →</span>
                 </div>
               </transition>
             </div>
@@ -1151,18 +1107,17 @@ watch(chatScrollRef, (newEl, oldEl) => {
 
         <!-- View: Tasks (formerly Review) -->
         <div v-show="mode === 'tasks'" class="view-tasks">
-            <!-- Agent Activity Monitor (SubAgent tracking) -->
-            <TaskSummaryWidget
-                v-if="!hasFallback('hide-subtask-activity-panel')"
-                :sub-agents="activeSubAgents"
-                v-model:expanded="taskWidgetExpanded"
-            />
+            <!-- 回合内前台 SubAgent 监控（TaskSummaryWidget）已退役：Chat 流 SubAgentBubble 原生可视，
+                 Workflow / 后台 Task 由下方两个面板覆盖 -->
 
             <!-- Workflow 进度（有活跃/已完成 workflow 时显示，与下方占位 mock 互补） -->
             <WorkflowProgressPanel v-if="hasWorkflowView" />
 
-            <!-- Proposal Carousel（占位 mock：仅在无 workflow 视图时显示） -->
-            <div class="carousel-section" v-if="!hasWorkflowView">
+            <!-- 普通后台任务监控卡片（SSE 心跳驱动，含完成态留存） -->
+            <BackgroundTaskPanel v-if="hasBackgroundTaskView" />
+
+            <!-- Proposal Carousel（mock 演示，后续接真实业务）：常驻置底——真监控面板（wf/bg-task）在上 -->
+            <div class="carousel-section">
                 <div class="section-title">Proposals</div>
                 <div class="carousel-track" ref="carouselTrackRef" @wheel="handleWheel">
                     <div class="proposal-card" v-for="p in proposals" :key="p.id">
@@ -1210,8 +1165,8 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 </div>
             </div>
 
-            <!-- Alert Card (Mock)：仅在无 workflow 视图时显示 -->
-            <div class="card alert-card" v-if="!hasWorkflowView">
+            <!-- Alert Card（mock 演示，后续接真实业务）：常驻置底，同上 -->
+            <div class="card alert-card">
                 <div class="alert-header">
                     <span class="icon">⚠️</span>
                     <span>Conflict Detected</span>
@@ -3024,6 +2979,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     }
 
     &.alert-card {
+        flex-shrink: 0; /* 与真监控面板共存时不被 flex 列挤压（对齐 wf-panel/bg-task-panel） */
         border-color: rgba(255, 165, 0, 0.3);
         background: rgba(255, 165, 0, 0.05);
         
@@ -3053,6 +3009,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
 }
 
 .carousel-section {
+    flex-shrink: 0; /* 同 alert-card：常驻置底，不被挤压 */
     .section-title {
         font-size: 0.75rem;
         text-transform: uppercase;
@@ -3371,40 +3328,9 @@ watch(chatScrollRef, (newEl, oldEl) => {
     transform: scale(0.95);
 }
 
-/* --- Polling Indicator --- */
-.polling-indicator {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    margin: 0;
-    background: rgba(251, 191, 36, 0.1);  /* amber/warning color */
-    border-radius: 8px;
-    border: 1px solid rgba(251, 191, 36, 0.3);
-    color: rgba(251, 191, 36, 0.9);
-    font-size: 0.8rem;
-    pointer-events: auto;
-
-    .polling-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: rgba(251, 191, 36, 0.9);
-        animation: pulse-polling 1.5s ease-in-out infinite;
-    }
-
-    .polling-text {
-        font-weight: 500;
-    }
-}
-
-@keyframes pulse-polling {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(1.2); }
-}
-
-/* --- Workflow Indicator（仿 polling-indicator，独立信号 hasActiveWorkflow，点击跳 Task 页） --- */
-.workflow-indicator {
+/* --- 统一后台活动灯（合并原 polling-indicator / workflow-indicator）---
+ * 默认态 = workflow 蓝（可点击跳 Task 页）；.is-waiting = 主控阻塞等结果，amber 警示色、不可点。 */
+.bg-activity-indicator {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3415,13 +3341,14 @@ watch(chatScrollRef, (newEl, oldEl) => {
     border: 1px solid rgba(79, 172, 254, 0.3);
     color: rgba(79, 172, 254, 0.95);
     font-size: 0.8rem;
-    cursor: pointer;
+    cursor: default;
     pointer-events: auto;
     transition: background 0.2s;
 
-    &:hover { background: rgba(79, 172, 254, 0.18); }
+    &.is-clickable { cursor: pointer; }
+    &.is-clickable:hover { background: rgba(79, 172, 254, 0.18); }
 
-    .workflow-dot {
+    .bg-activity-dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
@@ -3429,14 +3356,27 @@ watch(chatScrollRef, (newEl, oldEl) => {
         animation: pulse-polling 1.5s ease-in-out infinite;
     }
 
-    .workflow-text { font-weight: 500; }
+    .bg-activity-text { font-weight: 500; }
 
-    .workflow-link {
+    .bg-activity-link {
         margin-left: auto;
         font-size: 0.72rem;
         font-weight: 600;
         opacity: 0.85;
     }
+
+    &.is-waiting {
+        background: rgba(251, 191, 36, 0.1);
+        border-color: rgba(251, 191, 36, 0.3);
+        color: rgba(251, 191, 36, 0.9);
+
+        .bg-activity-dot { background: rgba(251, 191, 36, 0.9); }
+    }
+}
+
+@keyframes pulse-polling {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.2); }
 }
 
 .slide-down-enter-active,

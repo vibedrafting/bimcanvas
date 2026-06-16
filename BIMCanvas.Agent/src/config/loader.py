@@ -92,8 +92,7 @@ def ensure_agent_config_schema(config: dict) -> None:
         if "permissions" in section:
             raise ValueError(
                 f"检测到 config.json 含旧版 `{provider}.permissions` 字段。\n"
-                "工具权限配置已重设计 (v3.2),请参考迁移文档手工调整:\n"
-                "  docs/Tool_Permissions_Migration.md\n"
+                "工具权限配置已重设计 (v3.2+),迁移说明见 docs/Arch_Plugin.md(权限模型章节):\n"
                 f"  旧 `{provider}.permissions.allow / deny` "
                 f"→ 新 `{provider}.tools.allow / deny`\n"
                 f"  另外新增 `{provider}.agents.allow / deny` 块需添加 (可填空数组)。\n"
@@ -102,13 +101,13 @@ def ensure_agent_config_schema(config: dict) -> None:
 
         # C3 (工具权限 v3.3 §3 Phase 3a): config.json 的 tools/agents 已废弃,
         # 工具权限改由 plugin manifest 接管。检测到只 warning 不抛错,
-        # 用户可以从配置文件中删除这些字段(详见 docs/Tool_Permissions_Migration.md)。
+        # 用户可以从配置文件中删除这些字段(详见 docs/Arch_Plugin.md)。
         for deprecated_field in ("tools", "agents"):
             if deprecated_field in section:
                 logger.warning(
                     "config.json 的 %s.%s 字段在 v3.3 已废弃,工具权限改由 plugin manifest "
                     "(<plugin>/bimcanvas-plugin.json 的 tools/agents 字段) 接管,可以从配置"
-                    "文件中删除该字段。详见 docs/Tool_Permissions_Migration.md",
+                    "文件中删除该字段。详见 docs/Arch_Plugin.md",
                     provider, deprecated_field,
                 )
 
