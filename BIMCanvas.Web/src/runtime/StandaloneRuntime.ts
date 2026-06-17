@@ -12,6 +12,9 @@ import {
   pickModuleLibraryDirectory,
   queryDirPermission
 } from './standalone/ModuleLibraryDirReader';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SYS');
 
 export class StandaloneRuntime implements WebRuntime {
   readonly mode = 'standalone' as const;
@@ -65,7 +68,7 @@ export class StandaloneRuntime implements WebRuntime {
     // 绑定层不随项目关闭而清,保持跨项目可用
   }
 
-  async saveModules(_modules: Module[], _variantSelection?: Record<string, string>): Promise<boolean> {
+  async saveModules(_modules: Module[], _variantSelection?: Record<string, string>, _scope?: string[]): Promise<boolean> {
     return true;
   }
 
@@ -78,7 +81,7 @@ export class StandaloneRuntime implements WebRuntime {
       this.boundLibrary = await loadLibraryJson(this.boundDirHandle);
       return this.boundLibrary;
     } catch (err) {
-      console.warn('[StandaloneRuntime] 绑定目录的 module_library.json 加载失败', err);
+      log.warn('failed to load module_library.json from bound directory', { error: err });
       return null;
     }
   }

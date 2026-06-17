@@ -3,7 +3,7 @@ import { ref, computed, nextTick } from 'vue';
 import type { ProjectData, Module, Zone, Wall, Column, Opening } from '../types/canvas';
 import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
-import { VariantHistory, targetKey, type EditTarget } from '../services/state/VariantHistory';
+import { VariantHistory, type EditTarget } from '../services/state/VariantHistory';
 import { createLogger } from '../utils/logger';
 import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
 import { moduleLibraryService } from '../services/ModuleLibraryService';
@@ -388,6 +388,14 @@ export const useCanvasStore = defineStore('canvas', () => {
             ...baseModules,
             ...variantBlocks.flat()
         ];
+
+        // 切换变体后：为新目标播种 baseline（栈空才播），并把 activeUndoTarget 的 slug 同步到当前变体，
+        // 避免 Ctrl+Z 仍指向旧变体目标（结构性杜绝跨变体撤销）。
+        seedVisibleBaselines();
+        if (activeUndoTarget.value) {
+            activeUndoTarget.value = targetForDesignZone(activeUndoTarget.value.designZoneId);
+        }
+        refreshUndoState();
     }
 
     /**
@@ -580,6 +588,8 @@ export const useCanvasStore = defineStore('canvas', () => {
                     activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
                     recvLog.debug('variant adopted, reload canonical', { dz: adoptedDz });
                 }
+                // 采纳=翻指针：该设计区 canonical 内容已变，旧家具历史失效
+                if (adoptedDz) history.invalidate(adoptedDz);
                 // 采纳=翻指针（不删目录、不生成 prev-*）；刷新计数字典让 Canvas 更新角标
                 void refetchVariantCounts();
             }
@@ -588,6 +598,9 @@ export const useCanvasStore = defineStore('canvas', () => {
             if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual' || trigger === 'variant-adopt') {
                 pendingServerSyncSkips = 0;
                 recvLog.debug('explicit trigger, reset skip counter', { trigger });
+                // 真实远程改动（Agent/重连/手动）整工程重投影：全清家具历史，防陈旧本地 undo 覆盖远程结果。
+                // variant-adopt 已按 dz 定向失效，不再全清。
+                if (trigger !== 'variant-adopt') history.invalidate();
             } else if (fileName === 'modules.json' && pendingServerSyncSkips > 0) {
                 // 仅 FileSystemWatcher 触发的普通更新才走 skip 逻辑
                 pendingServerSyncSkips -= 1;
@@ -625,19 +638,17 @@ export const useCanvasStore = defineStore('canvas', () => {
         placementSize.value = size;
     };
 
-    const updateHistoryState = () => {
-        canUndo.value = timeline.canUndo;
-        canRedo.value = timeline.canRedo;
+    // 编辑提交：每次家具变更（拖动/旋转/增删/批量结束）调用——按目标 push 历史 + 定向落盘。
+    // 取代旧 saveState（整工程快照）+ 整工程 saveModules：见 persistAndRecordEdits。
+    const commitEdit = async (): Promise<void> => {
+        if (!projectData.value) return;
+        isDirty.value = true;
+        await persistAndRecordEdits({ suppressServerSync: true });
     };
 
+    // 保留名兼容 baseline 编辑器（updateWall/Column/Opening，当前 UI 未接入）；只刷新撤销态，不做整工程快照。
     const saveState = () => {
-        if (projectData.value) {
-            timeline.push(projectData.value, ChangeSource.UserEdit, {
-                description: 'User interaction',
-                changeType: ChangeType.Update
-            });
-            updateHistoryState();
-        }
+        refreshUndoState();
     };
 
     const normalizeLoadOptions = (options: LoadOptions | ChangeSource): LoadOptions =>
@@ -737,17 +748,16 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         await refreshModuleLibrary();
 
+        // 历史策略（per-target 模型）：
+        //  · 清空历史源（新项目 / 系统初始化等）→ 全清家具历史。
+        //  · 其余（含 ServerSync 重投影）→ 不清；为各可见目标播种 baseline（栈空才播），既有历史不动。
         if (!preserveHistory && timeline.shouldClearHistory(opts.source)) {
-            sysLog.debug('clearing history due to source type');
-            timeline.clear();
+            sysLog.debug('clearing furniture history due to source type');
+            history.clear();
+            activeUndoTarget.value = null;
         }
-
-        timeline.push(data, opts.source, {
-            description: opts.description || `Load from ${opts.source}`,
-            metadata: opts.metadata
-        });
-
-        updateHistoryState();
+        seedVisibleBaselines();
+        refreshUndoState();
 
         sysLog.info('project loaded', {
             name: data.project?.name || 'Unknown',
@@ -841,6 +851,22 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     // === 多选操作方法 ===
 
+    // 选择 → 撤销目标：取首个选中「模块」所属设计区×变体，作为 Ctrl+Z/Y 的作用目标。
+    // 选中非模块（zone/wall）不改目标，保留末次模块目标。
+    const applySelectionUndoTarget = (ids: string[]): void => {
+        const mods = projectData.value?.activeScheme?.modules ?? [];
+        for (const id of ids) {
+            const m = mods.find(x => x.id === id);
+            if (!m) continue;
+            const dz = designZoneOfModule(m);
+            if (dz) {
+                activeUndoTarget.value = targetForDesignZone(dz);
+                refreshUndoState();
+                return;
+            }
+        }
+    };
+
     const setSelectedObject = (obj: any | null) => {
         if (obj === null) {
             selectedIds.value = [];
@@ -863,11 +889,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
         debugMsg.value += `\nSet: ${selectedIds.value.join(',')} at ${Date.now()}`;
         sysLog.debug('setSelectedObject', { ids: selectedIds.value });
+        applySelectionUndoTarget(selectedIds.value);
     };
 
     const setSelection = (ids: string[]) => {
         selectedIds.value = [...ids];
         debugMsg.value += `\nSetSelection: [${ids.join(',')}] at ${Date.now()}`;
+        applySelectionUndoTarget(selectedIds.value);
     };
 
     const addToSelection = (obj: any) => {
@@ -946,30 +974,32 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     // === Undo/Redo ===
 
+    // 撤销/重做只作用于 activeUndoTarget（当前聚焦的设计区×变体）：
+    // 取该目标历史的上/下一态 → 定向重投影（替换该区切片）→ 定向落盘（仅该区）。绝不取实时全局选择、不碰其它设计区。
     const undo = () => {
-        const prevState = timeline.undo();
-        if (prevState) {
-            // 撤销时保持当前视图
-            preserveViewOnLoad.value = true;
-            projectData.value = JSON.parse(prevState.state) as ProjectData;
-            isDirty.value = true;
-            updateHistoryState();
-            setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
-            void saveModules({ suppressServerSync: true });
-        }
+        const target = activeUndoTarget.value;
+        if (!target) return;
+        const mods = history.undo(target);
+        if (mods === null) return;
+        preserveViewOnLoad.value = true;
+        applyTargetModules(target, mods);
+        isDirty.value = true;
+        refreshUndoState();
+        setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
+        void scopedSaveTarget(target, mods, { suppressServerSync: true });
     };
 
     const redo = () => {
-        const nextState = timeline.redo();
-        if (nextState) {
-            // 重做时保持当前视图
-            preserveViewOnLoad.value = true;
-            projectData.value = JSON.parse(nextState.state) as ProjectData;
-            isDirty.value = true;
-            updateHistoryState();
-            setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
-            void saveModules({ suppressServerSync: true });
-        }
+        const target = activeUndoTarget.value;
+        if (!target) return;
+        const mods = history.redo(target);
+        if (mods === null) return;
+        preserveViewOnLoad.value = true;
+        applyTargetModules(target, mods);
+        isDirty.value = true;
+        refreshUndoState();
+        setTimeout(() => { preserveViewOnLoad.value = false; }, 200);
+        void scopedSaveTarget(target, mods, { suppressServerSync: true });
     };
 
     // === 元素更新方法 ===
@@ -984,7 +1014,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             projectData.value.activeScheme.modules[moduleIndex] = updatedModule;
             isDirty.value = true;  // 标记数据已修改
             if (!batchUpdateMode.value) {
-                nextTick(() => saveState());
+                nextTick(() => { void commitEdit(); });
             }
             dispatchLocalUpdate({ type: 'module_update', moduleId, updates });
         }
@@ -1049,14 +1079,11 @@ export const useCanvasStore = defineStore('canvas', () => {
             selectedIds.value = [];
             isDirty.value = true;  // 标记数据已修改
 
-            if (!batchUpdateMode.value) {
-                nextTick(() => saveState());
-            }
             dispatchLocalUpdate({ type: 'module_remove', moduleId });
 
-            // 持久化到文件系统
+            // 历史 + 定向落盘（删除使该模块所属设计区切片变化，被 commitEdit 检出并重写）
             if (!batchUpdateMode.value) {
-                await saveModules();
+                await commitEdit();
             }
         }
     };
@@ -1066,7 +1093,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         projectData.value.activeScheme.modules.push(module);
         isDirty.value = true;  // 标记数据已修改
         if (!batchUpdateMode.value) {
-            nextTick(() => saveState());
+            nextTick(() => { void commitEdit(); });
         }
         dispatchLocalUpdate({ type: 'module_add', module });
     };
@@ -1082,16 +1109,9 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     const endBatchUpdate = async () => {
         batchUpdateMode.value = false;
-
-        // 1. 保存到本地Timeline历史（Undo/Redo）
         await nextTick();
-        saveState();
-
-        // 2. 持久化到文件系统（File-Driven Architecture）
-        // 符合架构文档"即时写入"设计：用户交互结束时立即写入硬盘
-        if (isDirty.value) {
-            await saveModules();
-        }
+        // 历史 + 定向落盘：按目标只记录/写入发生变化的设计区（含跨区移动的旧区/新区）。
+        await commitEdit();
     };
 
     // === 脏数据管理 API ===
@@ -1108,6 +1128,11 @@ export const useCanvasStore = defineStore('canvas', () => {
         sceneDataCache.clear();
         moduleLibraryService.dispose();
         timeline.clear();
+        history.clear();
+        activeUndoTarget.value = null;
+        activeVariantByDesignZone.value = new Map();
+        canonicalModulesSnapshot.value = null;
+        canonicalZonesSnapshot.value = null;
         sysLog.debug('project state reset');
     };
 
