@@ -1040,13 +1040,13 @@ export const useCanvasStore = defineStore('canvas', () => {
         }
 
         try {
-            // 派生 variantSelection：把 designZone→slug 展开为 leafZoneId→slug（server 期望叶子粒度索引）。
-            // 后端按此映射决定写 variants/{slug}/{leaf}/modules.json 还是 canonical，避免编辑变体污染 canonical。
+            // variantSelection：设计区级索引 designZoneId→slug（variant 是设计区级方案）。
+            // 后端据此用该变体自身 zones.json 把模块按子分区落盘到 schemes/{dz}/{slug}/[{leaf}/]modules.json，canonical 不动。
+            // 不再在前端展开成 leafZoneId→slug——带子分区变体的 leaf key（dz_*）与后端按房间分组的 key（rz_*）对不上，
+            // 会让后端静默回落 canonical（=adopted，常为 bootstrap 出的 main），编辑写错文件（见 SaveModules 子分区分组）。
             const variantSelection: Record<string, string> = {};
             for (const [designZoneId, variantSlug] of activeVariantByDesignZone.value) {
-                for (const leafId of getLeafZoneIdsForDesignZone(designZoneId)) {
-                    variantSelection[leafId] = variantSlug;
-                }
+                variantSelection[designZoneId] = variantSlug;
             }
             const saved = await runtime.saveModules(
                 projectData.value.activeScheme.modules,
