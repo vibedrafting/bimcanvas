@@ -18,6 +18,7 @@ import { ProjectService } from '../../services/ProjectService';
 import { ChatAttachmentService, createDraftMessageId } from '../../services/ChatAttachmentService';
 import { getChatHistoryService } from '../../services/ChatHistoryService';
 import { useSystemStore } from '../../stores/systemStore';
+import { createLogger } from '../../utils/logger';
 import {
   createTextBubble,
   createToolCallBubble,
@@ -64,6 +65,10 @@ interface ChatStreamOptions {
   buildContextPayload?: (spatialMarks?: SpatialMark[]) => Record<string, any> | undefined;
   buildContextSnapshot?: (spatialMarks?: SpatialMark[]) => SentContextSnapshot | undefined;
 }
+
+// 日志:USER=用户操作(发送/中止),STREAM=SSE 流收发与回合状态。
+const userLog = createLogger('USER');
+const streamLog = createLogger('STREAM');
 
 // 用于中止请求的 AbortController 管理，每个窗口独立一条流。
 const currentAbortControllers = new Map<string, AbortController>();
@@ -617,12 +622,12 @@ export const useChatStream = (options: ChatStreamOptions) => {
       const status = await ProjectService.getStatus();
       if (status.isLoaded && status.projectPath) {
         currentProjectPath.value = status.projectPath;
-        console.log('项目路径已设置:', status.projectPath);
+        streamLog.debug('project path set', { path: status.projectPath });
       } else {
-        console.warn('项目未加载或路径为空');
+        streamLog.warn('project not loaded or empty path');
       }
     } catch (error) {
-      console.error('获取项目路径失败:', error);
+      streamLog.error('fetch project path failed', { error });
     }
   };
 
@@ -1084,6 +1089,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         break;
       }
       case 'turn.completed': {
+        streamLog.info('turn.completed', { win: windowState?.id });
         finalizeStreamingMessage(currentMsg);
         // 后台 Task 收口主体自治（心跳静默 sweeper）；回合结束补一次时机检查：
         // 回合内已静默的任务=被回合内消费（CLI 不发通知），此刻收口。
@@ -1112,9 +1118,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         const errorCode = getString(errorObj?.code);
         const errorMessageRaw = getString(errorObj?.message) ?? getString(raw.error);
         const httpStatus = typeof errorObj?.details?.httpStatus === 'number' ? errorObj.details.httpStatus : undefined;
-        if (errorCode || httpStatus !== undefined) {
-          console.warn('[turn.failed]', { code: errorCode, httpStatus, message: errorMessageRaw });
-        }
+        streamLog.error('turn.failed', { win: windowState?.id, code: errorCode, httpStatus, message: errorMessageRaw });
         const userMessage = mapTurnFailedError(errorCode, errorMessageRaw);
 
         const eventTurnId = getEventTurnId(normalizedEvent);
@@ -1132,7 +1136,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
       default: {
         if (raw.error) {
-          console.error('[SSE Error]', raw.error);
+          streamLog.error('SSE event error', { error: raw.error });
         }
         break;
       }
@@ -1379,12 +1383,11 @@ export const useChatStream = (options: ChatStreamOptions) => {
       // 每次发消息前刷新项目路径，确保项目切换后携带最新路径
       await fetchProjectPath();
 
-      console.log('[sendMessage] Request:', {
-        projectPath: currentProjectPath.value,
-        windowId: effectiveWindowId,
-        message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
-        attachmentCount: attachmentIds.length,
-        spatialMarkCount: draft.spatialMarks.length,
+      userLog.info('send', {
+        win: effectiveWindowId,
+        msg: message.substring(0, 50) + (message.length > 50 ? '…' : ''),
+        attach: attachmentIds.length,
+        marks: draft.spatialMarks.length,
         model: options.currentModel.value?.id,
         effort: options.currentEffort.value.id,
         thinking: options.currentThinking.value.id
@@ -1458,7 +1461,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
 
             if (!parsedEvent) {
               if (parsed?.error) {
-                console.error('[SSE Error]', parsed.error);
+                streamLog.error('SSE parse error', { error: parsed.error });
               }
               continue;
             }
@@ -1487,7 +1490,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
             flushPendingDeltaEvent();
             applyEventToCurrentMessage(normalizedEvent);
           } catch (error) {
-            console.error('Parse error:', error, data);
+            streamLog.error('SSE chunk parse failed', { error, data });
           }
         }
       }
@@ -1505,7 +1508,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       flushPendingDeltaEvent();
       // AbortError 是用户主动中止，不是真正的错误
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('[sendMessage] Request aborted by user');
+        userLog.debug('send aborted by user', { win: effectiveWindowId });
         const shouldPreserveDeliveredState = preserveDeliveredStateOnAbort.delete(targetWindowId);
         if (!didReceiveAssistantEvent && !shouldPreserveDeliveredState) {
           restoreDraftAfterUndeliveredSend(
@@ -1529,7 +1532,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
       }
 
       // 其他错误正常处理
-      console.error('Chat error:', error);
+      streamLog.error('chat error', { win: effectiveWindowId, error });
       const errorInfo = normalizeChatError(error);
 
       if (!didReceiveAssistantEvent) {
@@ -1568,7 +1571,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
             attachmentIds
           });
         } catch (commitError) {
-          console.warn('[sendMessage] Commit attachments failed:', commitError);
+          streamLog.warn('commit attachments failed', { error: commitError });
         }
       }
 
@@ -2012,7 +2015,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         }
       }
     } catch (error) {
-      console.warn(`[useChatStream] History polling failed for window ${windowId}:`, error);
+      streamLog.warn('history polling failed', { win: windowId, error });
     } finally {
       activeHistoryPollingWindows.delete(windowId);
     }
@@ -2071,7 +2074,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         const status = await syncHistoryForWindow(windowId);
         startHistoryPollingForWindow(windowId, status);
       } catch (error) {
-        console.warn(`[useChatStream] Restore history failed for window ${windowId}:`, error);
+        streamLog.warn('restore history failed', { win: windowId, error });
       }
     }));
   };
@@ -2176,13 +2179,13 @@ export const useChatStream = (options: ChatStreamOptions) => {
   const interruptWindow = async (windowId: string, keepDeliveredStateOnAbort = false) => {
     const win = findWindow(windowId);
     if (!win || !win.isStreaming) {
-      console.log('[interruptMessage] No active streaming to interrupt');
+      userLog.debug('interrupt skipped (no active streaming)', { win: windowId });
       return;
     }
 
     const effectiveWindowId = windowId || 'window-main';
 
-    console.log('[interruptMessage] Interrupting conversation:', { windowId: effectiveWindowId });
+    userLog.info('interrupt', { win: effectiveWindowId });
 
     try {
       // 1. 取消前端 fetch 请求
@@ -2205,9 +2208,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
       });
 
       if (response.ok) {
-        console.log('[interruptMessage] Successfully interrupted');
+        userLog.debug('interrupt ok', { win: effectiveWindowId });
       } else {
-        console.warn('[interruptMessage] Backend interrupt returned:', response.status);
+        userLog.warn('interrupt returned non-ok', { win: effectiveWindowId, status: response.status });
       }
 
       // 3. 更新前端状态
@@ -2235,7 +2238,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     } catch (error) {
       // AbortError 是正常的取消，不需要报错
       if (error instanceof Error && error.name !== 'AbortError') {
-        console.error('[interruptMessage] Error:', error);
+        userLog.error('interrupt error', { win: effectiveWindowId, error });
       }
     }
   };
@@ -2303,10 +2306,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
       await Promise.all(draftAttachments.map(attachment =>
         ChatAttachmentService
           .deleteAttachment(currentProjectPath.value, attachment.attachmentId)
-          .catch(error => console.warn('[queuedMessage] Delete attachment failed:', error))
+          .catch(error => streamLog.warn('delete attachment failed', { error }))
       ));
     } catch (error) {
-      console.warn('[queuedMessage] Cleanup queued attachments failed:', error);
+      streamLog.warn('cleanup queued attachments failed', { error });
     }
   };
 
