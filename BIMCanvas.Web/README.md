@@ -365,7 +365,7 @@ UX 一致性约束。所有用户可见的反馈与"需要重启"状态都走两
 
 ## 11. 日志系统（F12 / 面板）
 
-全前端日志走**单一出口** `src/utils/logger.ts`,**禁止**散用 `console.*`。与 Server 日志（终端控制台 + `logs/chat_*.log`）功能互补:Web 记「浏览器视角的意图与感知」,Server 记「服务端的执行与状态」,两端以 `windowId` + 时间戳对齐。
+全前端日志走**单一出口** `src/utils/logger.ts`,**禁止**散用 `console.*`。与 Server 日志（终端控制台 + `logs/session_*.log`，Server 侧 Console Tee 镜像）功能互补:Web 记「浏览器视角的意图与感知」,Server 记「服务端的执行与状态」,两端以 `windowId` + 时间戳对齐。
 
 ### 11.1 用法
 
