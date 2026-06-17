@@ -263,6 +263,7 @@ export class InteractionService {
 
         this.store.clearSelection();
         void this.store.endBatchUpdate();
+        log.info('delete executed', { count: modulesToDelete.length });
 
         // 3. Only show feedback if something was actually deleted
         this.store.currentOperation = 'deleted';

@@ -8,7 +8,9 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { SchemeService, type VariantDescriptor } from '../../services/SchemeService';
 import GlassButton from './base/GlassButton.vue';
+import { createLogger } from '../../utils/logger';
 
+const log = createLogger('USER');
 const canvasStore = useCanvasStore();
 
 const variants = ref<VariantDescriptor[]>([]);
@@ -120,8 +122,10 @@ async function gotoIndex(nextIndex: number) {
     const wrapped = ((nextIndex % len) + len) % len;
     const targetSlug = sequence.value[wrapped];
     if (!targetSlug || targetSlug === CANONICAL_SLOT) {
+        log.info('variant switch', { dz: ctx.designZoneId, slug: '@canonical' });
         await canvasStore.clearActiveVariant(ctx.designZoneId);
     } else {
+        log.info('variant switch', { dz: ctx.designZoneId, slug: targetSlug });
         await canvasStore.setActiveVariant(ctx.designZoneId, targetSlug);
     }
 }
@@ -179,6 +183,7 @@ async function onAdopt() {
     await canvasStore.clearActiveVariant(ctx.designZoneId);
     try {
         await SchemeService.adoptVariant({ designZoneId: ctx.designZoneId, variantSlug: slug });
+        log.info('variant adopt', { dz: ctx.designZoneId, slug });
         // 乐观清空，等 SignalR variant-files-changed 兜底 refetch（含 prev-* 新增）
         variants.value = [];
     } catch (err: any) {
@@ -212,6 +217,7 @@ async function confirmDelete() {
             designZoneId: pending.designZoneId,
             variantSlug: pending.variantSlug
         });
+        log.info('variant delete', { dz: pending.designZoneId, slug: pending.variantSlug });
         // 乐观从本地列表移除；SignalR variant-files-changed 会兜底 refetch
         variants.value = variants.value.filter(v => v.slug !== pending.variantSlug);
     } catch (err: any) {

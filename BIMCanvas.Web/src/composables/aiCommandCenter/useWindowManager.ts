@@ -482,7 +482,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     }
 
     windows.value.splice(index, 1);
-    log.debug('window closed', { name: win.name });
+    log.info('window closed', { name: win.name });
 
     if (activeWindowId.value === id) {
       const newActiveIndex = Math.min(index, windows.value.length - 1);
