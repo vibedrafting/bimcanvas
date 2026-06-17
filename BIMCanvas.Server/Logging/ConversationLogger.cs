@@ -23,7 +23,9 @@ public static class ConversationLogger
     private static TeeTextWriter? _errTee;
 
     private static readonly object _fileLock = new();
-    private static StreamWriter? _fileWriter;
+    // 当前日志文件路径。写完即关、从不持有句柄——否则会占住项目目录，
+    // 导致删除/移动项目时报「file is being used by another process」。
+    private static string? _currentFilePath;
 
     // ANSI 颜色转义码清理（文件存纯文本，控制台仍保留颜色）
     private static readonly Regex AnsiRegex =
@@ -58,73 +60,51 @@ public static class ConversationLogger
     {
         lock (_fileLock)
         {
-            FlushAndCloseFileNoLock();
-
-            var logDir = Path.Combine(projectPath, "logs");
-            Directory.CreateDirectory(logDir);
-            var path = Path.Combine(logDir, $"session_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-
             try
             {
-                _fileWriter = new StreamWriter(path, append: true, Encoding.UTF8)
-                {
-                    AutoFlush = true
-                };
+                var logDir = Path.Combine(projectPath, "logs");
+                Directory.CreateDirectory(logDir);
+                _currentFilePath = Path.Combine(logDir, $"session_{DateTime.Now:yyyyMMdd_HHmmss}.log");
             }
             catch
             {
-                // 文件打开失败不影响主流程，退化为仅控制台
-                _fileWriter = null;
+                // 目录创建失败不影响主流程，退化为仅控制台
+                _currentFilePath = null;
             }
         }
     }
 
     /// <summary>
-    /// 程序退出收尾：flush 并关闭文件。
+    /// 程序退出收尾：停止落盘。无持有句柄，无需 flush/close。
     /// </summary>
     public static void Shutdown()
     {
         lock (_fileLock)
         {
-            FlushAndCloseFileNoLock();
+            _currentFilePath = null;
         }
     }
 
     /// <summary>
-    /// 由 Tee 在写出一整行（不含换行符）时回调：去 ANSI 后写入文件。
+    /// 由 Tee 在写出一整行（不含换行符）时回调：去 ANSI 后追加写入文件。
+    /// 写完即关、从不持有句柄——避免占住项目目录阻塞删除/移动。
     /// </summary>
     private static void WriteLineToFile(string line)
     {
-        // 文件未就绪（项目未打开 / 打开失败）→ 仅控制台
-        if (_fileWriter == null) return;
-
         var clean = AnsiRegex.Replace(line, "");
         lock (_fileLock)
         {
-            if (_fileWriter == null) return;
+            if (_currentFilePath == null) return;
             try
             {
-                _fileWriter.WriteLine(clean);
+                // 追加单行后立即关闭；目录已被删除时抛异常 → 静默忽略，不重建目录
+                File.AppendAllText(_currentFilePath, clean + Environment.NewLine, Encoding.UTF8);
             }
             catch
             {
                 // 日志写入失败不影响主流程
             }
         }
-    }
-
-    private static void FlushAndCloseFileNoLock()
-    {
-        try
-        {
-            _fileWriter?.Flush();
-            _fileWriter?.Dispose();
-        }
-        catch
-        {
-            // 收尾失败忽略
-        }
-        _fileWriter = null;
     }
 }
 
