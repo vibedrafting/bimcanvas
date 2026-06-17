@@ -257,11 +257,11 @@ export const useMergeStore = defineStore('merge', () => {
         // 检查是否实际执行了合并（mergedZoneCount > 0）
         if (result.mergedZoneCount === 0) {
           // 无差异，自动清理并关闭向导
-          log.info('branches identical, no merge needed, auto cleanup');
+          log.info('branches identical, no merge needed, auto cleanup', { cleanup: branchesToCleanup.value });
           closeWizard();
           return { success: true, message: '两个分支内容相同，无需合并', mergedZoneCount: 0 };
         }
-        log.info('overwrite merge succeeded', { mergedZoneCount: result.mergedZoneCount });
+        log.info('overwrite merge succeeded', { source: sourceBranch.value, target: targetBranch.value, mergedZoneCount: result.mergedZoneCount, cleanup: branchesToCleanup.value });
         closeWizard();
         return { success: true, mergedZoneCount: result.mergedZoneCount };
       } else {
