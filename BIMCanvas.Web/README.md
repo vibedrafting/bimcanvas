@@ -365,36 +365,73 @@ UX 一致性约束。所有用户可见的反馈与"需要重启"状态都走两
 
 ## 11. 日志系统（F12 / 面板）
 
-全前端日志走**单一出口** `src/utils/logger.ts`,**禁止**散用 `console.*`。与 Server 日志（终端控制台 + `logs/session_*.log`，Server 侧 Console Tee 镜像）功能互补:Web 记「浏览器视角的意图与感知」,Server 记「服务端的执行与状态」,两端以 `windowId` + 时间戳对齐。
+全前端日志走**单一出口** `src/utils/logger.ts`,**禁止**散用 `console.*`(唯一例外是 `logger.ts` 自身内部的 console sink）。这是一次彻底重构的产物:旧的「`debugStore`(Pinia)+ 47 文件散用 `console.*`」双轨已废弃,`stores/debugStore.ts` 已删除。
 
-### 11.1 用法
+### 11.1 设计目标与互补边界
+
+日志要做到:**统一输出、足够简洁、显示用户关键操作、显示信息收发、显示关键渲染报错**。核心手段是**单一分级结构化 logger + turn/操作粒度聚合**(不在 chunk 粒度打点,否则 SSE delta 一秒几十条会淹没有效信息)。
+
+与 Server 日志**功能互补**,两端以 `windowId` + 时间戳对齐,不互相重复:
+
+| 维度 | Server 日志（终端控制台 + `logs/session_*.log`，Console Tee 镜像) | Web 日志（F12 + 面板) |
+|---|---|---|
+| 视角 | 服务端**执行与状态** | 浏览器**意图与感知** |
+| SSE 流内容 | **盲区**——`Program.cs` 的 `ProxyToAgentAsync` 透明转发,零日志 | **主战场**:记录实际解析到的事件流 |
+| 用户操作 | 看不到,只见 HTTP 到达 | **唯一来源**:发送 / 中止 / 开关项目 / 编辑 |
+| 几何 / Zone | 计算、验证、落盘(PlacementService 等) | 只记「收到推送 + 渲染成败」,不记几何细节 |
+| Git / Worktree | 完整 | 不记,收到 `git-status-changed` 通知即可 |
+
+一句话:**Web 记意图与感知,Server 记执行与状态;流是 Server 的结构性盲区,正好由 Web 补全。**
+
+### 11.2 用法
 
 ```ts
-import { createLogger } from '@/utils/logger';   // 实际用相对路径
-const log = createLogger('STREAM');              // 按归属域取
+import { createLogger } from '@/utils/logger';   // 实际用相对路径,如 '../../utils/logger'
+const log = createLogger('STREAM');              // 模块级声明,按归属域取
 log.info('turn.completed', { win: 'main', dur: '12s', tokens: 4521 });
 // 输出:[23:45:12.341] [Web:STREAM] turn.completed win=main dur=12s tokens=4521
 ```
 
-- `msg` 用英文短语,变量进 `fields` 对象(不要字符串拼接);格式 `[时间] [Web:域] msg key=val` 与 Server `[时间] [Server] msg` 视觉对齐。
-- **五个域**:`USER`(用户操作:发送/中止/开关项目/编辑)、`STREAM`(SSE 流收发与 turn 状态)、`RECV`(SignalR 推送接收)、`RENDER`(Three/渲染)、`SYS`(系统/生命周期/项目加载)。
-- **四级**:`error` / `warn` / `info` / `debug`。
+- API:`createLogger(domain)` 返回 `{ error, warn, info, debug }`,每个签名 `(msg: string, fields?: Record<string, unknown>)`。
+- `msg` 用**英文短语**,变量进 `fields` 对象(**不要字符串拼接**);`fields` 渲染成 `key=val`,带空格的值自动加引号,`Error` 取 `.message`,对象 `JSON.stringify` 且超 200 字截断。
+- 格式 `[时间] [Web:域] msg key=val` 与 Server `[时间] [Server] msg` 视觉对齐,F12 与 Server 终端并排可对照。
+- 关联键:涉及某窗口的日志带 `win=<windowId>`;一次对话用 `clientMessageId` 贯穿 send→turn。
 
-### 11.2 分级纪律(保证简洁)
+### 11.3 五域事件地图
+
+| 域 | 颜色 | 记什么 | 关键触发点(file) |
+|---|---|---|---|
+| `USER` | 紫 | 用户关键操作 | `useChatStream.ts`(send / interrupt)、`appStore.ts`(open / close / delete project)、interaction tools(move / rotate / copy / mirror / place) |
+| `STREAM` | 蓝 | SSE 流收发 + turn 状态 | `useChatStream.ts`(send 载荷、`turn.completed` / `turn.failed`、SSE 解析失败、history 同步) |
+| `RECV` | 绿 | SignalR 推送接收 | `SignalRService.ts`(`ReceiveUpdate` / `GitStatusChanged` / `AgentNotification` / `SceneArtifactUpdated` + 连接生命周期)、`canvasStore.ts`(server-update / 变体同步) |
+| `RENDER` | 粉 | Three / 渲染 | `ThreeSceneService.ts`(模块库加载失败、场景重建、fitToScreen)、`builders/*`、`LayerManager.ts` |
+| `SYS` | 灰 | 系统 / 生命周期 / 项目加载 | `App.vue`(挂载、进工作区)、`canvasStore.ts`(project loaded / save)、各 service |
+
+> SignalRService 的 4 个推送处理器原本**零日志**,本次补齐——这是 Server 看不到的「信息接受」面。
+
+### 11.4 分级纪律(保证简洁)
 
 | 级别 | 默认可见 | 内容 |
 |---|---|---|
-| error / warn | ✓ | 真错误 / 降级 / 重连 |
-| info | ✓ | 用户操作、turn 里程碑、关键 SignalR 推送、保存/合并/分支成功 |
-| debug | ✗ | delta、心跳、几何细节、开发噪音 |
+| error / warn | ✓ | 真错误 / 降级 / 重连 / 约束违规 |
+| info | ✓ | 用户操作、turn 里程碑、关键 SignalR 推送、保存/合并/分支/截图成功 |
+| debug | ✗ | delta、心跳、几何细节、查找未命中、开发噪音 |
 
-- **阈值门控**:低于当前级别的日志直接丢弃(不进 buffer、不打 console),默认 DEV=`info`、PROD=`warn`。
-- 频繁事件(SSE delta、查找未命中)**必须降 `debug`**;一个 turn 只打 `turn.started` / `turn.completed`,不逐 chunk 打。
-- ⚠️ **禁止在 computed / getter 内写日志**——logger 写 reactive `logBuffer`,在 computed 内会触发响应式循环(见 `canvasStore.findObjectById` 注释)。
+- **阈值门控**:低于当前级别的日志直接丢弃(不进 buffer、不打 console),默认 `import.meta.env.DEV ? 'info' : 'warn'`。
+- 频繁事件(SSE delta、坐标 / SVG 调试)**必须降 `debug`**;一个 turn 只打里程碑,不逐 chunk 打。
+- ⚠️ **禁止在 computed / getter 内写日志**——logger 会 `unshift` reactive `logBuffer`,在 computed 内触发响应式副作用导致无限循环(`canvasStore.findObjectById` 在 computed 中调用,故其内部不打任何日志,见该函数注释)。
 
-### 11.3 运行时开关 + 面板
+### 11.5 运行时开关 + 面板
 
-- 切级别:F12 控制台 `__bimlog.setLevel('debug')`,或 `localStorage.bimlog='debug'`(持久化)。
-- 应用内面板 `src/components/UI/DebugConsole.vue`:`Ctrl+\`` 开关,支持级别切换、域过滤、复制全部;UI 状态在 `src/stores/logStore.ts`,数据源是 logger 的 reactive buffer(环形上限 500)。
+- 切级别:F12 控制台 `__bimlog.setLevel('debug')`(全局钩子,另含 `__bimlog.level` / `.clear()` / `.buffer`),或 `localStorage.bimlog='debug'`(持久化,刷新保留)。
+- 应用内面板 `src/components/UI/DebugConsole.vue`:`Ctrl+\`` 开关(`App.vue` 的 `handleKeydown` → `logStore.toggle()`),支持级别切换、域过滤、复制全部。
 
-历史 commit:`enhance/web-logging 分支 —— Web 日志系统统一重构(logger 核心 + 协议层迁移 + 噪音清扫,删除旧 debugStore)`
+### 11.6 架构与文件
+
+- `src/utils/logger.ts` —— **framework-agnostic 纯 TS 模块**(只 `import { ref } from 'vue'` 做 buffer),非 Pinia store。这样服务层单例类(`SignalRService`)、Three 服务、甚至 Pinia 初始化前的早期日志都能直接 `import`,且「产生日志」与「展示日志」解耦。持有阈值级别 + reactive `logBuffer`(newest-first,环形上限 **500**) + console sink(按级别映射 `console.error/warn/log/debug`,带域色前缀)。
+- `src/stores/logStore.ts` —— 极薄 Pinia store,只剩**面板 UI 状态**(`isVisible` / 域过滤 / 级别按钮),数据源 `visibleLogs` 取自 logger 的 `logBuffer`,无任何 console 逻辑。
+- `src/components/UI/DebugConsole.vue` —— 面板视图,挂在 `App.vue` 全局。
+
+数据流:`createLogger(domain).info(...)` → `emit()` 阈值门控 → 同时(a) console sink 打印、(b) `unshift` 进 `logBuffer` → `logStore.visibleLogs`(域过滤) → `DebugConsole.vue` 渲染。
+
+历史 commit:`enhance/web-logging 分支 —— Web 日志系统统一重构(logger 核心 + 协议层迁移 + 51 文件噪音清扫,删除旧 debugStore)`
