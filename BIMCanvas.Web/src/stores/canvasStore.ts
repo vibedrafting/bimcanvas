@@ -139,6 +139,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     const activeUndoTarget = ref<EditTarget | null>(null);
     const sysLog = createLogger('SYS');
     const recvLog = createLogger('RECV');
+    const userLog = createLogger('USER');
 
     const dispatchLocalUpdate = (detail: Record<string, unknown>) => {
         if (supports(runtime.capabilities.realtimeProjectSync)) {
@@ -981,6 +982,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!target) return;
         const mods = history.undo(target);
         if (mods === null) return;
+        userLog.info('undo', { dz: target.designZoneId, slug: target.variantSlug ?? '@canonical', modules: mods.length });
         preserveViewOnLoad.value = true;
         applyTargetModules(target, mods);
         isDirty.value = true;
@@ -994,6 +996,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         if (!target) return;
         const mods = history.redo(target);
         if (mods === null) return;
+        userLog.info('redo', { dz: target.designZoneId, slug: target.variantSlug ?? '@canonical', modules: mods.length });
         preserveViewOnLoad.value = true;
         applyTargetModules(target, mods);
         isDirty.value = true;
