@@ -16,11 +16,13 @@ import DebugConsole from './components/UI/DebugConsole.vue';
 import BranchMergeWizard from './components/UI/merge/BranchMergeWizard.vue';
 import NotificationCenter from './components/UI/NotificationCenter.vue';
 import GlobalRestartButton from './components/UI/GlobalRestartButton.vue';
-import { useDebugStore } from './stores/debugStore';
+import { useLogStore } from './stores/logStore';
+import { createLogger } from './utils/logger';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
-const debugStore = useDebugStore();
+const logStore = useLogStore();
+const log = createLogger('SYS');
 const runtime = getWebRuntime();
 const canUseGitBranching = supports(runtime.capabilities.gitBranching);
 
@@ -43,7 +45,7 @@ let reuseExistingProjectOnNextEnter = false;
  */
 const enterWorkspace = async () => {
   if (enterWorkspaceLock) {
-    debugStore.warn('[App] enterWorkspace already running, skipping');
+    log.debug('enterWorkspace skipped (already running)');
     return;
   }
   enterWorkspaceLock = true;
@@ -67,7 +69,7 @@ const enterWorkspace = async () => {
     let loaded = Boolean(store.projectData);
     if (shouldReuseExistingProject) {
       reuseExistingProjectOnNextEnter = false;
-      debugStore.log('[App] Reusing projectData already loaded in canvasStore');
+      log.debug('reuse projectData already in canvasStore');
     } else {
       // Connected 模式下重新从 Runtime 拉取，确保打开项目/分支切换后的数据是最新的。
       // Standalone 模式只有在没有 projectData 时才会走这里，通常返回 null 并停留首页。
@@ -83,14 +85,13 @@ const enterWorkspace = async () => {
 
     // 计算目标视图
     if (store.projectData) {
-      debugStore.log('Calculating target view...');
       const target = ViewCalculator.calculateTargetView(
         store.projectData,
         window.innerWidth,
         window.innerHeight
       );
       if (target) {
-        debugStore.log(`Target view calculated: spacing=${target.spacing.toFixed(2)}`);
+        log.debug('target view calculated', { spacing: target.spacing.toFixed(2) });
         loaderProps.value = {
           ...loaderProps.value,
           spacing: target.spacing,
@@ -99,14 +100,14 @@ const enterWorkspace = async () => {
         };
       }
     } else {
-      debugStore.warn('No project data found after load.');
+      log.warn('no project data after load');
     }
 
     // 等待最小展示时间
     await minTimePromise;
 
     // Cinematic Sequence
-    debugStore.log('Starting Cinematic Sequence...');
+    log.debug('cinematic sequence start');
 
     isSplashShowing.value = false;
     loaderProps.value.active = false;
@@ -121,12 +122,11 @@ const enterWorkspace = async () => {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     loadingStage.value = 5;
-    debugStore.log('Triggering Progressive Scene Build...');
+    log.debug('trigger progressive scene build');
     window.dispatchEvent(new CustomEvent('bimcanvas:play-build-sequence'));
 
   } catch (error) {
-    console.error('Failed to enter workspace:', error);
-    debugStore.error(`enterWorkspace failed: ${error}`);
+    log.error('enterWorkspace failed', { error });
   } finally {
     enterWorkspaceLock = false;
   }
@@ -134,11 +134,11 @@ const enterWorkspace = async () => {
 
 onMounted(async () => {
   themeService.init();
-  debugStore.log('App Mounted. Initializing...');
+  log.info('app mounted, initializing');
 
   window.addEventListener('keydown', handleKeydown);
   window.addEventListener('bimcanvas:build-complete', () => {
-    debugStore.log('Build Complete Event Received.');
+    log.debug('build complete event received');
     isBuildComplete.value = true;
   });
 
@@ -146,14 +146,14 @@ onMounted(async () => {
   try {
     const loaded = await store.loadInitialProject(ChangeSource.SystemInit);
     if (loaded) {
-      debugStore.log('Runtime has loaded project, entering workspace...');
+      log.info('runtime has project, entering workspace');
       reuseExistingProjectOnNextEnter = true;
       appStore.goToWorkspace();
     } else {
-      debugStore.log('No project loaded, showing homepage...');
+      log.info('no project loaded, showing homepage');
     }
   } catch (err) {
-    debugStore.warn(`Failed to load initial project: ${err}, showing homepage...`);
+    log.warn('initial project load failed, showing homepage', { err });
   }
 
   isInitialized.value = true;
@@ -163,7 +163,7 @@ onMounted(async () => {
 // 这是进入工作区的唯一触发点
 watch(() => appStore.currentView, async (newView, oldView) => {
   if (newView === 'workspace' && oldView === 'homepage') {
-    debugStore.log(`[App] View changed: ${oldView} → ${newView}, entering workspace...`);
+    log.info('view changed → workspace, entering');
     await enterWorkspace();
   }
 });
@@ -174,7 +174,7 @@ onUnmounted(() => {
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.ctrlKey && e.key === '`') {
-    debugStore.toggle();
+    logStore.toggle();
   }
 
   if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
