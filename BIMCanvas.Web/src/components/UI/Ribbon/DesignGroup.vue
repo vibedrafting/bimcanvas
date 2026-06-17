@@ -14,6 +14,9 @@ import { useCanvasStore } from '../../../stores/canvasStore';
 import { useMergeStore } from '../../../stores/mergeStore';
 import { getWebRuntime } from '../../../runtime/runtimeRegistry';
 import { supports } from '../../../runtime/WebRuntimeProtocol';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 // --- Git Store ---
 const gitStore = useGitStore();
@@ -98,7 +101,7 @@ const handleBranchChange = async (val: string | number) => {
     return;
   }
 
-  console.error('切换分支失败:', result.message);
+  log.error('Branch checkout failed', { message: result.message });
 };
 
 // 确认弹窗回调
@@ -111,7 +114,7 @@ const handleCheckoutConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
     // 1. 先保存内存数据到文件系统
     const saved = await canvasStore.saveModules();
     if (!saved) {
-      console.error('保存数据失败，无法切换分支');
+      log.error('Save failed, cannot switch branch');
       pendingCheckoutBranch.value = '';
       return;
     }
@@ -136,10 +139,9 @@ const handleCheckoutCancel = () => {
 
 // 打开合并向导
 const openMergeWizard = () => {
-  console.log('[DesignGroup] openMergeWizard called');
-  console.log('[DesignGroup] mergeStore.isVisible before:', mergeStore.isVisible);
+  log.debug('openMergeWizard called', { isVisibleBefore: mergeStore.isVisible });
   mergeStore.openWizard();
-  console.log('[DesignGroup] mergeStore.isVisible after:', mergeStore.isVisible);
+  log.debug('openMergeWizard done', { isVisibleAfter: mergeStore.isVisible });
 };
 
 </script>

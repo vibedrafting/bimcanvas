@@ -33,6 +33,9 @@ import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 import ImageLightbox from './ImageLightbox.vue';
 import { AGENT_API, SERVER_BASE } from '../../config/api';
 import { ChatAttachmentService, getImageDimensions } from '../../services/ChatAttachmentService';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 // === Lightbox 状态 ===
 const lightbox = ref({ visible: false, src: '' });
@@ -296,7 +299,7 @@ const saveSpatialIntentOptions = () => {
   try {
     window.localStorage.setItem(SPATIAL_INTENT_STORAGE_KEY, JSON.stringify(spatialIntentOptions.value));
   } catch (error) {
-    console.warn('[AICommandCenter] Failed to save Space Mark tag presets:', error);
+    log.warn('Failed to save Space Mark tag presets', { error });
   }
 };
 
@@ -313,7 +316,7 @@ const loadSpatialIntentOptions = () => {
       .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
     spatialIntentOptions.value = options;
   } catch (error) {
-    console.warn('[AICommandCenter] Failed to load Space Mark tag presets:', error);
+    log.warn('Failed to load Space Mark tag presets', { error });
   }
 };
 
@@ -442,7 +445,7 @@ const openImagePicker = async () => {
     } catch (error) {
       const err = error as DOMException;
       if (err?.name !== 'AbortError') {
-        console.error('[ImageUpload] File picker failed:', error);
+        log.error('Image file picker failed', { error });
       }
     }
   }

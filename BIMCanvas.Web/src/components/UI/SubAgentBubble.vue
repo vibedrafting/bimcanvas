@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
 import type { ChatBubble } from '../../types/agent';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('STREAM');
 
 const props = defineProps<{
   bubble: ChatBubble;
@@ -47,7 +50,7 @@ const stopTimer = () => {
 
 watch(() => props.bubble.status, (newStatus, oldStatus) => {
   // [调试] 状态变化日志
-  console.log(`[SubAgentBubble] status: ${oldStatus} → ${newStatus}`);
+  log.debug('SubAgent status changed', { oldStatus, newStatus });
 
   if (newStatus === 'streaming' || newStatus === 'background') {
     startTimer();

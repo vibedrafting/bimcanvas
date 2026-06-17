@@ -8,6 +8,9 @@ import { ScreenshotService, type ClipRect } from '../services/ScreenshotService'
 import { getThreeSceneService } from '../services/three/ThreeSceneService';
 import { LayerManager } from '../services/three/LayerManager';
 import type { ProjectData, Polygon2D, Room, Zone } from '../types/canvas';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('RENDER');
 
 type ViewMode = 'human' | 'ai';
 type ViewportMode = 'full' | 'bounds' | 'room' | 'zone';
@@ -235,7 +238,7 @@ const resolveLayerIds = (names?: string[] | null): number[] => {
       ids.add(id);
       return;
     }
-    console.warn(`[ScreenshotRenderView] Unknown layer name: ${name}`);
+    log.warn('Unknown layer name', { name });
   });
   return Array.from(ids);
 };
@@ -477,7 +480,7 @@ const applyViewport = (sceneService: NonNullable<ReturnType<typeof getThreeScene
       sceneService.fitToBounds(targetBounds);
       return targetBounds;
     }
-    console.warn(`[ScreenshotRenderView] Room not found: ${roomId}，回退 full bounds（已截全屋图）`);
+    log.warn('Room not found, falling back to full bounds', { roomId });
     const fullBounds = computeProjectBounds(projectData);
     if (!fullBounds) return null;
     sceneService.fitToBounds(expandBounds(fullBounds, computePadding(fullBounds, 'full')));
@@ -642,7 +645,7 @@ const renderWithConfig = async (config: RenderConfig) => {
     window.__renderReady = true;
   } catch (error: any) {
     const message = error?.message ?? String(error);
-    console.error('[ScreenshotRenderView] Failed:', message);
+    log.error('Render failed', { message });
     window.__renderError = message;
   } finally {
     store.preserveViewOnLoad = false;

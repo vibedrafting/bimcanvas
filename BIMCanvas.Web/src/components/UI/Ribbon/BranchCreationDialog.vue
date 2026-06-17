@@ -2,6 +2,9 @@
 import { ref, watch, computed } from 'vue';
 import GlassButton from '../base/GlassButton.vue';
 import GlassSelect from '../base/GlassSelect.vue';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 interface Props {
   visible: boolean;
@@ -45,10 +48,10 @@ watch(() => props.visible, (newVal) => {
 });
 
 const handleCreate = () => {
-  console.log('[BranchCreationDialog] handleCreate called, branchName:', newBranchName.value);
+  log.debug('handleCreate called', { branchName: newBranchName.value });
 
   if (!newBranchName.value.trim()) {
-    console.log('[BranchCreationDialog] Branch name is empty, returning');
+    log.debug('Branch name is empty, returning');
     return;
   }
 
@@ -60,7 +63,7 @@ const handleCreate = () => {
     switchAfterCreate: switchAfterCreate.value
   };
 
-  console.log('[BranchCreationDialog] Emitting create event with data:', data);
+  log.debug('Emitting create event', { data });
   emit('create', data);
 };
 

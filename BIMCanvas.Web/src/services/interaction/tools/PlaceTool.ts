@@ -3,12 +3,14 @@ import { watch, type WatchStopHandle } from 'vue';
 import type { Tool } from './Tool';
 import type { ModuleDefinition } from '../../ModuleLibraryService';
 import { useCanvasStore } from '../../../stores/canvasStore';
-import { useDebugStore } from '../../../stores/debugStore';
 import { angleToFacing, createFacingData, toModel } from '../../../utils/coordinates';
 import type { Module } from '../../../types/canvas';
 import { LayerManager } from '../../three/LayerManager';
 import { generateModuleId } from '../../../utils/shortId';
 import { boundsFromCenter } from '../../../utils/moduleSize';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 /**
  * PlaceTool - 模块放置工具
@@ -57,7 +59,6 @@ export class PlaceTool implements Tool {
 
     activate(): void {
         const store = useCanvasStore();
-        const debug = useDebugStore();
 
         store.currentOperation = 'placing';
         store.clearSelection();
@@ -90,7 +91,7 @@ export class PlaceTool implements Tool {
             { deep: true }
         );
 
-        debug.log(`[PlaceTool] Activated: ${this.moduleDef.id} (${this.moduleDef.name})`);
+        log.debug('place tool activated', { moduleId: this.moduleDef.id, name: this.moduleDef.name });
     }
 
     deactivate(): void {
@@ -248,8 +249,7 @@ export class PlaceTool implements Tool {
             if (this.currentWorldPoint) {
                 this.updatePreviewPosition(this.currentWorldPoint);
             }
-            const debug = useDebugStore();
-            debug.log(`[PlaceTool] Rotation: ${(this.currentRotation * 180 / Math.PI).toFixed(0)}°`);
+            log.debug('place tool rotation', { deg: (this.currentRotation * 180 / Math.PI).toFixed(0) });
         }
     }
 
@@ -258,7 +258,6 @@ export class PlaceTool implements Tool {
      */
     private executePlace(worldPoint: THREE.Vector3): void {
         const store = useCanvasStore();
-        const debug = useDebugStore();
 
         // 1. 世界坐标 → 数据坐标
         const center = toModel(worldPoint);
@@ -285,7 +284,13 @@ export class PlaceTool implements Tool {
         store.addModule(newModule);
         void store.endBatchUpdate();
 
-        debug.log(`[PlaceTool] Placed "${this.moduleDef.name}" at (${center[0].toFixed(0)}, ${center[1].toFixed(0)}), facing.value=(${facingValue[0].toFixed(3)}, ${facingValue[1].toFixed(3)})`);
+        log.info('module placed', {
+            name: this.moduleDef.name,
+            x: center[0].toFixed(0),
+            y: center[1].toFixed(0),
+            facingX: facingValue[0].toFixed(3),
+            facingY: facingValue[1].toFixed(3)
+        });
 
         // 6. 继续放置（不退出工具）
         // previewGroup 标记为 isGhost，clearScene() 会跳过它，无需重建

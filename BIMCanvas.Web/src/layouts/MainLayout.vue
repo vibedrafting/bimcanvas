@@ -12,7 +12,7 @@ import VariantNavigatorBar from '../components/UI/VariantNavigatorBar.vue';
 import ModuleLibraryPanel from '../components/UI/ModuleLibraryPanel.vue';
 import BoundaryDebugPanel from '../components/UI/BoundaryDebugPanel.vue';
 import EnvisionPanel from '../components/UI/EnvisionPanel.vue';
-import { useDebugStore } from '../stores/debugStore';
+import { createLogger } from '../utils/logger';
 import { useCanvasStore } from '../stores/canvasStore';
 import { storeToRefs } from 'pinia';
 import { onMounted, onUnmounted, ref, watch, computed } from 'vue';
@@ -25,7 +25,7 @@ const props = defineProps<{
   buildComplete?: boolean;
 }>();
 
-const debugStore = useDebugStore();
+const log = createLogger('SYS');
 const canvasStore = useCanvasStore();
 const { currentOperation } = storeToRefs(canvasStore);
 const runtime = getWebRuntime();
@@ -67,7 +67,7 @@ const onSelectModule = (mod: ModuleDefinition) => {
 };
 
 onMounted(() => {
-  debugStore.log('MainLayout Mounted.');
+  log.debug('MainLayout mounted');
   window.addEventListener('bimcanvas:open-module-library', onOpenModuleLibrary);
   window.addEventListener('bimcanvas:open-envision-panel', onOpenEnvisionPanel);
 });

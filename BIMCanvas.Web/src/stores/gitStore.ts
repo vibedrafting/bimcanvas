@@ -3,6 +3,9 @@ import { ref, computed } from 'vue';
 import { ChangeSource } from '../types/history';
 import { useCanvasStore } from './canvasStore';
 import { SERVER_API } from '../config/api';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SYS');
 
 // Git分支信息接口
 export interface GitBranch {
@@ -89,7 +92,7 @@ export const useGitStore = defineStore('git', () => {
       if (statusResponse.ok) {
         const status = await statusResponse.json();
         if (!status.isLoaded) {
-          console.warn('[GitStore] 项目未加载，无法获取分支列表');
+          log.warn('project not loaded, cannot fetch branches');
           error.value = '项目未加载';
           branches.value = [];
           return;
@@ -114,13 +117,13 @@ export const useGitStore = defineStore('git', () => {
         });
 
         if (branches.value.length === 0) {
-          console.log('[GitStore] 分支列表为空（可能不是Git仓库）');
+          log.debug('branch list empty (maybe not a git repo)');
         }
       } else {
         throw new Error('Server API not available');
       }
     } catch (e) {
-      console.warn('Failed to fetch branches:', e);
+      log.warn('fetch branches failed', { err: e });
       error.value = 'offline';
       branches.value = [];
     } finally {
@@ -141,7 +144,7 @@ export const useGitStore = defineStore('git', () => {
       }
       return null;
     } catch (e) {
-      console.warn('[GitStore] 检查状态失败:', e);
+      log.warn('check status failed', { err: e });
       return null;
     }
   };
@@ -161,14 +164,14 @@ export const useGitStore = defineStore('git', () => {
       if (response.ok) {
         const result = await response.json();
         hasUncommittedChanges.value = false;
-        console.log('[GitStore] 提交成功:', result);
+        log.info('commit succeeded', { result });
         return { success: true };
       } else {
         const err = await response.json();
         return { success: false, message: err.message };
       }
     } catch (e) {
-      console.error('[GitStore] 提交失败:', e);
+      log.error('commit failed', { err: e });
       return { success: false, message: '请求失败' };
     } finally {
       isLoading.value = false;
@@ -190,14 +193,14 @@ export const useGitStore = defineStore('git', () => {
         // 重新加载项目以反映更改被丢弃后的状态
         const canvasStore = useCanvasStore();
         await canvasStore.loadInitialProject(ChangeSource.GitDiscard);
-        console.log('[GitStore] 已放弃所有更改');
+        log.info('all changes discarded');
         return { success: true };
       } else {
         const err = await response.json();
         return { success: false, message: err.message };
       }
     } catch (e) {
-      console.error('[GitStore] 放弃更改请求失败:', e);
+      log.error('discard changes failed', { err: e });
       return { success: false, message: '请求失败' };
     } finally {
       isLoading.value = false;
@@ -222,7 +225,7 @@ export const useGitStore = defineStore('git', () => {
     // - commitBeforeCheckout 模式：用户已确认要保存
     // - discardBeforeCheckout 模式：Server端会放弃更改后再切换
     if (!opts.commitBeforeCheckout && !opts.discardBeforeCheckout && canvasStore.isDirty) {
-      console.warn('[GitStore] 检测到内存中有未保存的修改');
+      log.warn('unsaved in-memory changes detected');
       hasUncommittedChanges.value = true;
       return {
         success: false,
@@ -244,7 +247,7 @@ export const useGitStore = defineStore('git', () => {
         baseBranch: opts.baseBranch,
         switchAfterCreate: opts.switchAfterCreate ?? true
       };
-      console.log('[GitStore] checkout 请求体:', JSON.stringify(requestBody, null, 2));
+      log.debug('checkout request', { requestBody });
 
       const response = await fetch(`${SERVER_API}/git/checkout`, {
         method: 'POST',
@@ -259,7 +262,7 @@ export const useGitStore = defineStore('git', () => {
 
         // 只创建不切换时，跳过项目重载和窗口激活
         if (result.switched === false) {
-          console.log('[GitStore] 分支已创建但未切换:', branchName);
+          log.info('branch created but not switched', { branchName });
           return { success: true };
         }
 
@@ -274,13 +277,13 @@ export const useGitStore = defineStore('git', () => {
             })
           });
         } catch (e) {
-          console.warn('[GitStore] 激活主窗口请求失败（非致命错误）:', e);
+          log.warn('activate main window failed (non-fatal)', { err: e });
         }
 
         // 重新加载项目数据，确保 Canvas 显示新分支的数据
         await canvasStore.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
 
-        console.log('[GitStore] 分支切换成功:', branchName);
+        log.info('branch switched', { branchName });
         return { success: true };
       } else {
         const err = await response.json();
@@ -289,7 +292,7 @@ export const useGitStore = defineStore('git', () => {
         // 409 冲突：有未提交的更改
         if (response.status === 409 && err.hasUncommittedChanges) {
           hasUncommittedChanges.value = true;
-          console.warn('[GitStore] 分支切换冲突: 有未提交的更改');
+          log.warn('checkout conflict: uncommitted changes');
           return {
             success: false,
             message: errorMsg,
@@ -298,7 +301,7 @@ export const useGitStore = defineStore('git', () => {
         }
 
         error.value = errorMsg;
-        console.error('[GitStore] 分支切换失败:', {
+        log.error('branch switch failed', {
           status: response.status,
           message: errorMsg,
           branchName
@@ -306,7 +309,7 @@ export const useGitStore = defineStore('git', () => {
         return { success: false, message: errorMsg };
       }
     } catch (e) {
-      console.error('切换分支请求失败:', e);
+      log.error('checkout request failed', { err: e });
       error.value = '请求失败';
       return { success: false, message: '请求失败' };
     } finally {
@@ -331,7 +334,7 @@ export const useGitStore = defineStore('git', () => {
         return await response.json();
       }
     } catch (e) {
-      console.warn('[GitStore] 获取分支锁失败:', e);
+      log.warn('fetch branch locks failed', { err: e });
     }
     return [];
   };

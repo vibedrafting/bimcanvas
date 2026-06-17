@@ -7,11 +7,13 @@ import { SnapSolver } from '../snap/SnapSolver';
 import { SnapVisual } from '../snap/SnapVisual';
 import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
-import { useDebugStore } from '../../../stores/debugStore';
 import { deltaToModel } from '../../../utils/coordinates';
 import { LayerManager } from '../../three/LayerManager';
 import { NumericInputManager } from '../NumericInputManager';
 import { generateModuleId } from '../../../utils/shortId';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 export class CopyTool implements Tool {
     name = 'Copy';
@@ -70,7 +72,7 @@ export class CopyTool implements Tool {
             this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
 
             if (this.selectedObjects.length === 0) {
-                console.log('No copyable modules selected');
+                log.debug('no copyable modules selected');
                 store.setPrompt('只有家具模块可以复制，请重新选择');
                 this.state = 'multi_selection';
                 this.domElement.style.cursor = 'default';
@@ -111,8 +113,7 @@ export class CopyTool implements Tool {
         this.domElement.style.cursor = 'crosshair';
         store.setPrompt(`请点击选择复制基点 (已选${this.selectedObjects.length}个对象)`);
 
-        const debug = useDebugStore();
-        debug.log(`[Copy] Building snap edges`);
+        log.debug('building snap edges');
         this.snapIndex.rebuild(store.projectData);
     }
 
@@ -384,7 +385,7 @@ export class CopyTool implements Tool {
         store.endBatchUpdate();
         store.clearSelection();
 
-        console.log(`Copy executed: ${this.selectedObjects.length} objects copied`);
+        log.info('copy executed', { count: this.selectedObjects.length });
         this.deactivate();
         window.dispatchEvent(new CustomEvent('bimcanvas:tool-completed'));
     }

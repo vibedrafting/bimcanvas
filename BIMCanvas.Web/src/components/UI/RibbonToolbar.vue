@@ -13,6 +13,9 @@ import BranchCheckoutConfirmDialog from './Ribbon/BranchCheckoutConfirmDialog.vu
 import { useGitStore } from '../../stores/gitStore';
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
 import { supports } from '../../runtime/WebRuntimeProtocol';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 // --- Git Store (for branch dialog) ---
 const gitStore = useGitStore();
@@ -91,13 +94,13 @@ const handleOpenBranchDialog = () => {
 };
 
 const handleCreateBranch = async (data: { name: string; baseBranch: string; tags: string[]; reason: string; switchAfterCreate?: boolean }) => {
-  console.log('[RibbonToolbar] handleCreateBranch called:', data);
+  log.debug('handleCreateBranch called', { data });
 
   const branchName = data.name.trim();
 
   // 直接创建分支，传递 baseBranch（无需先切换）
   // Git 支持 `git branch <new-branch> <base-branch>` 直接基于任意分支创建
-  console.log('[RibbonToolbar] Creating new branch:', branchName, 'based on:', data.baseBranch);
+  log.debug('Creating new branch', { branchName, baseBranch: data.baseBranch });
   const result = await gitStore.checkout(branchName, {
     createIfNotExist: true,
     commitMessage: data.reason,
@@ -107,14 +110,14 @@ const handleCreateBranch = async (data: { name: string; baseBranch: string; tags
 
   if (result.success) {
     showBranchDialog.value = false;
-    console.log('[RibbonToolbar] Branch created successfully:', branchName);
+    log.info('Branch created', { branchName });
   } else if (result.hasUncommittedChanges) {
     // 有未提交的更改，弹出冲突确认对话框
-    console.log('[RibbonToolbar] Conflict detected: uncommitted changes');
+    log.debug('Conflict detected: uncommitted changes');
     pendingBranchData.value = data;
     showConflictDialog.value = true;
   } else {
-    console.error('[RibbonToolbar] Failed to create branch:', result.message);
+    log.error('Failed to create branch', { message: result.message });
   }
 };
 
@@ -127,7 +130,7 @@ const handleConflictConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
   const data = pendingBranchData.value;
   const branchName = data.name.trim();
 
-  console.log('[RibbonToolbar] Conflict resolved, saveBeforeSwitch:', saveBeforeSwitch);
+  log.debug('Conflict resolved', { saveBeforeSwitch });
 
   // 直接创建分支，让 Server 处理存档/放弃操作
   // baseBranch 确保新分支基于正确的分支创建
@@ -141,9 +144,9 @@ const handleConflictConfirm = async (saveBeforeSwitch: boolean, commitMessage?: 
 
   if (result.success) {
     showBranchDialog.value = false;
-    console.log('[RibbonToolbar] Branch created successfully after conflict resolution:', branchName);
+    log.info('Branch created after conflict resolution', { branchName });
   } else {
-    console.error('[RibbonToolbar] Failed to create branch after conflict resolution:', result.message);
+    log.error('Failed to create branch after conflict resolution', { message: result.message });
   }
 
   pendingBranchData.value = null;

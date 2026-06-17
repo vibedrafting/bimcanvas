@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { useDebugStore } from '../../stores/debugStore';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 export interface SnapResult {
     position: THREE.Vector3;
@@ -139,8 +141,13 @@ export class SnappingEngine {
             }
         }
 
-        const debug = useDebugStore();
-        debug.success(`[Snap] Built ${this.snapPoints.length} snap points from: ${moduleCount} modules, ${wallCount} walls, ${columnCount} columns, ${openingCount} openings`);
+        log.debug('snap points built', {
+            total: this.snapPoints.length,
+            modules: moduleCount,
+            walls: wallCount,
+            columns: columnCount,
+            openings: openingCount
+        });
     }
 
     /**
@@ -176,8 +183,12 @@ export class SnappingEngine {
             const threshold = isCurrentlySnapped ? this.snapOutThreshold : this.snapInThreshold;
 
             if (bestPoint && bestDist < threshold) {
-                const debug = useDebugStore();
-                debug.log(`[Snap] → ${bestPoint.type} at (${bestPoint.position.x.toFixed(0)}, ${bestPoint.position.z.toFixed(0)}), dist=${bestDist.toFixed(0)}mm`);
+                log.debug('snapped', {
+                    type: bestPoint.type,
+                    x: bestPoint.position.x.toFixed(0),
+                    z: bestPoint.position.z.toFixed(0),
+                    dist: bestDist.toFixed(0)
+                });
                 result.position.copy(bestPoint.position);
                 result.snapped = true;
                 result.type = bestPoint.type;

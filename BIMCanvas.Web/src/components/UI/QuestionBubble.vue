@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from 'vue'
 import type { ChatBubble, UserQuestion } from '../../types/agent'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('STREAM')
 
 const props = defineProps<{
   bubble: ChatBubble
@@ -41,7 +44,7 @@ const toggleOption = (question: UserQuestion, label: string) => {
   if (isSubmitted.value) return
   const set = selections[question.question]
   if (!set) {
-    console.warn('[QuestionBubble] No selection set for question:', question.question)
+    log.warn('No selection set for question', { question: question.question })
     return
   }
   if (question.multiSelect) {
@@ -53,7 +56,7 @@ const toggleOption = (question: UserQuestion, label: string) => {
     // 不清空 otherText，保留用户已输入内容，切回 Other 时恢复
     set.add(label)
   }
-  console.log(`[QuestionBubble] toggleOption: "${label}", set size: ${set.size}, isSubmittable: ${isSubmittable.value}`)
+  log.debug('toggleOption', { label, setSize: set.size, isSubmittable: isSubmittable.value })
 }
 
 const otherInputRefs = ref<HTMLInputElement[]>([])
@@ -97,10 +100,10 @@ const buildAnswers = (): Record<string, string> => {
 }
 
 const handleSubmit = () => {
-  console.log(`[QuestionBubble] handleSubmit called, isSubmittable: ${isSubmittable.value}, isSubmitted: ${isSubmitted.value}`)
+  log.debug('handleSubmit called', { isSubmittable: isSubmittable.value, isSubmitted: isSubmitted.value })
   if (!isSubmittable.value || isSubmitted.value) return
   props.bubble.questionAnswers = buildAnswers()
-  console.log('[QuestionBubble] emitting submit, answers:', props.bubble.questionAnswers)
+  log.debug('emitting submit', { answers: props.bubble.questionAnswers })
   emit('submit', props.bubble)
 }
 

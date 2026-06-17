@@ -5,8 +5,10 @@ import { SnapIndex2D } from '../snap/SnapIndex2D';
 import { SnapSolver } from '../snap/SnapSolver';
 import { SnapVisual } from '../snap/SnapVisual';
 import { useCanvasStore } from '../../../stores/canvasStore';
-import { useDebugStore } from '../../../stores/debugStore';
 import { createFacingData, getFacingValue } from '../../../utils/coordinates';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 export class MirrorTool implements Tool {
     name = 'Mirror';
@@ -106,8 +108,7 @@ export class MirrorTool implements Tool {
         store.setPrompt(`请点击镜像线起点 (已选${this.selectedObjects.length}个对象)`);
 
         // CAD Snap: 构建边索引（包含墙柱门窗 + 家具）
-        const debug = useDebugStore();
-        debug.log(`[Mirror] Building snap edges`);
+        log.debug('building snap edges');
         this.snapIndex.rebuild(store.projectData);
     }
 
@@ -237,7 +238,7 @@ export class MirrorTool implements Tool {
         const b = B / len;
         const c = C / len;
 
-        console.log(`Mirror Line: ${a.toFixed(2)}x + ${b.toFixed(2)}y + ${c.toFixed(2)} = 0`);
+        log.debug('mirror line', { a: a.toFixed(2), b: b.toFixed(2), c: c.toFixed(2) });
 
         // 使用批量更新，确保多个模块的镜像只产生一个历史快照
         store.beginBatchUpdate();
@@ -279,7 +280,7 @@ export class MirrorTool implements Tool {
         // Clear Selection
         store.clearSelection();
 
-        console.log(`Mirror executed: ${this.selectedObjects.length} objects`);
+        log.info('mirror executed', { count: this.selectedObjects.length });
         this.deactivate();
         window.dispatchEvent(new CustomEvent('bimcanvas:tool-completed'));
     }

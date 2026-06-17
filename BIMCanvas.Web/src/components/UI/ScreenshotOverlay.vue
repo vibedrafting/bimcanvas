@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import html2canvas from 'html2canvas'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('USER')
 
 const emit = defineEmits<{
   (e: 'capture', imageData: string): void
@@ -97,7 +100,7 @@ const handleMouseUp = async () => {
     const imageData = croppedCanvas.toDataURL('image/png')
     emit('capture', imageData)
   } catch (error) {
-    console.error('[ScreenshotOverlay] Capture failed:', error)
+    log.error('Capture failed', { error })
     emit('cancel')
   } finally {
     // 确保恢复 overlay 可见性

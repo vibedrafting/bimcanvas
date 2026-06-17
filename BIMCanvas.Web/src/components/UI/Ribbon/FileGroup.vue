@@ -8,6 +8,9 @@ import { useSave } from '../../../composables/useSave';
 import { useCanvasStore } from '../../../stores/canvasStore';
 import { getWebRuntime } from '../../../runtime/runtimeRegistry';
 import { supports } from '../../../runtime/WebRuntimeProtocol';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 const store = useCanvasStore();
 const runtime = getWebRuntime();
@@ -38,7 +41,7 @@ const onFileSelected = (event: Event) => {
 };
 
 const onImport = () => {
-  console.log('Import triggered');
+  log.debug('Import triggered');
   onOpen();
 };
 

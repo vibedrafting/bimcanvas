@@ -5,7 +5,6 @@ import { ShortcutManager } from './ShortcutManager';
 import type { Tool } from './tools/Tool';
 import { MoveTool } from './tools/MoveTool';
 import { GhostManager } from './GhostManager';
-import { useDebugStore } from '../../stores/debugStore';
 import { RotateTool } from './tools/RotateTool';
 import { MirrorTool } from './tools/MirrorTool';
 import { CopyTool } from './tools/CopyTool';
@@ -13,6 +12,9 @@ import { MeasurementTool } from './tools/MeasurementTool';
 import { PlaceTool } from './tools/PlaceTool';
 import type { ModuleDefinition } from '../ModuleLibraryService';
 import { SpatialMarkingService } from './SpatialMarkingService';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 export class InteractionService {
     private raycaster: THREE.Raycaster;
@@ -98,8 +100,7 @@ export class InteractionService {
     }
 
     public activateMoveTool() {
-        const debugStore = useDebugStore();
-        debugStore.log('Command: Move Triggered');
+        log.debug('command move triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
         this.shortcutManager.setEnabled(false);
@@ -165,8 +166,7 @@ export class InteractionService {
     }
 
     public rotateSelection() {
-        const debugStore = useDebugStore();
-        debugStore.log('Command: Rotate Triggered');
+        log.debug('command rotate triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
         this.shortcutManager.setEnabled(false);
@@ -181,8 +181,7 @@ export class InteractionService {
     }
 
     public activateMirrorTool() {
-        const debugStore = useDebugStore();
-        debugStore.log('Command: Mirror Triggered');
+        log.debug('command mirror triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
         this.shortcutManager.setEnabled(false);
@@ -196,8 +195,7 @@ export class InteractionService {
     }
 
     public activateCopyTool() {
-        const debugStore = useDebugStore();
-        debugStore.log('Command: Copy Triggered');
+        log.debug('command copy triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
         this.shortcutManager.setEnabled(false);
@@ -211,8 +209,7 @@ export class InteractionService {
     }
 
     public activateMeasurementTool() {
-        const debugStore = useDebugStore();
-        debugStore.log('Command: Measure Triggered');
+        log.debug('command measure triggered');
         if (this.activeTool) this.activeTool.deactivate();
 
         this.shortcutManager.setEnabled(false);
@@ -225,8 +222,7 @@ export class InteractionService {
     }
 
     public activatePlaceTool(moduleDef: ModuleDefinition) {
-        const debugStore = useDebugStore();
-        debugStore.log(`Command: Place Triggered for ${moduleDef.id}`);
+        log.debug('command place triggered', { moduleId: moduleDef.id });
         if (this.activeTool) this.activeTool.deactivate();
 
         this.shortcutManager.setEnabled(false);
@@ -240,8 +236,7 @@ export class InteractionService {
     }
 
     public deleteSelection() {
-        const debugStore = useDebugStore();
-        debugStore.log('Command: Delete Triggered');
+        log.debug('command delete triggered');
         const selectedIds = this.store.selectedIds;
         if (selectedIds.length === 0) return;
 
@@ -251,7 +246,7 @@ export class InteractionService {
         const modulesToDelete = this.store.selectedObjects.filter((obj: any) => obj.type === 'module');
 
         if (modulesToDelete.length === 0) {
-            debugStore.warn('Delete ignored: No deletable modules selected');
+            log.warn('delete ignored, no deletable modules selected');
             // Optional: Show feedback that nothing can be deleted?
             // For now, just do nothing and definitely DO NOT show "Deleted"
             return;

@@ -34,6 +34,9 @@ import { moduleLibraryService } from '../ModuleLibraryService';
 import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { facingToAngle } from '../../utils/coordinates';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('RENDER');
 
 type SvgViewportSource = 'viewBox' | 'geometry';
 
@@ -53,9 +56,9 @@ const isSvgDebugEnabled = (): boolean => {
   }
 };
 
-const logSvgDebug = (message: string): void => {
+const logSvgDebug = (msg: string, fields?: Record<string, unknown>): void => {
   if (isSvgDebugEnabled()) {
-    console.debug(message);
+    log.debug(msg, fields);
   }
 };
 
@@ -90,7 +93,7 @@ export class SVGModuleRenderer {
       // 2. 加载或获取缓存的SVG
       const svgGroup = await this.loadSVG(module.moduleId);
       if (!svgGroup) {
-        console.warn(`[SVGModuleRenderer] Failed to load SVG for: ${module.moduleId}`);
+        log.warn('failed to load SVG', { moduleId: module.moduleId });
         return null;
       }
 
@@ -148,7 +151,7 @@ export class SVGModuleRenderer {
       return root;
 
     } catch (error) {
-      console.error(`[SVGModuleRenderer] Error rendering module SVG:`, error);
+      log.error('error rendering module SVG', { moduleId: module.moduleId, error });
       return null;
     }
   }
@@ -238,18 +241,18 @@ export class SVGModuleRenderer {
                 const strokeGeometry = SVGLoader.pointsToStroke(points, strokeStyle);
                 if (strokeGeometry) {
                   const vertexCount = strokeGeometry.attributes.position?.count || 0;
-                  logSvgDebug(`[SVG] Path${i}: pts=${points.length}, verts=${vertexCount}`);
+                  logSvgDebug('SVG path stroke built', { path: i, pts: points.length, verts: vertexCount });
                   if (vertexCount > 0) {
                     const strokeMesh = new THREE.Mesh(strokeGeometry, material);
                     strokeMesh.renderOrder = 999;
                     group.add(strokeMesh);
                   }
                 } else {
-                  logSvgDebug(`[SVG] Path${i}: pointsToStroke=null, pts=${points.length}`);
+                  logSvgDebug('SVG path stroke null', { path: i, pts: points.length });
                 }
               }
             } else if (path.subPaths.length === 0) {
-              logSvgDebug(`[SVG] Path${i}: subPaths=0`);
+              logSvgDebug('SVG path has no subPaths', { path: i });
             }
           }
 
@@ -274,7 +277,15 @@ export class SVGModuleRenderer {
             child.position.y -= viewportCenterY;
           });
 
-          logSvgDebug(`[SVG] ${moduleId}: viewport=${viewport.source}(${viewport.width.toFixed(0)}, ${viewport.height.toFixed(0)}), geometryBounds=(${geometrySize.x.toFixed(0)}, ${geometrySize.y.toFixed(0)}), children=${group.children.length}`);
+          logSvgDebug('SVG loaded', {
+            moduleId,
+            viewportSource: viewport.source,
+            viewportW: viewport.width.toFixed(0),
+            viewportH: viewport.height.toFixed(0),
+            geometryW: geometrySize.x.toFixed(0),
+            geometryH: geometrySize.y.toFixed(0),
+            children: group.children.length,
+          });
 
           // 缓存结果
           this.svgCache.set(moduleId, group);
@@ -282,7 +293,7 @@ export class SVGModuleRenderer {
         },
         undefined,
         (error) => {
-          console.error(`[SVGModuleRenderer] Failed to load SVG: ${moduleId}`, error);
+          log.error('failed to load SVG', { moduleId, error });
           resolve(null);
         }
       );
@@ -308,7 +319,7 @@ export class SVGModuleRenderer {
     // 3. 获取 SVG viewport 尺寸（关键修复：使用 SVG viewBox 尺寸而非几何包围盒）
     const svgSize = this.svgSizeCache.get(moduleId);
     if (!svgSize || svgSize.width <= 0 || svgSize.height <= 0) {
-      logSvgDebug(`[SVG] No cached size for: ${moduleId}`);
+      logSvgDebug('no cached SVG size', { moduleId });
       return {
         position: { x: center[0], y: center[1] },
         rotation: rotation,
@@ -324,7 +335,15 @@ export class SVGModuleRenderer {
     const scaleX = targetSize.svgX / svgSize.width;
     const scaleY = targetSize.svgY / svgSize.height;
 
-    logSvgDebug(`[SVG Scale] target=(${targetSize.svgX.toFixed(0)}, ${targetSize.svgY.toFixed(0)}), svg=(${svgSize.width.toFixed(0)}, ${svgSize.height.toFixed(0)}), rot=${rotationDegrees.toFixed(0)}°, scale=(${scaleX.toFixed(2)}, ${scaleY.toFixed(2)})`);
+    logSvgDebug('SVG scale computed', {
+      targetX: targetSize.svgX.toFixed(0),
+      targetY: targetSize.svgY.toFixed(0),
+      svgW: svgSize.width.toFixed(0),
+      svgH: svgSize.height.toFixed(0),
+      rot: rotationDegrees.toFixed(0),
+      scaleX: scaleX.toFixed(2),
+      scaleY: scaleY.toFixed(2),
+    });
 
     return {
       position: { x: center[0], y: center[1] },
@@ -376,13 +395,13 @@ export class SVGModuleRenderer {
       .map(value => Number(value));
 
     if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
-      logSvgDebug(`[SVG] Invalid viewBox ignored: ${viewBox}`);
+      logSvgDebug('invalid viewBox ignored', { viewBox });
       return null;
     }
 
     const [minX, minY, width, height] = values as [number, number, number, number];
     if (width <= 0 || height <= 0) {
-      logSvgDebug(`[SVG] Non-positive viewBox ignored: ${viewBox}`);
+      logSvgDebug('non-positive viewBox ignored', { viewBox });
       return null;
     }
 

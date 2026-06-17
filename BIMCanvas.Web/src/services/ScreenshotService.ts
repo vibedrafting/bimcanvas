@@ -16,6 +16,9 @@ import { LayerManager } from './three/LayerManager'
 import { AGENT_API } from '../config/api'
 import type { InteractionEventListener, InteractionRecord } from '../types/agent'
 import { getInteractionChannelService } from './InteractionChannelService'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('SYS')
 
 export interface ClipRect {
   x: number
@@ -154,13 +157,13 @@ export class ScreenshotService {
             labelScale: options.labelScale
           })
 
-          console.log(`[ScreenshotService] Rendered ${labels.length} labels manually (labelScale=${options.labelScale ?? 1})`)
+          log.info('labels rendered', { count: labels.length, labelScale: options.labelScale ?? 1 })
         } catch (e) {
-          console.warn('[ScreenshotService] Failed to render labels:', e)
+          log.warn('failed to render labels', { error: e })
         }
       }
     } else {
-      console.warn('[ScreenshotService] ThreeSceneService not available, skipping labels')
+      log.warn('ThreeSceneService not available, skipping labels')
     }
 
     return finalCanvas.toDataURL('image/png')
