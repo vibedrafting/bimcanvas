@@ -1,36 +1,71 @@
 <script setup lang="ts">
-import { useDebugStore } from '../../stores/debugStore';
+import { computed } from 'vue';
+import { useLogStore } from '../../stores/logStore';
+import type { LogLevel, LogRecord } from '../../utils/logger';
 
-const store = useDebugStore();
+const store = useLogStore();
 
-// Auto-scroll to top when new logs arrive (since we prepend)
-// Actually, prepending means top is newest, so we stay at top.
+const LEVELS: LogLevel[] = ['error', 'warn', 'info', 'debug'];
 
-const logClass = (type: string) => {
-  switch (type) {
-    case 'error': return 'text-red-400';
-    case 'warn': return 'text-yellow-400';
-    case 'success': return 'text-green-400';
-    default: return 'text-gray-300';
-  }
+const fmtFields = (fields?: Record<string, unknown>): string => {
+  if (!fields) return '';
+  return Object.entries(fields)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => {
+      let s = v instanceof Error ? v.message : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+      if (/\s/.test(s)) s = `"${s}"`;
+      return `${k}=${s}`;
+    })
+    .join(' ');
 };
+
+const lineText = (l: LogRecord) =>
+  `[${l.time}] [Web:${l.domain}] ${l.msg}${fmtFields(l.fields) ? ' ' + fmtFields(l.fields) : ''}`;
+
+const copyAll = () => {
+  const text = [...store.visibleLogs].reverse().map(lineText).join('\n');
+  navigator.clipboard?.writeText(text);
+};
+
+const count = computed(() => store.visibleLogs.length);
 </script>
 
 <template>
   <div v-if="store.isVisible" class="debug-console">
     <header>
-      <span class="title">Debug Console</span>
+      <span class="title">Web Log <span class="count">{{ count }}</span></span>
       <div class="actions">
+        <button @click="copyAll" title="复制全部">Copy</button>
         <button @click="store.clear()">Clear</button>
         <button @click="store.toggle()">Close</button>
       </div>
     </header>
+
+    <div class="toolbar">
+      <div class="group">
+        <button
+          v-for="lv in LEVELS"
+          :key="lv"
+          :class="['chip', 'lv-' + lv, { active: store.level === lv }]"
+          @click="store.changeLevel(lv)"
+        >{{ lv }}</button>
+      </div>
+      <div class="group">
+        <button
+          v-for="d in store.domains"
+          :key="d"
+          :class="['chip', 'dm-' + d, { off: store.hiddenDomains.has(d) }]"
+          @click="store.toggleDomain(d)"
+        >{{ d }}</button>
+      </div>
+    </div>
+
     <div class="logs">
-      <div v-if="store.logs.length === 0" class="empty">No logs</div>
-      <div v-for="log in store.logs" :key="log.id" class="log-entry">
-        <span class="time">[{{ log.timestamp }}]</span>
-        <span :class="['type', log.type]">{{ log.type.toUpperCase() }}</span>
-        <span :class="['message', logClass(log.type)]">{{ log.message }}</span>
+      <div v-if="count === 0" class="empty">No logs</div>
+      <div v-for="log in store.visibleLogs" :key="log.id" class="log-entry">
+        <span class="time">{{ log.time }}</span>
+        <span :class="['domain', 'dm-' + log.domain]">{{ log.domain }}</span>
+        <span :class="['message', 'lv-' + log.level]">{{ log.msg }}<span class="fields">{{ fmtFields(log.fields) ? ' ' + fmtFields(log.fields) : '' }}</span></span>
       </div>
     </div>
   </div>
@@ -41,8 +76,8 @@ const logClass = (type: string) => {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  width: 500px;
-  height: 300px;
+  width: 560px;
+  height: 340px;
   background: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -66,6 +101,7 @@ const logClass = (type: string) => {
     .title {
       color: #fff;
       font-weight: bold;
+      .count { color: #888; font-weight: normal; margin-left: 4px; }
     }
 
     .actions {
@@ -81,11 +117,33 @@ const logClass = (type: string) => {
         cursor: pointer;
         font-size: 11px;
 
-        &:hover {
-          background: rgba(255, 255, 255, 0.1);
-          color: #fff;
-        }
+        &:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
       }
+    }
+  }
+
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+    .group { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    .chip {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #888;
+      padding: 1px 7px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 10px;
+      text-transform: uppercase;
+
+      &:hover { color: #fff; }
+      &.active { background: rgba(255, 255, 255, 0.15); color: #fff; border-color: rgba(255, 255, 255, 0.4); }
+      &.off { opacity: 0.35; text-decoration: line-through; }
     }
   }
 
@@ -95,13 +153,9 @@ const logClass = (type: string) => {
     padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
 
-    .empty {
-      color: #666;
-      text-align: center;
-      margin-top: 20px;
-    }
+    .empty { color: #666; text-align: center; margin-top: 20px; }
 
     .log-entry {
       display: flex;
@@ -110,32 +164,39 @@ const logClass = (type: string) => {
       border-bottom: 1px solid rgba(255, 255, 255, 0.02);
       padding-bottom: 2px;
 
-      .time {
-        color: #666;
-        flex-shrink: 0;
-      }
+      .time { color: #666; flex-shrink: 0; }
 
-      .type {
+      .domain {
         font-weight: bold;
         flex-shrink: 0;
-        width: 50px;
-        
-        &.info { color: #3b82f6; }
-        &.warn { color: #eab308; }
-        &.error { color: #ef4444; }
-        &.success { color: #22c55e; }
+        width: 56px;
       }
 
       .message {
         word-break: break-all;
         white-space: pre-wrap;
-        
-        &.text-red-400 { color: #f87171; }
-        &.text-yellow-400 { color: #facc15; }
-        &.text-green-400 { color: #4ade80; }
-        &.text-gray-300 { color: #d1d5db; }
+        .fields { color: #9ca3af; }
       }
     }
   }
+
+  // 域配色(与 logger.ts DOMAIN_COLOR 一致)
+  .dm-USER { color: #a78bfa; }
+  .dm-STREAM { color: #38bdf8; }
+  .dm-RECV { color: #34d399; }
+  .dm-RENDER { color: #f472b6; }
+  .dm-SYS { color: #9ca3af; }
+
+  // 级别配色(消息体)
+  .message.lv-error { color: #f87171; }
+  .message.lv-warn { color: #facc15; }
+  .message.lv-info { color: #d1d5db; }
+  .message.lv-debug { color: #9ca3af; }
+
+  // toolbar 级别 chip 着色
+  .chip.lv-error.active { background: rgba(248, 113, 113, 0.25); }
+  .chip.lv-warn.active { background: rgba(250, 204, 21, 0.25); }
+  .chip.lv-info.active { background: rgba(209, 213, 219, 0.2); }
+  .chip.lv-debug.active { background: rgba(156, 163, 175, 0.2); }
 }
 </style>
