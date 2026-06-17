@@ -3,7 +3,8 @@ import { ref, computed, nextTick } from 'vue';
 import type { ProjectData, Module, Zone, Wall, Column, Opening } from '../types/canvas';
 import { StrategyApproach, StrategyStatus } from '../types/canvas';
 import { TimelineManager } from '../services/state/TimelineManager';
-import { useDebugStore } from './debugStore';
+import { VariantHistory, targetKey, type EditTarget } from '../services/state/VariantHistory';
+import { createLogger } from '../utils/logger';
 import { ChangeSource, ChangeType, type LoadOptions } from '../types/history';
 import { moduleLibraryService } from '../services/ModuleLibraryService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
@@ -58,10 +59,10 @@ export const useCanvasStore = defineStore('canvas', () => {
     const sceneDataCache = new Map<string, any>();
 
     // 辅助函数：在所有对象类型中查找
-    // 注意：此函数在 computed 中调用，禁止使用 debugStore（会产生响应式副作用导致无限循环）
+    // 注意：此函数在 computed 中调用，禁止在此写 reactive 日志 buffer（logger 会 unshift logBuffer，
+    // 在 computed 内触发响应式副作用导致无限循环）——故此函数内不打日志。
     const findObjectById = (id: string): any | null => {
         if (!projectData.value) {
-            console.warn('[Store] findObjectById: projectData is null');
             return null;
         }
 
@@ -122,18 +123,22 @@ export const useCanvasStore = defineStore('canvas', () => {
         // 降级：使用 Scene 数据缓存（解决 Scene 与 Store 竞态不同步）
         const cached = sceneDataCache.get(id);
         if (cached) {
-            console.warn(`[Store] findObjectById: using scene cache for (${id})`);
             return cached;
         }
 
-        console.warn(`[Store] findObjectById: NOT FOUND (${id})`);
         return null;
     };
 
     const debugMsg = ref<string>('');
 
+    // timeline 仅保留「加载时视图策略」职责（shouldPreserveView）；撤销/重做的栈职责已迁到 VariantHistory。
     const timeline = new TimelineManager();
-    const debugStore = useDebugStore();
+    // 家具撤销/重做：按编辑目标 (designZone, variant) 分栈，与「纯指针式平级 + Zone 递归」模型对齐。
+    const history = new VariantHistory();
+    // 当前撤销目标：跟随选择（选中模块所属设计区×变体），无选择则取末次编辑目标。Ctrl+Z/Y 只作用于它。
+    const activeUndoTarget = ref<EditTarget | null>(null);
+    const sysLog = createLogger('SYS');
+    const recvLog = createLogger('RECV');
 
     const dispatchLocalUpdate = (detail: Record<string, unknown>) => {
         if (supports(runtime.capabilities.realtimeProjectSync)) {
@@ -258,7 +263,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                 }
             }
         } catch (err: any) {
-            debugStore.warn(`[Store] 变体摘要拉取失败: ${err?.message ?? err}`);
+            sysLog.warn('variant summary fetch failed', { err: err?.message ?? err });
             variantInfoByDesignZone.value = new Map();
         } finally {
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-counts-changed', {
@@ -290,7 +295,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         variantSlug: string | null
     ): Promise<void> {
         if (!designZoneId) {
-            debugStore.warn(`[Store] setActiveVariant: designZoneId 不能为空`);
+            sysLog.warn('setActiveVariant: empty designZoneId');
             return;
         }
         if (!variantSlug) {
@@ -373,8 +378,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                     variantBlocks.push(variantModules);
                 } catch (err: any) {
                     // 单叶子 404/失败不致命：该叶子展示为空，不撤 designZone 整体激活
-                    debugStore.warn(
-                        `[Store] 变体叶子加载失败 dz=${designZoneId} slug=${variantSlug} leaf=${leafZoneId}: ${err?.message ?? err}`);
+                    sysLog.warn('variant leaf load failed', { dz: designZoneId, slug: variantSlug, leaf: leafZoneId, err: err?.message ?? err });
                 }
             }
         }
@@ -403,11 +407,135 @@ export const useCanvasStore = defineStore('canvas', () => {
                 const root = nextZones.find(z => z.id === designZoneId);
                 if (root) root.subZones = (resp.subZones ?? []) as Zone[];
             } catch (err: any) {
-                debugStore.warn(
-                    `[Store] 变体分区加载失败 dz=${designZoneId} slug=${variantSlug}: ${err?.message ?? err}`);
+                sysLog.warn('variant zones load failed', { dz: designZoneId, slug: variantSlug, err: err?.message ?? err });
             }
         }
         projectData.value.activeScheme.zones = nextZones;
+    }
+
+    // ===== 撤销/重做：几何分组 + 按目标定向持久化（与指针式平级 + Zone 递归对齐）=====
+
+    // 射线法点-多边形包含（与 Server CollisionDetector.Contains 等价语义）。
+    function pointInPolygon(pt: [number, number], poly: Zone['rawBoundary']): boolean {
+        if (!poly || poly.length < 3) return false;
+        const [x, y] = pt;
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i += 1) {
+            const [xi, yi] = poly[i]!;
+            const [xj, yj] = poly[j]!;
+            const intersects = ((yi > y) !== (yj > y)) &&
+                (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+            if (intersects) inside = !inside;
+        }
+        return inside;
+    }
+
+    function moduleCenter(m: Module): [number, number] {
+        const pts = m.bounds ?? [];
+        if (pts.length === 0) return [NaN, NaN];
+        let sx = 0, sy = 0;
+        for (const p of pts) { sx += p[0]; sy += p[1]; }
+        return [sx / pts.length, sy / pts.length];
+    }
+
+    // 顶层设计区列表（baseline 房间 rz_* / 单叶子 dz），用 canonical zones 快照（稳定房间边界）。
+    function topLevelDesignZones(): Zone[] {
+        return canonicalZonesSnapshot.value ?? projectData.value?.activeScheme?.zones ?? [];
+    }
+
+    // 按 bounds 几何把模块归到顶层设计区（与 Server 同语义：按房间边界，而非 stale 的 zoneId）。
+    // 关键：移动跨区时模块 zoneId 是旧值，必须用当前 bounds 现算，才能让旧区/新区都被正确重写。
+    function designZoneOfModule(m: Module): string | null {
+        const center = moduleCenter(m);
+        if (Number.isNaN(center[0])) return null;
+        for (const z of topLevelDesignZones()) {
+            if (!z.id) continue;
+            const boundary = z.computedBoundary ?? z.rawBoundary;
+            if (boundary && pointInPolygon(center, boundary)) return z.id;
+        }
+        return null;
+    }
+
+    function groupModulesByDesignZone(modules: Module[]): Map<string, Module[]> {
+        const groups = new Map<string, Module[]>();
+        for (const m of modules) {
+            const dz = designZoneOfModule(m);
+            if (!dz) continue;   // 孤儿（不落任何房间）——与 Server orphan 处理一致，跳过
+            const arr = groups.get(dz) ?? [];
+            arr.push(m);
+            groups.set(dz, arr);
+        }
+        return groups;
+    }
+
+    function targetForDesignZone(dz: string): EditTarget {
+        return { designZoneId: dz, variantSlug: activeVariantByDesignZone.value.get(dz) ?? null };
+    }
+
+    // 定向落盘：只写该设计区目标的叶子（scope=[dz]），范围外文件不碰。
+    async function scopedSaveTarget(
+        target: EditTarget,
+        modules: Module[],
+        opts?: { suppressServerSync?: boolean }
+    ): Promise<boolean> {
+        const variantSelection: Record<string, string> = {};
+        if (target.variantSlug) variantSelection[target.designZoneId] = target.variantSlug;
+        const saved = await runtime.saveModules(modules, variantSelection, [target.designZoneId]);
+        if (saved && opts?.suppressServerSync && supports(runtime.capabilities.realtimeProjectSync)) {
+            pendingServerSyncSkips += 1;
+        }
+        return saved;
+    }
+
+    // 投影建立后（加载 / 切换变体）为每个可见顶层设计区播种 baseline（栈空才播），
+    // 使首次编辑可撤回到投影初态。空模块设计区也播（空数组），保证首次 add 可撤销。
+    function seedVisibleBaselines(): void {
+        if (!projectData.value?.activeScheme) return;
+        const groups = groupModulesByDesignZone(projectData.value.activeScheme.modules ?? []);
+        for (const z of topLevelDesignZones()) {
+            if (!z.id) continue;
+            history.seedBaseline(targetForDesignZone(z.id), groups.get(z.id) ?? []);
+        }
+    }
+
+    function modulesEqual(a: Module[] | null, b: Module[]): boolean {
+        if (a === null) return false;
+        return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    // 编辑提交：对每个发生变化的顶层设计区，push 历史 + 定向落盘（仅变化区，未变区不碰）。
+    // 跨区移动时旧区（少了模块）与新区（多了模块）都「变化」，故都会被正确重写。
+    async function persistAndRecordEdits(opts?: { suppressServerSync?: boolean }): Promise<void> {
+        if (!projectData.value?.activeScheme) return;
+        const groups = groupModulesByDesignZone(projectData.value.activeScheme.modules ?? []);
+        for (const z of topLevelDesignZones()) {
+            if (!z.id) continue;
+            const target = targetForDesignZone(z.id);
+            const slice = groups.get(z.id) ?? [];
+            if (modulesEqual(history.peek(target), slice)) continue;   // 该区未变，不写不记
+            history.push(target, slice, { changeType: ChangeType.Update });
+            activeUndoTarget.value = target;
+            await scopedSaveTarget(target, slice, opts);
+        }
+        refreshUndoState();
+    }
+
+    // 把某目标的模块应用回合并视图（撤销/重做用）：替换该设计区的几何切片，并同步 canonical 快照。
+    function applyTargetModules(target: EditTarget, mods: Module[]): void {
+        if (!projectData.value?.activeScheme) return;
+        const dz = target.designZoneId;
+        const others = (projectData.value.activeScheme.modules ?? []).filter(m => designZoneOfModule(m) !== dz);
+        projectData.value.activeScheme.modules = [...others, ...mods];
+        // canonical 目标：同步 canonical 快照该区切片，保证后续 recompute 一致（修隐患3）。
+        if (target.variantSlug === null && canonicalModulesSnapshot.value) {
+            const snapOthers = canonicalModulesSnapshot.value.filter(m => designZoneOfModule(m) !== dz);
+            canonicalModulesSnapshot.value = [...snapOthers, ...mods];
+        }
+    }
+
+    function refreshUndoState(): void {
+        canUndo.value = history.canUndo(activeUndoTarget.value);
+        canRedo.value = history.canRedo(activeUndoTarget.value);
     }
 
     /**
@@ -424,7 +552,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     if (supports(runtime.capabilities.realtimeProjectSync)) {
       window.addEventListener('bimcanvas:server-update', async (e: any) => {
         const data = e.detail;
-        debugStore.log(`[Store] 收到服务端更新: ${JSON.stringify(data)}`);
+        recvLog.debug('server update received', { data });
 
         const fileName = data.file as string | undefined;
 
@@ -434,7 +562,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         // 或 trigger=variant-cloned（clone endpoint 显式广播，走轻量 refetch 路径避免整 canvas reload）
         // 或 Legacy modules-alt-*.json 文件（兼容老项目残留）
         if (trigger === 'variant-files-changed' || trigger === 'variant-cloned' || isLegacyVariantSidecarFile(fileName)) {
-            debugStore.log(`[Store] 变体文件变化，分发给切换器: ${fileName}`);
+            recvLog.debug('variant file changed', { file: fileName });
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-files-changed', {
                 detail: { file: fileName, trigger: data.trigger }
             }));
@@ -450,7 +578,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                 if (adoptedDz && activeVariantByDesignZone.value.has(adoptedDz)) {
                     activeVariantByDesignZone.value.delete(adoptedDz);
                     activeVariantByDesignZone.value = new Map(activeVariantByDesignZone.value);
-                    debugStore.log(`[Store] 变体已采纳 dz=${adoptedDz}，清空 active 并重载 canonical`);
+                    recvLog.debug('variant adopted, reload canonical', { dz: adoptedDz });
                 }
                 // 采纳=翻指针（不删目录、不生成 prev-*）；刷新计数字典让 Canvas 更新角标
                 void refetchVariantCounts();
@@ -459,16 +587,16 @@ export const useCanvasStore = defineStore('canvas', () => {
             // Agent/重连/手动触发的更新：重置 skip 计数器，确保更新不被跳过
             if (trigger === 'agent' || trigger === 'reconnect' || trigger === 'manual' || trigger === 'variant-adopt') {
                 pendingServerSyncSkips = 0;
-                debugStore.log(`[Store] 显式触发 (${trigger})，重置 skip 计数器`);
+                recvLog.debug('explicit trigger, reset skip counter', { trigger });
             } else if (fileName === 'modules.json' && pendingServerSyncSkips > 0) {
                 // 仅 FileSystemWatcher 触发的普通更新才走 skip 逻辑
                 pendingServerSyncSkips -= 1;
-                debugStore.log('[Store] 跳过本地写入触发的 ServerSync');
+                recvLog.debug('skip local-write-triggered ServerSync');
                 return;
             }
 
             // 保持当前视图，重新加载数据
-            debugStore.log(`[Store] 触发数据重载 (preserveView=true, trigger=${trigger || 'watcher'})`);
+            recvLog.debug('trigger data reload', { trigger: trigger || 'watcher' });
             await syncFromServer({ description: 'Server file changed', metadata: { trigger: trigger || 'watcher' } });
         }
       });
@@ -479,7 +607,7 @@ export const useCanvasStore = defineStore('canvas', () => {
 
     window.addEventListener('bimcanvas:connection-state', (e: any) => {
         agentConnectionState.value = e.detail;
-        console.log('Store: Connection State Updated ->', agentConnectionState.value);
+        sysLog.debug('connection state updated', { state: agentConnectionState.value });
     });
 
     const canUndo = ref(false);
@@ -578,7 +706,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         try {
             await moduleLibraryService.reload();
         } catch (moduleError) {
-            debugStore.warn(`[Store] Module library reload failed: ${moduleError}`);
+            sysLog.warn('module library reload failed', { error: moduleError });
         }
     };
 
@@ -610,7 +738,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         await refreshModuleLibrary();
 
         if (!preserveHistory && timeline.shouldClearHistory(opts.source)) {
-            debugStore.log('[Store] Clearing history due to source type');
+            sysLog.debug('clearing history due to source type');
             timeline.clear();
         }
 
@@ -621,15 +749,17 @@ export const useCanvasStore = defineStore('canvas', () => {
 
         updateHistoryState();
 
-        debugStore.success(`[Store] Project loaded: ${data.project?.name || 'Unknown'}`);
-        debugStore.log(`  - Walls: ${data.baseline?.walls?.length || 0}`);
-        debugStore.log(`  - Rooms: ${data.baseline?.rooms?.length || 0}`);
-        debugStore.log(`  - Zones: ${data.activeScheme?.zones?.length || 0}`);
-        debugStore.log(`  - Modules: ${data.activeScheme?.modules?.length || 0}`);
+        sysLog.info('project loaded', {
+            name: data.project?.name || 'Unknown',
+            walls: data.baseline?.walls?.length || 0,
+            rooms: data.baseline?.rooms?.length || 0,
+            zones: data.activeScheme?.zones?.length || 0,
+            modules: data.activeScheme?.modules?.length || 0,
+        });
 
         const zoneErrors = data.activeScheme?.zoneErrors;
         if (zoneErrors && zoneErrors.length > 0) {
-          debugStore.warn(`[Store] ZoneErrors: ${JSON.stringify(zoneErrors)}`);
+          sysLog.warn('zone errors', { zoneErrors });
           const sys = useSystemStore();
           zoneErrors.forEach(e => {
             sys.pushToast({
@@ -650,22 +780,18 @@ export const useCanvasStore = defineStore('canvas', () => {
         preserveViewOnLoad.value = preserveView;
 
         try {
-            debugStore.log(`[Store] Loading project from ${runtime.mode} runtime... ${JSON.stringify({
-                source: opts.source,
-                preserveView
-            })}`);
+            sysLog.debug('loading project from runtime', { mode: runtime.mode, source: opts.source, preserveView });
 
             const data = await runtime.loadInitialProject();
             if (!data) {
-                debugStore.log('[Store] Runtime has no initial project');
+                sysLog.debug('runtime has no initial project');
                 return false;
             }
 
             await applyProjectData(data, opts);
             return true;
         } catch (err: any) {
-            console.error('Failed to load project:', err);
-            debugStore.error(`[Store] Load failed: ${err.message || err}`);
+            sysLog.error('load project failed', { err: err.message || err });
             error.value = `Failed to load project: ${err.message || err}`;
             return false;
         } finally {
@@ -691,8 +817,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             await applyProjectData(data, opts);
             return true;
         } catch (err: any) {
-            console.error('Failed to import snapshot:', err);
-            debugStore.error(`[Store] Snapshot import failed: ${err.message || err}`);
+            sysLog.error('import snapshot failed', { err: err.message || err });
             error.value = `Failed to import snapshot: ${err.message || err}`;
             return false;
         } finally {
@@ -737,7 +862,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             }
         }
         debugMsg.value += `\nSet: ${selectedIds.value.join(',')} at ${Date.now()}`;
-        console.log('Store setSelectedObject:', selectedIds.value, '->', selectedObject.value);
+        sysLog.debug('setSelectedObject', { ids: selectedIds.value });
     };
 
     const setSelection = (ids: string[]) => {
@@ -912,7 +1037,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             case 'door':
             case 'window':
             case 'opening': updateOpening(id, updates); break;
-            default: console.warn(`Unknown element type for update: ${type}`);
+            default: sysLog.warn('unknown element type for update', { type });
         }
     };
 
@@ -983,7 +1108,7 @@ export const useCanvasStore = defineStore('canvas', () => {
         sceneDataCache.clear();
         moduleLibraryService.dispose();
         timeline.clear();
-        debugStore.log('[Store] Project state reset');
+        sysLog.debug('project state reset');
     };
 
     /**
@@ -1024,7 +1149,7 @@ export const useCanvasStore = defineStore('canvas', () => {
      */
     const forceSync = async (): Promise<boolean> => {
         pendingServerSyncSkips = 0;
-        debugStore.log('[Store] 强制同步: 重置 skip 计数器');
+        sysLog.debug('force sync: reset skip counter');
         return syncFromServer({ description: 'Manual force sync', metadata: { trigger: 'manual' } });
     };
 
@@ -1035,7 +1160,7 @@ export const useCanvasStore = defineStore('canvas', () => {
      */
     const saveModules = async (options?: { suppressServerSync?: boolean }): Promise<boolean> => {
         if (!projectData.value?.activeScheme?.modules) {
-            console.warn('[CanvasStore] saveModules: 无模块数据可保存');
+            sysLog.warn('saveModules: no module data');
             return false;
         }
 
@@ -1057,18 +1182,18 @@ export const useCanvasStore = defineStore('canvas', () => {
                     // Connected 模式下，Server 已经落盘；Standalone 的保存语义是导出 Snapshot。
                     isDirty.value = false;
                 }
-                debugStore.success('[CanvasStore] 模块保存成功');
+                sysLog.info('modules saved');
                 if (options?.suppressServerSync && supports(runtime.capabilities.realtimeProjectSync)) {
                     pendingServerSyncSkips += 1;
                 }
                 return true;
             }
 
-            debugStore.error('[CanvasStore] 保存失败');
+            sysLog.error('save modules failed');
             return false;
         } catch (err: any) {
             const errorMessage = err.message || err;
-            debugStore.error(`[CanvasStore] 保存失败: ${errorMessage}`);
+            sysLog.error('save modules failed', { error: errorMessage });
             return false;
         }
     };
