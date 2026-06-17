@@ -913,6 +913,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
         if (!status) {
           break;
         }
+        streamLog.warn('rate_limit', { status, type: getString(payload.rateLimitType) ?? getString(raw.rateLimitType) });
         systemStore.setRateLimitState({
           status,
           rateLimitType: getString(payload.rateLimitType) ?? getString(raw.rateLimitType),
@@ -1478,6 +1479,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
             }
 
             if (normalizedEvent.eventType === 'session_ready') {
+              streamLog.info('agent session ready', { win: effectiveWindowId });
               agentStatus.value = 'connected';
               continue;
             }
