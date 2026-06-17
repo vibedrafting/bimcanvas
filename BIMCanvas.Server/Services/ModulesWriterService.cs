@@ -63,16 +63,28 @@ namespace BIMCanvas.Server.Services
             if (!string.IsNullOrWhiteSpace(variantId))
                 ModuleFileTopologyService.EnsureSafeVariantId(variantId);
 
-            // 路A：写 canonical（variantId 空）但该设计区还没 adopted 指针 → 自动 bootstrap "main" 方案 + 父 adopted:main，
-            // 让"无方案"的手动布置 / Server 写盘也落进指针结构 schemes/{dz}/main/[{leaf}/]modules.json，不再生产 legacy 路径。
+            // 路A：写 canonical（variantId 空）但该设计区还没 adopted 指针。
+            // 分两种：
+            //   ① 真·无任何方案（新项目首次手动布置）→ bootstrap "main" 方案 + 父 adopted:main，落进指针结构、不产 legacy 路径。
+            //   ② 已有候选方案目录但无 adopted（多方案待采纳）→ 绝不凭空造 main：那会污染出一个被采纳的 main 方案，
+            //      且每次 canonical 回落/重启都复活（隐患根因）。此时 canonical 写入是调用方契约错误，抛错要求带 variantId 定向写。
             // （场景① workflow 候选走显式 variantId=_cand-x、经 Write 工具直写，不经此入口、不触发 bootstrap。）
             var schemesPath = Path.Combine(projectPath, "schemes");
             if (string.IsNullOrWhiteSpace(variantId)
                 && string.IsNullOrEmpty(SchemeDesignDocService.ResolveAdoptedSlug(schemesPath, designZoneId)))
             {
+                var dzDir = ModuleFileTopologyService.CombineSegments(schemesPath, designZoneId);
+                var hasCandidateSchemes = Directory.Exists(dzDir) && Directory.EnumerateDirectories(dzDir).Any();
+                if (hasCandidateSchemes)
+                {
+                    throw new InvalidOperationException(
+                        $"设计区 {designZoneId} 已有候选方案但无 adopted 指针（多方案待采纳）；canonical 写入会凭空 bootstrap main 污染——" +
+                        "请带 variantId 定向写入目标变体，或先采纳一个方案。");
+                }
+
                 _designDoc.WriteAdoptedSlug(schemesPath, designZoneId, "main");
                 _logger.LogInformation(
-                    "[ModulesWriter] 设计区 {Dz} 无 adopted 指针，自动 bootstrap main 方案（路A，避免落 legacy 路径）", designZoneId);
+                    "[ModulesWriter] 设计区 {Dz} 无任何方案，bootstrap main 方案（路A·新项目首次布置）", designZoneId);
             }
 
             var filePath = ResolveModulesPath(projectPath, designZoneId, leafZoneId, variantId);

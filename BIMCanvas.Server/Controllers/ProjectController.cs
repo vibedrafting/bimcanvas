@@ -946,6 +946,14 @@ namespace BIMCanvas.Server.Controllers
                 var computedData = LoadComputedData(projectPath);
                 var roomZones = computedData.RoomZones ?? new List<Zone>();
 
+                // 写入范围（设计区 id 列表）；null = 全工程。范围外设计区一律不分组 / 不清旧 / 不写入，
+                // 供撤销/重做与单目标编辑做定向落盘，避免写放大与跨设计区污染。
+                var scope = (request.Scope != null && request.Scope.Count > 0)
+                    ? new HashSet<string>(
+                        request.Scope.Where(s => !string.IsNullOrWhiteSpace(s)),
+                        StringComparer.OrdinalIgnoreCase)
+                    : null;
+
                 // 变体激活映射：designZoneId → variantSlug（设计区级；空/非法条目过滤）。
                 // 设计区在变体编辑态时，模块按该变体自身 zones.json 的子分区落盘到
                 // schemes/{dz}/{slug}/[{leaf}/]modules.json，canonical（adopted）不动；未在映射内的设计区照常写 canonical。
@@ -958,6 +966,8 @@ namespace BIMCanvas.Server.Controllers
                     {
                         if (string.IsNullOrWhiteSpace(kvp.Key) || string.IsNullOrWhiteSpace(kvp.Value))
                             continue;
+                        if (scope != null && !scope.Contains(kvp.Key))
+                            continue;   // 范围外设计区：本次定向保存不处理其变体
                         try
                         {
                             ModuleFileTopologyService.EnsureSafeVariantId(kvp.Value);
@@ -1036,6 +1046,9 @@ namespace BIMCanvas.Server.Controllers
                         variantId = null;
                     }
 
+                    if (scope != null && !scope.Contains(designZoneId))
+                        continue;   // 范围外设计区：本次定向保存不碰（不分组、不报孤儿）
+
                     if (!grouped.ContainsKey(leafZoneId))
                         grouped[leafZoneId] = new List<Module>();
                     grouped[leafZoneId].Add(module);
@@ -1071,6 +1084,8 @@ namespace BIMCanvas.Server.Controllers
                 foreach (var entry in existingCanonicalFiles)
                 {
                     var dzForLeaf = ResolveDesignZoneIdForLeaf(schemesPath, entry.ZoneId);
+                    if (scope != null && !scope.Contains(dzForLeaf))
+                        continue;   // 范围外设计区：canonical 文件不碰
                     if (variantByDesignZone.ContainsKey(dzForLeaf))
                         continue;   // 该设计区在变体编辑态——canonical 不动
                     DeleteFileIfWritable(entry.FilePath);
