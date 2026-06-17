@@ -1226,15 +1226,15 @@ def register(builder: McpServerBuilder) -> None:
                     body = await resp.text()
                     return {"content": [{"type": "text", "text": body}]}
                 if resp.status == 404:
+                    # 「未找到」是 read 工具的正常负结果，不标 is_error（否则新设计区开局探查必污染成 [ERROR]）。
                     path_part = f", path={path}" if path else ""
                     return {
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"未找到 artifact: artifactKind={artifact_kind}{path_part} (HTTP 404)",
+                                "text": f"未找到 artifact: artifactKind={artifact_kind}{path_part}",
                             }
                         ],
-                        "is_error": True,
                     }
                 body = await resp.text()
                 return {
