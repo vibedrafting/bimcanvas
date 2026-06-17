@@ -360,3 +360,41 @@ UX 一致性约束。所有用户可见的反馈与"需要重启"状态都走两
 - ❌ 新增 toast 容器（右上 / 中央 / 自建 Vue Teleport）—— 用户多次明确要求"左下角统一",违反会被退回
 
 历史 commit:`7cbcbfa 功能：顶栏全局 [需要重启] 按钮 + 统一左下 toast-list,删除实例设置模态对话框`
+
+---
+
+## 11. 日志系统（F12 / 面板）
+
+全前端日志走**单一出口** `src/utils/logger.ts`,**禁止**散用 `console.*`。与 Server 日志（终端控制台 + `logs/chat_*.log`）功能互补:Web 记「浏览器视角的意图与感知」,Server 记「服务端的执行与状态」,两端以 `windowId` + 时间戳对齐。
+
+### 11.1 用法
+
+```ts
+import { createLogger } from '@/utils/logger';   // 实际用相对路径
+const log = createLogger('STREAM');              // 按归属域取
+log.info('turn.completed', { win: 'main', dur: '12s', tokens: 4521 });
+// 输出:[23:45:12.341] [Web:STREAM] turn.completed win=main dur=12s tokens=4521
+```
+
+- `msg` 用英文短语,变量进 `fields` 对象(不要字符串拼接);格式 `[时间] [Web:域] msg key=val` 与 Server `[时间] [Server] msg` 视觉对齐。
+- **五个域**:`USER`(用户操作:发送/中止/开关项目/编辑)、`STREAM`(SSE 流收发与 turn 状态)、`RECV`(SignalR 推送接收)、`RENDER`(Three/渲染)、`SYS`(系统/生命周期/项目加载)。
+- **四级**:`error` / `warn` / `info` / `debug`。
+
+### 11.2 分级纪律(保证简洁)
+
+| 级别 | 默认可见 | 内容 |
+|---|---|---|
+| error / warn | ✓ | 真错误 / 降级 / 重连 |
+| info | ✓ | 用户操作、turn 里程碑、关键 SignalR 推送、保存/合并/分支成功 |
+| debug | ✗ | delta、心跳、几何细节、开发噪音 |
+
+- **阈值门控**:低于当前级别的日志直接丢弃(不进 buffer、不打 console),默认 DEV=`info`、PROD=`warn`。
+- 频繁事件(SSE delta、查找未命中)**必须降 `debug`**;一个 turn 只打 `turn.started` / `turn.completed`,不逐 chunk 打。
+- ⚠️ **禁止在 computed / getter 内写日志**——logger 写 reactive `logBuffer`,在 computed 内会触发响应式循环(见 `canvasStore.findObjectById` 注释)。
+
+### 11.3 运行时开关 + 面板
+
+- 切级别:F12 控制台 `__bimlog.setLevel('debug')`,或 `localStorage.bimlog='debug'`(持久化)。
+- 应用内面板 `src/components/UI/DebugConsole.vue`:`Ctrl+\`` 开关,支持级别切换、域过滤、复制全部;UI 状态在 `src/stores/logStore.ts`,数据源是 logger 的 reactive buffer(环形上限 500)。
+
+历史 commit:`enhance/web-logging 分支 —— Web 日志系统统一重构(logger 核心 + 协议层迁移 + 噪音清扫,删除旧 debugStore)`
