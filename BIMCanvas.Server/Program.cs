@@ -70,9 +70,7 @@ static void WriteWithTimestampOnly(string message, ConsoleColor messageColor)
     Console.ForegroundColor = messageColor;
     Console.WriteLine(message);
     Console.ForegroundColor = originalColor;
-
-    // 对话日志持久化
-    BIMCanvas.Server.Logging.ConversationLogger.ProcessLine(message);
+    // 注：本地存档由 ConversationLogger 的 Console Tee 在更底层统一兜住，此处无需再调
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +81,10 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
     EnableVirtualTerminalProcessing();
 }
+
+// 控制台输出本地存档：在日志框架初始化前装好 Console Tee，
+// 此后打到控制台的一切（Server 日志 + Agent stdout/stderr）顺带镜像到项目 logs/。
+BIMCanvas.Server.Logging.ConversationLogger.Install();
 
 var agentProxyHttpClient = new HttpClient(new SocketsHttpHandler
 {
@@ -1099,6 +1101,9 @@ if (config.Startup.OpenBrowser && !isRestart)
 }
 
 await app.WaitForShutdownAsync();
+
+// 程序退出收尾：flush 并关闭本地存档文件
+BIMCanvas.Server.Logging.ConversationLogger.Shutdown();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 重启检查：app.Run() 返回后（进程已停止监听），检测重启标志文件
