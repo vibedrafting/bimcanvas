@@ -384,8 +384,9 @@ _CANVAS_VISION_SCHEMA = {
 #   - 永久(retryable=False):HTTP 4xx/参数错、模型级 success=False —— 重试无意义,立即返回
 # ============================================================
 
-_VISION_RETRY_ATTEMPTS = 3
-_VISION_RETRY_BASE_DELAY = 1.0  # 退避基数(秒):1s / 2s / 4s
+_VISION_RETRY_ATTEMPTS = 5
+_VISION_RETRY_BASE_DELAY = 1.0  # 退避基数(秒):1s / 2s / 4s / 8s（5 次尝试≈15s 窗口，扛瞬时/并发突发）
+_VISION_RETRY_MAX_DELAY = 8.0   # 单次退避上限，避免次数调高时退避失控
 
 
 async def _retry_request(label: str, attempt_fn: Any) -> tuple[Any, str | None]:
@@ -404,7 +405,7 @@ async def _retry_request(label: str, attempt_fn: Any) -> tuple[Any, str | None]:
         last_error = error
         if not retryable or i == _VISION_RETRY_ATTEMPTS - 1:
             return None, error
-        delay = _VISION_RETRY_BASE_DELAY * (2 ** i)
+        delay = min(_VISION_RETRY_BASE_DELAY * (2 ** i), _VISION_RETRY_MAX_DELAY)
         print(
             f"[canvas_vision] {label} 第{i + 1}/{_VISION_RETRY_ATTEMPTS}次失败"
             f"(可重试,{delay:.0f}s 后重试): {error}",
@@ -583,16 +584,56 @@ async def _apiyi_recognize(
     return await _retry_request("apiyi", _attempt)
 
 
+# 失败切换:两个 provider 互为备用
+_FALLBACK_PROVIDER = {"aoment": "apiyi", "apiyi": "aoment"}
+
+
+async def _recognize_one(
+    session: Any,
+    cfg: Any,
+    image_path: Path,
+    prompt: str,
+) -> tuple[str | None, str | None]:
+    """单 provider 识图(按 cfg.provider 分发,含 provider 内指数退避重试)。"""
+    if cfg.provider == "aoment":
+        return await _aoment_recognize(session, cfg, image_path, prompt)
+    return await _apiyi_recognize(session, cfg, image_path, prompt)
+
+
 async def _recognize_image(
     session: Any,
     cfg: Any,
     image_path: Path,
     prompt: str,
 ) -> tuple[str | None, str | None]:
-    """按 cfg.provider 分发到对应识图后端。"""
-    if cfg.provider == "aoment":
-        return await _aoment_recognize(session, cfg, image_path, prompt)
-    return await _apiyi_recognize(session, cfg, image_path, prompt)
+    """识图:配置 provider 先试(含重试);整体失败则切换到备用 provider 补救一次(含重试)。
+
+    一次切换补救——主 provider 重试耗尽后,自动换另一个 provider 再跑一轮重试;
+    备用 provider 未配置(无 apiKey)则放弃切换,返回主 provider 的原始错误。
+    """
+    result, error = await _recognize_one(session, cfg, image_path, prompt)
+    if error is None:
+        return result, None
+
+    other = _FALLBACK_PROVIDER.get(cfg.provider)
+    if not other:
+        return None, error
+    try:
+        cfg_fallback = load_recognition_config(provider_override=other)
+    except RecognitionConfigError as exc:
+        print(
+            f"[canvas_vision] {cfg.provider} 识图失败,且备用 provider {other} 未配置、无法切换: {exc.message}",
+            file=sys.stderr, flush=True,
+        )
+        return None, error
+    print(
+        f"[canvas_vision] {cfg.provider} 识图失败,切换到备用 provider {other} 补救一次",
+        file=sys.stderr, flush=True,
+    )
+    result2, error2 = await _recognize_one(session, cfg_fallback, image_path, prompt)
+    if error2 is None:
+        return result2, None
+    return None, f"识图失败:主 {cfg.provider}({error});备用 {other}({error2})"
 
 
 _LOAD_ARTIFACT_DESC = (

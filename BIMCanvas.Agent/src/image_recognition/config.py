@@ -68,10 +68,11 @@ class RecognitionConfig:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 
 
-def load_recognition_config() -> RecognitionConfig:
+def load_recognition_config(provider_override: str | None = None) -> RecognitionConfig:
     """从 instance.config.json 的 `imageRecognition` 节加载选中 provider 的配置。
 
-    provider 由 `imageRecognition.provider`（或 env IMAGE_RECOGNITION_PROVIDER）决定，默认 apiyi。
+    provider 优先级：provider_override（显式指定，用于主 provider 失败后切换备用）
+    > env IMAGE_RECOGNITION_PROVIDER > `imageRecognition.provider` > 默认 apiyi。
     缺 apiKey 时抛 RecognitionConfigError（含 provider 专属注册引导链接）。
     """
     # 延迟导入，避免循环依赖
@@ -86,7 +87,9 @@ def load_recognition_config() -> RecognitionConfig:
         raise RecognitionConfigError("config.json `imageRecognition` 必须是对象")
 
     provider = (
-        os.getenv("IMAGE_RECOGNITION_PROVIDER") or str(raw.get("provider") or DEFAULT_PROVIDER)
+        provider_override
+        or os.getenv("IMAGE_RECOGNITION_PROVIDER")
+        or str(raw.get("provider") or DEFAULT_PROVIDER)
     ).strip().lower()
     if provider not in _PROVIDER_DEFAULTS:
         raise RecognitionConfigError(
