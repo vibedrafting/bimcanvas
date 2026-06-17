@@ -1,263 +1,158 @@
 # BIMCanvas 日志系统
 
-> 面向开发者:**怎么用日志定位程序 / 插件工作流的问题**。
-> 本文是端到端的跨模块视图与排查手册,**不展开各模块日志代码的改造细节**——要改 Server / Web 的日志实现,请到对应模块 README 的「日志系统」小节(见 §7 指针)。
+> 面向 AI 与开发者:**怎么用日志定位程序 / 插件工作流的问题**。
+> 本文是跨模块的排查视图,**不展开日志代码的改造细节**——要改 Server / Web 的日志实现,去对应模块 README §11(见 §6)。
 
-BIMCanvas 有**三套互不相同、互为补充**的日志,分属三个进程 / 运行时。看懂一个问题往往要把三套对齐着看:谁在「居中调度」(Server)、谁在「呈现与感知」(Web)、谁在「干活推理」(Agent SDK)。
+BIMCanvas 有**三套日志**,分属三个运行时,各是**某一类真相的唯一所有者**。看懂一个问题往往要把三套对齐着看。
 
 ---
 
-## 1. 三套日志一张图
+## 1. 三套日志:真理归属
 
-| | Server 日志 | Web 前端日志 | Agent SDK transcript |
+| | Server | Web 前端 | Agent SDK transcript |
 |---|---|---|---|
-| 进程 / 运行时 | BIMCanvas.Server(.NET 8) | 浏览器(Vue 3) | Claude Agent SDK(托管的 Python Agent) |
-| 视角 | 服务端**执行与状态**:REST / SignalR / SSE、几何 / Git / 落盘、子进程编排 | 浏览器**意图与感知**:用户操作、SSE 流解析、渲染 | AI **推理与工具轨迹**:thinking、工具入参全文、token、子代理编排 |
-| 实时出口 | 终端控制台 | F12 Console + 应用内面板 | 无(只落盘) |
-| 持久化 | ✅ `{项目}/logs/session_*.log` | ❌ 仅浏览器内存环形 buffer(关窗即丢) | ✅ `~/.claude/projects/{转义路径}/*.jsonl` |
-| SSE 流内容 | **盲区**(`ProxyToAgentAsync` 透明转发,零日志) | **主战场**(记录实际解析到的事件) | 源头(Agent 这边的原始事件) |
+| 运行时 | BIMCanvas.Server(.NET 8) | 浏览器(Vue 3) | 托管的 Python Agent(Claude SDK) |
+| **唯一记录** | 服务端**执行与状态**:REST / SignalR / SSE 到达、几何 / Git / 落盘、子进程编排 | 浏览器**意图与感知** + **SSE 流的实际内容** | AI **推理与工具轨迹** |
+| **只此一层有** | 落盘 / 几何 / Git 的真实结果 | 流解析到的实际事件、用户操作;**Server 对 SSE 流是盲区** | thinking、工具入参全文、token / cache、各子代理耗时 |
+| 实时 / 持久 | 控制台 + `{项目}/logs/session_*.log`(**持久**) | F12 + 面板(内存环形 buffer,**易失,刷新即丢**) | 无实时,落 `.jsonl`(**持久**) |
 | 对齐键 | `windowId` + 时间戳 | `windowId` + 时间戳 + `clientMessageId` | `toolUseId` / `isSidechain` / `parentUuid` |
 
-一句话:**Server 记执行与状态,Web 记意图与感知,SDK 记推理与工具轨迹;流是 Server 的结构性盲区,由 Web 补全;AI 内部的 thinking / 工具入参只在 SDK transcript 有。**
+**核心**:流是 Server 的结构性盲区(`ProxyToAgentAsync` 透明转发、零日志),由 Web 补全;AI 的 thinking 与工具入参全文只在 SDK transcript。**走错层会一无所获**——这是 §5 排查路由的依据。
 
 ---
 
 ## 2. Server 日志
 
-### 2.1 两个出口、同一份内容
+实时打**控制台**,并由一层 Console Tee 把同一字节流(去掉颜色码)镜像到**本地文件**。实现:`Logging/ServerConsoleFormatter.cs`(格式化)、`Logging/ConversationLogger.cs`(文件镜像)、`Program.cs`(安装点)。
 
-Server 日志实时打**控制台**,并由一层 **Console Tee** 把同一字节流(去掉颜色码)镜像到**本地文件**。两者是同一份内容的「易失视图」与「持久档案」,不是冗余。
+### 2.1 控制台前缀(判断「这行谁说的」的唯一依据)
 
-- 控制台格式化:`BIMCanvas.Server/Logging/ServerConsoleFormatter.cs`
-- 本地文件镜像:`BIMCanvas.Server/Logging/ConversationLogger.cs`
-- 输出辅助与安装点:`BIMCanvas.Server/Program.cs`
+| 前缀 | 来源 | 颜色 |
+|------|------|------|
+| `[Server]` / `:WARN` / `:ERR` / `:DBG` / `:TRC` / `:CRIT` | Server 自身 `ILogger`(按 `LogLevel` 选前缀与颜色) | 白 / 黄 / 灰系 |
+| `[Agent]` / `[Agent#n]` | Agent(Python)**stdout**——AI 执行轨迹本身,前缀由 Python 自打,Server 只转发 | 青 |
+| `[Agent:ERR]` | Agent **stderr** | 暗青 |
+| `[Web]` | 托管的 Vite 输出 | 绿 |
+| `[CCR]` | CCR 网关 stdout(已过滤 `image_url` / base64 附件) | 品红 |
 
-### 2.2 控制台前缀总表(靠前缀区分来源)
+> `[Server]` 与 `[Agent]` 是两套日志:前者是 Server 居中调度时自己说的,后者是 AI 干活时说的。查 AI 决策别在 `[Server]` 找。
 
-控制台是多来源汇流,**前缀是判断「这行谁说的」的唯一依据**:
+### 2.2 本地文件 `session_*.log`
 
-| 前缀 | 来源 | 颜色 | 说明 |
-|------|------|------|------|
-| `[Server]` `[Server:WARN]` `[Server:ERR]` `[Server:DBG]` `[Server:TRC]` `[Server:CRIT]` | Server 自身 `ILogger` | 白 / 黄 / 灰系 | 经 `ServerConsoleFormatter` 格式化,按 `LogLevel` 选前缀与颜色 |
-| `[Agent]` `[Agent#n]` | Agent(Python)进程 **stdout** | 青(Cyan) | 前缀由 Python 端自己打,Server 只补时间戳转发;这是 **AI 执行轨迹本身**,不是 Server 日志 |
-| `[Agent:ERR]` | Agent 进程 **stderr** | 暗青 | Server 转发 |
-| `[Web]` | 托管的 Vite dev server 输出 | 绿 | Server 转发(已过滤 Vite 冗余行) |
-| `[CCR]` | CCR 网关 **stdout** | 品红(Magenta) | Server 转发,**已过滤 `image_url` / base64 附件**避免刷屏;CCR stderr 不过滤 |
+- **落点**:`{项目路径}/logs/session_{yyyyMMdd_HHmmss}.log`,按「项目 × Server 会话」分文件;切 / 重开项目滚动到新文件。
+- **内容**:与控制台一模一样(只去 ANSI 色码),含 Server / Agent / Web / CCR 全部来源,**不是只存 AI 对话**。
+- **落盘**:每行追加后立即关句柄,从不持有文件——否则删 / 移项目时被占住目录报 `IOException`(已修)。
+- **时序红线**:`ConversationLogger.Install()` 装 Tee 须早于日志框架初始化(`Program.cs:87` 装、`:119-120` 才注册格式化器),反了 Server 自身日志不进文件。
+- **多线程交错**:控制台有多个并发写入者,高并发瞬间单行可能交错,文件如实镜像,未做行级串行化。
 
-`LogLevel → 前缀` 映射:`Trace→[Server:TRC]`、`Debug→[Server:DBG]`、`Information→[Server]`、`Warning→[Server:WARN]`、`Error→[Server:ERR]`、`Critical→[Server:CRIT]`。
+### 2.3 级别配置
 
-> `[Server]` 与 `[Agent]` 是**两套日志**:前者是 Server 居中调度时自己说的话,后者是 AI 干活时说的话,Server 只是后者的管道。排查 AI 决策问题别在 `[Server]` 里找,要看 `[Agent]` 或直接看 SDK transcript(§4)。
-
-### 2.3 本地文件 `session_*.log`
-
-- **落点**:`{项目路径}/logs/session_{yyyyMMdd_HHmmss}.log`,按「项目 × Server 会话」分文件;切换 / 重开项目即滚动到新文件。
-- **内容**:与控制台**一模一样**,只去掉 ANSI 颜色码——含 Server / Agent / Web / CCR 全部来源,**不是只存 AI 对话**。文件名前缀 `session_`(旧版 `chat_` 已废弃)。
-- **落盘策略**:每行 `File.AppendAllText` 追加后**立即关闭句柄**,从不持有文件。这样删除 / 移动项目时不会被日志文件占住目录(曾因常开的 `StreamWriter` 报 `IOException: being used by another process`,已修)。
-- **生命周期**(`ConversationLogger`):
-  - `Install()` — 进程启动最早期装 Tee,**必须早于日志框架初始化**(`Program.cs:87` 装 Tee,`Program.cs:119-120` 才 `ClearProviders()` + `AddServerConsoleFormatter()`)。顺序反了 Server 自身日志不进文件。
-  - `Initialize(projectPath)` — 打开 / 切换项目时调,在 `logs/` 下起新文件。
-  - `Shutdown()` — 进程退出收尾。
-- **静默退化**:项目未打开 / 目录被删时,写入静默忽略,不重建目录、不报错。
-
-### 2.4 日志级别配置
-
-| 环境 | 配置文件 | 默认级别 |
-|------|----------|----------|
-| Production | `BIMCanvas.Server/appsettings.json` | 全部 `Warning`(静默) |
-| Development | `BIMCanvas.Server/appsettings.Development.json` | `Default=Information`,框架(`Microsoft.AspNetCore`)压到 `Warning` |
-
-文件里看到什么 = 控制台显示什么,Tee 不另设过滤。要让某类日志进文件,调这两份配置的级别即可。
-
-### 2.5 已知约束
-
-- **多线程交错**:控制台有多个并发写入者(Server 日志线程 + Agent stdout 泵 + Web 泵 + CCR 泵)。高并发瞬间单行可能交错,文件如实镜像这一交错,未做行级串行化。
-- **Agent stdout 物理行**:Server 按物理行(遇 `\n` 才返回)读 Agent stdout,只在行首补时间戳——所以 AI 流式输出的一行不会被内部 flush 拆成大量带重复前缀的日志。
+`appsettings.json`(Production = 全 `Warning`)/ `appsettings.Development.json`(`Default=Information`,框架压到 `Warning`)。文件里有什么 = 控制台显示什么,Tee 不另设过滤。
 
 ---
 
 ## 3. Web 前端日志
 
-### 3.1 单一出口
+全前端日志走唯一出口 `src/utils/logger.ts`,**禁止散用 `console.*`**。`logger.ts` 是 framework-agnostic 纯 TS,任何模块都能直接 `import`。
 
-全前端日志走唯一出口 `BIMCanvas.Web/src/utils/logger.ts`,**禁止散用 `console.*`**(唯一例外是 logger 自身内部的 console sink)。`logger.ts` 是 framework-agnostic 纯 TS 模块,service 单例 / Three 服务 / Pinia 初始化前都能直接 `import`。
+### 3.1 五域
 
-### 3.2 五域
-
-| 域 | 颜色 | 记什么 |
+| 域 | 色 | 记什么 |
 |---|---|---|
-| `USER` | 紫 | 用户关键操作:发送 / 中止、开关 / 删除项目、移动 / 旋转 / 复制 / 镜像 / 放置 |
-| `STREAM` | 蓝 | SSE 流收发 + turn 状态:send 载荷、`turn.completed` / `turn.failed`、解析失败 |
-| `RECV` | 绿 | SignalR 推送接收:`ReceiveUpdate` / `GitStatusChanged` / `AgentNotification` / `SceneArtifactUpdated` |
-| `RENDER` | 粉 | Three / 渲染:模块库加载失败、场景重建、fitToScreen |
+| `USER` | 紫 | 用户操作:发送 / 中止、开关 / 删项目、移动 / 旋转 / 复制 / 镜像 / 放置 |
+| `STREAM` | 蓝 | SSE 流收发 + turn:send 载荷、`turn.completed` / `turn.failed`、解析失败 |
+| `RECV` | 绿 | SignalR 推送:`ReceiveUpdate` / `GitStatusChanged` / `AgentNotification` / `SceneArtifactUpdated` |
+| `RENDER` | 粉 | Three / 渲染:模块库加载、场景重建、fitToScreen |
 | `SYS` | 灰 | 系统 / 生命周期 / 项目加载 |
 
-> Web 端的颜色是浏览器原生 CSS `%c`(非 ANSI),与 Server 终端的 ANSI 是两套机制,但 `[时间] [Web:域] msg key=val` 的**文本格式**与 Server `[时间] [Server] msg` 视觉对齐,F12 与终端可并排对照。
+格式 `[时间] [Web:域] msg key=val` 与 Server `[时间] [Server] msg` 视觉对齐,F12 与终端可并排对照。
 
-### 3.3 F12 用法
+### 3.2 用法与开关
 
 ```ts
-import { createLogger } from '@/utils/logger';
 const log = createLogger('STREAM');
 log.info('turn.completed', { win: 'main', dur: '12s', tokens: 4521 });
 // → [23:45:12.341] [Web:STREAM] turn.completed win=main dur=12s tokens=4521
 ```
 
-- `msg` 用英文短语,变量进 `fields` 对象(**不要字符串拼接**);`fields` 渲染成 `key=val`,带空格的值自动加引号,`Error` 取 `.message`,对象 `JSON.stringify` 且超 200 字截断。
-- 关联键:涉及某窗口的日志带 `win=<windowId>`;一次对话用 `clientMessageId` 贯穿 send→turn。
+- `msg` 用英文短语,变量进 `fields` 对象(不拼字符串);关联键带 `win=<windowId>`、`clientMessageId`。
+- 切级别:F12 `__bimlog.setLevel('debug')`(另含 `.level` / `.clear()` / `.buffer`)或 `localStorage.bimlog='debug'`(持久)。默认 `DEV→info` / `PROD→warn`,低于当前级别直接丢弃。
+- 面板:`Ctrl+\`` 开 `DebugConsole.vue`(级别切换 / 域过滤 / 复制全部)。
 
-### 3.4 切级别 + 面板
+### 3.3 易失性
 
-- **切级别**:F12 控制台 `__bimlog.setLevel('debug')`(另含 `__bimlog.level` / `.clear()` / `.buffer`),或 `localStorage.bimlog='debug'`(持久,刷新保留)。默认级别 `DEV→info`、`PROD→warn`;低于当前级别的日志直接丢弃(不进 buffer、不打 console)。
-- **应用内面板**:`Ctrl+\`` 开关 `DebugConsole.vue`,支持级别切换、域过滤、复制全部。
-
-### 3.5 易失性(重要)
-
-Web 日志**纯易失**:浏览器内存环形 buffer(上限 500 条,newest-first),**无本地持久化**。要留证据(报 bug / 事后复盘),F12 里 `__bimlog.buffer` 或面板「复制全部」**当场导出**——刷新页面即丢。这是与 Server `session_*.log` 最大的不对称。
+Web 日志纯易失(内存环形 buffer 上限 500 条,**无持久化**)。要留证据,`__bimlog.buffer` 或面板「复制全部」**当场导出**,刷新即丢——这是与 Server `session_*.log` 最大的不对称。
 
 ---
 
 ## 4. Agent SDK transcript 层
 
-这是**三套里唯一没有模块 README 的**,也是排查 AI 工作流问题信息量最大的一层。Claude Agent SDK 把每次会话和每个子代理的完整对话逐行落成 `.jsonl`。
+三套里**唯一没有模块 README**、排查 AI 工作流信息量最大的一层。Claude SDK 把每次会话和每个子代理的完整对话逐行落成 `.jsonl`。
 
 ### 4.1 落点与目录命名
 
-根:`C:\Users\{user}\.claude\projects\{转义后的工作目录}\`
+根:`C:\Users\{user}\.claude\projects\{转义路径}\`。转义规则:工作目录绝对路径 → 盘符冒号去掉、`\` 与非字母数字字符 → `-`、中文保留。
+例:`...\Projects\金凤127` → `C--Users-huhaonan-Documents-BIMCanvas-Projects---127`。
 
-转义规则:工作目录绝对路径 → 盘符冒号去掉、`\` 与非字母数字字符替换为 `-`、中文保留。例:
-
-- `C:\Users\huhaonan\Documents\BIMCanvas\Projects\金凤127` → `C--Users-huhaonan-Documents-BIMCanvas-Projects---127`
-- 本仓库 `E:\工作文档\...\MyCode\BIMCanvas` → `E-----------MyCode-BIMCanvas`
-
-### 4.2 一次会话的文件布局
+### 4.2 文件布局
 
 ```
 {转义路径}/
-├── {sessionUuid}.jsonl                  # 主对话 transcript(逐行 JSON 事件)
-└── {sessionUuid}/                       # 仅当本会话起过子代理 / workflow 才有
+├── {sessionUuid}.jsonl                  # 主对话 transcript
+└── {sessionUuid}/                       # 仅当起过子代理 / workflow 才有
     ├── subagents/
-    │   ├── agent-{agentId}.jsonl        # 普通 Task 子代理的完整 transcript
-    │   ├── agent-{agentId}.meta.json    # {agentType, description, toolUseId}
-    │   └── workflows/
-    │       └── wf_{runId}/              # 一次 Workflow 编排扇出的全部子代理
-    │           ├── agent-{id}.jsonl     # 每个 workflow agent 一份
-    │           └── agent-{id}.meta.json # workflow agent 的 meta 可能精简为 {agentType}
-    └── workflows/
-        └── wf_{runId}.json              # Workflow 运行台账(见 §4.5)
+    │   ├── agent-{id}.jsonl             # 普通 Task 子代理 transcript
+    │   ├── agent-{id}.meta.json         # {agentType, description, toolUseId}
+    │   └── workflows/wf_{runId}/        # 一次 Workflow 扇出的全部子代理(每个一对文件)
+    └── workflows/wf_{runId}.json        # Workflow 运行台账(见 4.4)
 ```
 
-### 4.3 主 transcript `{sessionUuid}.jsonl` 的事件
+### 4.3 主 transcript 的关键字段
 
-逐行 JSON,每行一个 `type`。常见取值与关键字段:
+逐行 JSON,每行一个 `type`(`user` / `assistant` / `queue-operation` / …)。排查最常用:
 
-| `type` | 含义 | 关键字段 |
-|--------|------|----------|
-| `user` | 用户输入 / 工具结果回填 | `message.content`(可含 `tool_result`)、`uuid`、`parentUuid`、`promptId`、`cwd`、`gitBranch` |
-| `assistant` | AI 响应 | `message.content`(可含 `text` / `thinking` / `tool_use`)、`message.model`、`message.usage`(token)、`stop_reason` |
-| `queue-operation` / `ai-title` / `attachment` / `task_reminder` | 队列事件 / 会话标题 / 附加元数据 / 后台任务提醒 | 各自轻量 |
-
-- **turn 边界**:靠 `parentUuid` 链——某行 `uuid` 是下一行的 `parentUuid`。
+- **turn 链**:`parentUuid`——某行 `uuid` 是下一行的 `parentUuid`。
 - **工具调用**:发起在 `assistant.message.content[]` 的 `{type:"tool_use", id, name, input}`;结果在后续 `user.message.content[]` 的 `{type:"tool_result", tool_use_id, content, is_error}`。
-- **工具失败**:`tool_result.is_error: true`(没有专门的 error 行)。
-- **token**:`assistant.message.usage`(`input_tokens` / `output_tokens` / `cache_read_input_tokens` 等)。
-- **model**:`assistant.message.model`(可能因 CCR 路由是不同下游模型)。
+- **工具失败**:`tool_result.is_error: true`(无专门 error 行)。
+- **决策依据**:`assistant.message.content[]` 的 `{type:"thinking"}`(Server / Web 都看不到)。
+- **token / model**:`assistant.message.usage` / `.model`。
 
-### 4.4 子代理关联键
+### 4.4 关联键与 workflow 台账
 
-- `{sessionUuid}/subagents/agent-{id}.meta.json` 的 **`toolUseId`** = 该子代理在**主 transcript 里那次 Task / Workflow 工具调用**的 `id`。拿它在主 `{sessionUuid}.jsonl` grep,即可回溯「谁、用什么入参、派了这个子代理」。
-- 子代理 jsonl 的 schema 与主 transcript 一致,额外有 `isSidechain: true`(标侧链)、`agentId`、`parentUuid`(子代理内部 turn 链)。
-- `agentType` 取值:平台级如 `general-purpose` / `Explore`;interior-layout workflow 的如 `placement-agent` / `review-agent` / `judge-agent` / `design-scribe` 等。**完整清单以 plugin 仓库 `agents/` 为准**,本文不固化。
-
-### 4.5 Workflow 运行台账 `{sessionUuid}/workflows/wf_{runId}.json`
-
-一次 `Workflow` 工具调用的完整编排记录,排查工作流问题先看它:
-
-- `runId` / `timestamp` / `taskId`
-- `script` — 完整 workflow 脚本源码,含 `meta.name` / `meta.description` / `meta.phases`(阶段标题与说明)
-- `workflowProgress` — 每个扇出 agent 的 `state` / `startedAt` / `lastProgressAt` / `tokens` / `toolCalls` / `durationMs`
-
-例:interior-layout 场景① 的台账 `meta.name` 为 `interior-layout-scene1`,`phases` 为七步流(感知→规划推演→多方案→落地→评审→裁决→精修)。
-
-### 4.6 只有这层才有的信息
-
-完整 thinking、工具入参全文、token / cache 命中分布、各子代理 `durationMs` 与并行情况——Server / Web 日志都**没有**。AI「为什么这么决策」「卡在哪个 agent」只能在这层查。
+- `agent-{id}.meta.json` 的 **`toolUseId`** = 该子代理在主 transcript 里那次 Task / Workflow 调用的 `id`。拿它在主 `.jsonl` grep,即可回溯「谁、用什么入参派了它」。子代理 jsonl 额外带 `isSidechain:true`、`agentId`、内部 `parentUuid`。
+- `agentType` 取值:平台级 `general-purpose` / `Explore`;interior-layout 的 `placement-agent` / `review-agent` / `judge-agent` / `design-scribe` 等(**完整清单以 plugin 仓库 `agents/` 为准**)。
+- `wf_{runId}.json` 台账:`script`(含 `meta.name` / `meta.phases`)+ **`workflowProgress`**(每个扇出 agent 的 `state` / `tokens` / `toolCalls` / `durationMs`)——排查 workflow「卡在哪、谁烧 token」先看它。
 
 ---
 
-## 5. 三套怎么对齐
+## 5. 排查:按真理归属定位
 
-| 想关联的两端 | 对齐键 |
+**判断原则**(替代背症状表):排查不靠枚举现象,靠一个问题——**「我缺的这条事实,属于哪类真相?」**——按 §1 的真理归属直接去那一层。因为流是 Server 盲区、thinking / 入参只在 SDK,**走错层一无所获**。
+
+| 缺的事实属于 | 去 |
 |---|---|
-| Server ↔ Web(同一时刻服务端做了什么 / 浏览器看到了什么) | `windowId` + 时间戳 |
-| Web 内一次对话的 send→turn 全过程 | `clientMessageId` |
-| 主 transcript ↔ 某子代理 / workflow | `toolUseId`(主 transcript 的 tool_use `id` = 子代理 meta 的 `toolUseId`) |
+| 服务端执行 / 状态(谁收到请求、几何 / Git / 落盘结果) | Server `session_*.log`(按前缀过滤) |
+| 浏览器意图 / 感知 + **SSE 流的实际内容** | Web F12(`STREAM` / `RECV` / `RENDER` 域) |
+| AI 决策依据(thinking)、工具入参全文、workflow 卡点 | SDK transcript / `wf_*.json` 台账 |
+
+跨层接力用对齐键(§1 末列):`windowId`+时间戳(Server↔Web)、`clientMessageId`(Web 内 send→turn)、`toolUseId`(主 transcript↔子代理)。
+
+**范例 ·「对话发了没反应」**:缺的是「流有没有内容、断在哪」→ 属于**流** → 先看 Web `STREAM`(不是 Server,Server 对流是盲区):有 send 载荷无 `turn.completed` = 流中断;连 send 都没有 = UI 没发出。需确认 AI 侧是否卡住,再跳 SDK 主 transcript 末尾(看 `assistant` 停在哪 / `tool_result.is_error`)。
+
+**范例 ·「workflow 某 agent 失败」**:缺的是「哪个 agent、什么入参、报什么」→ SDK `wf_*.json` 台账找 `state != done` 的 agent → 读其 `subagents/workflows/wf_*/agent-{id}.jsonl` 末尾 → 若 meta 有 `toolUseId`,回主 transcript 看派发入参。
+
+> 症状不穷举是有意的:任何新现象都按「缺哪类真相」自行推导路由,不必等本表列出。环境无 `jq` / `python`,字段已给全,用 `grep` / `findstr` 自行提取即可。
 
 ---
 
-## 6. 排查速查表
+## 6. 想改造日志系统?去哪改
 
-> 环境无 `jq` / `python`,下列示例用 `grep`/`sed`(git-bash)或 Windows `findstr`。jsonl 行很长,提取字段而非整行打印。
+本文只讲「用」。改**实现**进对应模块 README,那里有红线与标准动作:
 
-| 现象 | 先看哪套 | 怎么定位 |
-|------|----------|----------|
-| 渲染丢失 / 画布空白 | Web(RENDER)→ Server(`[Server]`) | F12 看 `RENDER` 域报错;再到 `session_*.log` 看 Server 落盘 / 推送是否发出 |
-| SSE 聊天断流 / 没回复 | Web(STREAM)→ SDK transcript | F12 看 `STREAM` 的 `turn.failed` / 解析失败(Server 对 SSE 是盲区);确认 AI 侧轨迹去 SDK `{sessionUuid}.jsonl` |
-| 几何 / 碰撞 / 验证错 | Server(`[Server]`) | `session_*.log` grep `PlacementService` / `validation` / `E0` 错误码 |
-| Git / Worktree / 分支锁异常 | Server(`[Server]`) | `session_*.log` grep `Worktree` / `BranchLock` / `git` |
-| AI 决策不对 / 放错位置 | SDK transcript | 看 `assistant` 行的 `thinking` 与 `tool_use.input`,Server / Web 都看不到 |
-| Workflow 某 agent 失败 / 卡住 | SDK workflow 台账 | 读 `wf_{runId}.json` 的 `workflowProgress` 找 `state != done` 的 agent,再看其 `subagents/workflows/wf_*/agent-{id}.jsonl` 末尾 |
-| token 暴涨 / 跑得慢 | SDK | `wf_{runId}.json` 的 `workflowProgress[].tokens` / `durationMs`,或各 `assistant.message.usage` |
-| 附件图片相关 | Server(`[CCR]`)+ SDK | `[CCR]` 的 base64 已被过滤;入参全文看 SDK 的 `tool_use.input` |
+| 改什么 | 去哪读 |
+|--------|--------|
+| Server 控制台格式 / 前缀 / 本地文件镜像 / Tee | `BIMCanvas.Server/README.md` §11(注意 `Install()` 须早于日志框架初始化) |
+| Web logger / 域 / 门控 / 面板 | `BIMCanvas.Web/README.md` §11(注意**禁止在 computed/getter 内打日志**——触发响应式无限循环) |
+| Agent SDK transcript | **不可改**——由 Claude SDK 写入,格式随版本演进,§4 仅描述当前实测结构 |
 
-### 范例一:一条对话「发了没反应」
-
-```bash
-# 1) Web 侧:这次 turn 到底失败还是没发出?(F12 或导出的 buffer)
-#    看 STREAM 域:有 send 载荷但无 turn.completed → 流中断;连 send 都没有 → UI 没发出
-
-# 2) Server 侧:HTTP 是否到达、是否转发给 Agent
-grep -n "agent" "{项目}/logs/session_20260617_xxxxxx.log" | grep -iE "proxy|/agent|error"
-
-# 3) AI 侧:Agent 那边收到没、卡在哪
-#    定位本次会话 jsonl,看最后几行是 assistant 卡住还是 tool_result is_error
-tail -5 "C--...---127/{sessionUuid}.jsonl"
-```
-
-### 范例二:workflow 某子代理报错,定位是哪个、什么入参
-
-```bash
-B="C--...---127/{sessionUuid}"
-# 1) 台账里找没跑完的 agent
-grep -o '"label":"[^"]*","state":"[^"]*"' "$B/workflows/wf_xxx.json"
-# 2) 该 agent 的 meta 拿 agentType,jsonl 末尾看错误
-cat "$B/subagents/workflows/wf_xxx/agent-{id}.meta.json"
-grep -o '"is_error":true[^}]*' "$B/subagents/workflows/wf_xxx/agent-{id}.jsonl"
-# 3) 若 meta 有 toolUseId,回主 transcript 看派发它时的入参
-grep -o '"toolUseId":"[^"]*"' "$B/subagents/.../agent-{id}.meta.json"   # 取 id
-grep "<上一步的 id>" "C--...---127/{sessionUuid}.jsonl"
-```
-
----
-
-## 7. 想改造日志系统?去哪改
-
-本文只讲「用」。要**改日志实现**,进对应模块 README 的「日志系统」小节,那里有红线与标准动作:
-
-| 改什么 | 去哪读 + 关键文件 |
-|--------|-------------------|
-| Server 控制台格式 / 前缀 / 着色 / 异常过滤 | `BIMCanvas.Server/README.md` §11;`Logging/ServerConsoleFormatter.cs` |
-| Server 本地文件镜像 / Tee / 落盘 | `BIMCanvas.Server/README.md` §11;`Logging/ConversationLogger.cs`(注意 `Install()` 须早于日志框架初始化的时序红线) |
-| Web 前端 logger / 域 / 门控 / 面板 | `BIMCanvas.Web/README.md` §11;`src/utils/logger.ts`(注意**禁止在 computed/getter 内打日志**——会触发响应式无限循环) |
-| Agent SDK transcript | **不可改**——由 Claude Agent SDK 写入,格式随 SDK 版本演进,本文 §4 仅描述当前实测结构 |
-
----
-
-## 相关文档
-
-| 文档 | 内容 |
-|------|------|
-| `BIMCanvas.Server/README.md` §11 | Server 日志实现细节(改造入口) |
-| `BIMCanvas.Web/README.md` §11 | Web 日志实现细节(改造入口) |
-| `docs/Architecture.md` | 整体架构、三方分工 |
-| `docs/Arch_Stream_Protocol.md` | Agent↔Web 实时流 / SSE / chunk |
-| `docs/Arch_Workflow.md` | workflow 五段流 / 编排 |
+相关:`docs/Architecture.md`(三方分工)、`docs/Arch_Stream_Protocol.md`(SSE / chunk)、`docs/Arch_Workflow.md`(workflow 编排)。
