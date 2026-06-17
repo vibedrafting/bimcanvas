@@ -296,7 +296,7 @@ export function getFacingValue(facing: FacingData | null | undefined, context?: 
     }
 
     if (context) {
-        log.warn('invalid facing.value, fallback to north', { context });
+        log.debug('invalid facing.value, fallback to north', { context });
     }
 
     return DEFAULT_FACING_VALUE;

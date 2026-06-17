@@ -6,6 +6,10 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('RECV');
 
+// GitStatusChanged 去重:Server 端 .git watcher 在 agent 频繁 commit 时每 1-2s 推送一次,
+// 分支大多没变。只在分支真变化时 info,同分支心跳降 debug,避免刷屏。
+let lastGitBranch: string | undefined;
+
 export class SignalRService {
     private connection: signalR.HubConnection;
     private static instance: SignalRService;
@@ -13,6 +17,7 @@ export class SignalRService {
     private constructor() {
         this.connection = new signalR.HubConnectionBuilder()
             .withUrl(SIGNALR_HUB)
+            .configureLogging(signalR.LogLevel.Warning)  // 压掉库自身 Information 级噪音(WebSocket connected 等)
             .withAutomaticReconnect()
             .build();
 
@@ -41,7 +46,13 @@ export class SignalRService {
 
         // Git 状态变化事件
         this.connection.on("GitStatusChanged", (status: any) => {
-            log.info('GitStatusChanged', { branch: status?.branch ?? status?.currentBranch });
+            const branch = status?.branch ?? status?.currentBranch;
+            if (branch !== lastGitBranch) {
+                log.info('GitStatusChanged', { branch, from: lastGitBranch });
+                lastGitBranch = branch;
+            } else {
+                log.debug('GitStatusChanged', { branch });
+            }
             window.dispatchEvent(new CustomEvent('bimcanvas:git-status-changed', { detail: status }));
         });
 

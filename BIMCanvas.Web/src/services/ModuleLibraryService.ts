@@ -71,7 +71,7 @@ class ModuleLibraryService {
           return;
         }
 
-        log.info('module library loaded', { count: this.library.modules.length });
+        log.debug('module library loaded', { count: this.library.modules.length });
       } catch (error) {
         log.error('failed to load module library', { error });
         // 不抛出错误，允许应用继续运行（模块库加载失败不应阻塞整个应用）
@@ -117,7 +117,7 @@ class ModuleLibraryService {
     this.loadPromise = Promise.resolve();
 
     if (newLibrary?.modules) {
-      log.info('module library reloaded', { count: newLibrary.modules.length });
+      log.debug('module library reloaded', { count: newLibrary.modules.length });
     } else {
       log.warn('module library unavailable from runtime or snapshot');
     }
