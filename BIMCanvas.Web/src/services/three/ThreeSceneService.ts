@@ -14,7 +14,9 @@ import { ViewportService } from '../interaction/ViewportService';
 import { SelectionManager } from '../interaction/SelectionManager';
 import { DragManager } from '../interaction/DragManager';
 import { GhostManager } from '../interaction/GhostManager';
-import { useDebugStore } from '../../stores/debugStore';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('RENDER');
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { moduleLibraryService } from '../ModuleLibraryService';
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
@@ -159,7 +161,7 @@ export class ThreeSceneService {
         this.gridBuilder.buildGrid();
         // 8. Load Module Library
         moduleLibraryService.load().catch(error => {
-            console.error('[ThreeSceneService] Failed to load module library:', error);
+            log.error('module library load failed', { error });
         });
 
         // 7. Watch for Store Changes
@@ -179,7 +181,7 @@ export class ThreeSceneService {
                     return;
                 }
                 if (this.isInitialLoad) {
-                    console.log('Initial load detected. Building Grid ONLY and fitting screen.');
+                    log.debug('initial load: grid only + fit screen');
                     // Only build Grid (already built in init, but ensure it's there)
                     this.gridBuilder.buildGrid();
 
@@ -221,7 +223,7 @@ export class ThreeSceneService {
                 // Only fit to screen on subsequent loads, initial load handled above
                 // Skip fitToScreen when:
                 // - preserveViewOnLoad=true (branch switch, undo/redo)
-                console.log('New project loaded (subsequent), fitting to screen...');
+                log.debug('project loaded (subsequent), fit screen');
                 setTimeout(() => {
                     this.fitToScreen(newData);
                 }, 100);
@@ -401,7 +403,7 @@ export class ThreeSceneService {
 
         // Canvas style change - rebuild Builders and scene
         const canvasStyleChangeHandler = (() => {
-            console.log('Canvas style changed, rebuilding scene...');
+            log.debug('canvas style changed, rebuilding scene');
             this.rebuildWithCanvasStyle();
         }) as EventListener;
         this.boundEventHandlers.set('bimcanvas:canvas-style-change', canvasStyleChangeHandler);
@@ -410,7 +412,7 @@ export class ThreeSceneService {
         // 网格规格切换事件监听
         const gridSpacingHandler = ((e: CustomEvent) => {
             const spacing = e.detail.spacing as 600 | 1000;
-            console.log(`Grid spacing changed to ${spacing}mm`);
+            log.debug('grid spacing changed', { spacing });
             this.gridBuilder.setGridSpacing(spacing);
             this.gridBuilder.buildGrid();
         }) as EventListener;
@@ -420,7 +422,7 @@ export class ThreeSceneService {
         // 图层预设配置加载事件监听
         const layerPresetsHandler = ((e: CustomEvent) => {
             const presets = e.detail;
-            console.log('[ThreeSceneService] 收到图层预设配置:', presets);
+            log.debug('layer presets received');
             this.layerManager.setPresetConfig(presets);
             // 重新应用当前预设以使配置生效
             this.layerManager.applyPreset(LayerManager.PRESET_HUMAN);
@@ -712,9 +714,7 @@ export class ThreeSceneService {
         const width = maxX - minX;
         const height = maxY - minY;
 
-        const debugStore = useDebugStore();
-        debugStore.log(`FitToScreen: Bounds [${minX.toFixed(0)},${minY.toFixed(0)}] to [${maxX.toFixed(0)},${maxY.toFixed(0)}] W:${width.toFixed(0)} H:${height.toFixed(0)}`);
-        debugStore.log(`FitToScreen: Center [${centerX.toFixed(0)},${centerY.toFixed(0)}]`);
+        log.debug('fitToScreen bounds', { w: width.toFixed(0), h: height.toFixed(0), cx: centerX.toFixed(0), cy: centerY.toFixed(0) });
 
         // 计算视锥体尺寸
         const aspect = this.container.clientWidth / this.container.clientHeight;
@@ -731,12 +731,10 @@ export class ThreeSceneService {
         // Map 2D center (x, y) to 3D center (x, 0, -y) because of -90 X rotation
         // Z 轴减小偏移量（相机目标向北），让内容在屏幕上向下显示
         const center3D = new THREE.Vector3(centerX, 0, -centerY - offsetWorld);
-        debugStore.log(`FitToScreen: Center3D [${center3D.x.toFixed(0)},${center3D.y.toFixed(0)},${center3D.z.toFixed(0)}] (offset: ${offsetWorld.toFixed(0)})`);
 
         // Update Camera Position (Keep Y high, move X and Z)
         this._camera.position.set(center3D.x, 10000, center3D.z);
         this._camera.lookAt(center3D.x, 0, center3D.z);
-        debugStore.log(`FitToScreen: Camera Pos [${this._camera.position.x.toFixed(0)},${this._camera.position.y.toFixed(0)},${this._camera.position.z.toFixed(0)}]`);
 
         // Update Controls Target via ViewportService
         this.viewportService.setTarget(center3D.x, 0, center3D.z);
