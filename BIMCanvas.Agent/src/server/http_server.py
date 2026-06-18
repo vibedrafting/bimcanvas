@@ -1219,11 +1219,9 @@ async def get_history_handler(request: web.Request) -> web.Response:
     Get conversation history for a window.
     """
     window_id = request.query.get("windowId", "primary")
-    # projectPath 用于内存无该窗口活跃会话时(会话已关闭 / Agent 重启)回退磁盘 .history。
-    project_path = request.query.get("projectPath") or None
-    session, history, interactions = await runtime_store.get_history_for_window_or_disk(
-        window_id, project_path
-    )
+    # 纯内存:刷新(Agent 存活)恢复实时会话。Agent 重启后内存为空 → 返回空,窗口空窗起步;
+    # 过往对话经历史面板(/api/history/sessions + /session)浏览,不在此自动回放(避免重启误恢复 + 轮询死循环)。
+    session, history, interactions = await runtime_store.get_history_for_window(window_id)
     return web.json_response({
         "history": history,
         "interactions": interactions,

@@ -104,10 +104,12 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: var(--glass-border);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-island);
     overflow: hidden;
 }
 
@@ -128,7 +130,7 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
 .panel-close {
     background: none;
     border: none;
-    color: var(--text-muted);
+    color: var(--text-tertiary);
     cursor: pointer;
     font-size: 14px;
     line-height: 1;
@@ -141,19 +143,20 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
 .back-live {
     margin: 8px 12px 4px;
     padding: 6px 10px;
-    background: var(--bg-canvas);
+    background: var(--surface-card);
     border: 1px solid var(--border-subtle);
-    border-radius: 6px;
+    border-radius: var(--radius-sm, 4px);
     color: var(--text-secondary);
     font-size: 13px;
     cursor: pointer;
     text-align: left;
+    transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .back-live:hover,
 .back-live.active {
     color: var(--text-primary);
-    border-color: var(--color-primary, #3b82f6);
+    border-color: var(--accent-blue);
 }
 
 .panel-body {
@@ -165,12 +168,12 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
 .panel-error {
     padding: 16px;
     font-size: 13px;
-    color: var(--text-muted);
+    color: var(--text-tertiary);
     text-align: center;
 }
 
 .panel-error {
-    color: var(--color-danger, #ef4444);
+    color: var(--accent-danger);
 }
 
 .session-list {
@@ -181,17 +184,18 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
 
 .session-item {
     padding: 8px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm, 4px);
     cursor: pointer;
+    transition: background 0.15s ease;
 }
 
 .session-item:hover {
-    background: var(--bg-canvas);
+    background: var(--surface-highlight);
 }
 
 .session-item.active {
-    background: var(--bg-canvas);
-    box-shadow: inset 2px 0 0 var(--color-primary, #3b82f6);
+    background: var(--surface-highlight);
+    box-shadow: inset 2px 0 0 var(--accent-blue);
 }
 
 .session-title {
@@ -205,7 +209,7 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
 .session-meta {
     margin-top: 3px;
     font-size: 11px;
-    color: var(--text-muted);
+    color: var(--text-tertiary);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -215,8 +219,8 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
     margin-left: auto;
     padding: 0 6px;
     border-radius: 8px;
-    background: var(--border-subtle);
-    color: var(--text-muted);
+    background: var(--surface-highlight);
+    color: var(--text-tertiary);
     font-size: 10px;
 }
 </style>

@@ -45,13 +45,8 @@ export class ChatHistoryService {
     return response.json() as Promise<ChatHistoryResponse>;
   }
 
-  async getHistory(windowId: string, projectPath?: string): Promise<ChatHistoryResponse> {
-    // projectPath 传给后端用于内存无活跃会话时(会话已关闭 / Agent 重启)回退磁盘 .history。
-    let url = `${this.agentApiBase}/api/history?windowId=${encodeURIComponent(windowId)}`;
-    if (projectPath) {
-      url += `&projectPath=${encodeURIComponent(projectPath)}`;
-    }
-    const response = await fetch(url);
+  async getHistory(windowId: string): Promise<ChatHistoryResponse> {
+    const response = await fetch(`${this.agentApiBase}/api/history?windowId=${encodeURIComponent(windowId)}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch history for window ${windowId}: HTTP ${response.status}`);
     }

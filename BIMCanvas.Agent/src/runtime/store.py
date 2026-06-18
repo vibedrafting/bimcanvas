@@ -787,36 +787,6 @@ class RuntimeStateStore:
                 logger.warning("[history] sdk id persist failed session=%s: %s", session_id, exc)
         return session
 
-    async def get_history_for_window_or_disk(
-        self,
-        window_id: str,
-        project_path: str | None = None,
-    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
-        """优先返回内存历史;内存无该窗口活跃会话时(已关闭 / 进程重启后)回退磁盘。
-
-        磁盘回退仅恢复显示投影(history),interactions 不持久化故返回空。
-        """
-        snapshot, history, interactions = await self.get_history_for_window(window_id)
-        if snapshot is not None:
-            return snapshot, history, interactions
-        if not project_path:
-            return None, [], []
-        try:
-            entry = await asyncio.to_thread(
-                history_persistence.latest_session_for_window, project_path, window_id
-            )
-            if not entry:
-                return None, [], []
-            events = await asyncio.to_thread(
-                history_persistence.load_session_events,
-                project_path,
-                entry.get("sessionId"),
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[history] disk load failed window=%s: %s", window_id, exc)
-            return None, [], []
-        return self._index_entry_to_snapshot(entry), events, []
-
     async def list_history_sessions(self, project_path: str) -> list[dict[str, Any]]:
         """列出项目 .history 索引(会话摘要,按 lastActiveAt 倒序)。供历史面板渲染。"""
         if not project_path:
