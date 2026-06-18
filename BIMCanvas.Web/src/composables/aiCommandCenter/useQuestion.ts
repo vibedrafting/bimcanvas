@@ -3,6 +3,9 @@ import type { ChatBubble, InteractionRecord } from '../../types/agent'
 import type { ChatMessage, ChatWindow } from '../../types/aiCommandCenter'
 import { getQuestionService } from '../../services/QuestionService'
 import { createQuestionBubble, completeBubble } from '../../utils/bubbleManager'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('STREAM')
 
 interface QuestionOptions {
   agentApiBase: string
@@ -62,7 +65,7 @@ export const useQuestion = (options: QuestionOptions) => {
   const handleQuestionPushed = (record: InteractionRecord) => {
     const win = findTargetWindow(record.windowId)
     if (!win) {
-      console.warn(`[useQuestion] Pending question points to missing window: ${record.windowId}`)
+      log.warn('pending question points to missing window', { windowId: record.windowId })
       return
     }
 
@@ -92,7 +95,7 @@ export const useQuestion = (options: QuestionOptions) => {
   const handleQuestionTerminal = (record: InteractionRecord) => {
     const win = findTargetWindow(record.windowId)
     if (!win) {
-      console.warn(`[useQuestion] Terminal question points to missing window: ${record.windowId}`)
+      log.warn('terminal question points to missing window', { windowId: record.windowId })
       return
     }
 
@@ -130,7 +133,7 @@ export const useQuestion = (options: QuestionOptions) => {
     try {
       await service.restorePending(windowIds)
     } catch (error) {
-      console.warn('[useQuestion] Restore pending questions failed:', error)
+      log.warn('restore pending questions failed', { err: error })
     }
   }
 

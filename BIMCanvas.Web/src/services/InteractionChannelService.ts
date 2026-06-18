@@ -1,4 +1,5 @@
 import { AGENT_API } from '../config/api';
+import { createLogger } from '../utils/logger';
 import type {
   BackgroundTaskRecord,
   ChannelEventName,
@@ -17,6 +18,8 @@ const INTERACTION_EVENT_NAMES: ChannelEventName[] = [
   'background_task.completed',
   'background_task.progress'
 ];
+
+const log = createLogger('SYS');
 
 export class InteractionChannelService {
   private serverUrl: string;
@@ -41,11 +44,11 @@ export class InteractionChannelService {
     }
 
     this.eventSource.onopen = () => {
-      console.log('[InteractionChannelService] SSE connection opened');
+      log.debug('SSE connection opened');
     };
 
     this.eventSource.onerror = (error) => {
-      console.error('[InteractionChannelService] SSE connection error:', error);
+      log.error('SSE connection error', { error });
     };
   }
 
@@ -64,7 +67,7 @@ export class InteractionChannelService {
     if (this.listeners.size === 0 && this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
-      console.log('[InteractionChannelService] SSE connection closed');
+      log.debug('SSE connection closed');
     }
   }
 
@@ -128,7 +131,7 @@ export class InteractionChannelService {
         listener(envelope);
       }
     } catch (error) {
-      console.error(`[InteractionChannelService] Failed to parse ${eventName}:`, error, event.data);
+      log.error('failed to parse event', { eventName, error, data: event.data });
     }
   }
 }

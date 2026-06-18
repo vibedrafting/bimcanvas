@@ -169,6 +169,8 @@ BIMCanvas/
 |------|------|
 | 平台 / 插件体系（边界、生命周期、安全模型、manifest、MCP 契约） | [Arch_Plugin.md](./Arch_Plugin.md) |
 | Workflow 执行架构（五层 / 五段流 / 确定性控制流 / 实测教训） | [Arch_Workflow.md](./Arch_Workflow.md) |
+| 前端架构（渲染分层 / 状态通信 / 两种运行时 / 插件 Web 扩展） | [Arch_Web.md](./Arch_Web.md) |
+| 设计经验（让 AI 胜任室内设计的有效灵感 / 设计哲学） | [Design_Insights.md](./Design_Insights.md) |
 | 设计交付物数据模型（指针式平级 / Zone 递归嵌套 / 采纳=翻指针） | [Arch_Design_Delivery.md](./Arch_Design_Delivery.md) |
 | .bcp 数据格式字段级规范 | [Schema.md](./Schema.md) |
 | Agent ↔ Web 实时流协议契约 | [Arch_Stream_Protocol.md](./Arch_Stream_Protocol.md) |

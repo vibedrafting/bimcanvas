@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { SERVER_API } from '../config/api';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SYS');
 
 /**
  * 虚拟窗口状态
@@ -107,7 +110,7 @@ export const useWindowStore = defineStore('window', () => {
     // 检查分支是否可用
     if (!isBranchAvailable.value(branchName)) {
       error.value = `分支 "${branchName}" 已被其他窗口占用`;
-      console.warn('[WindowStore] 分支已被占用:', branchName);
+      log.warn('branch occupied by other window', { branchName });
       return null;
     }
 
@@ -139,10 +142,10 @@ export const useWindowStore = defineStore('window', () => {
         activeWindowId.value = windowId;
       }
 
-      console.log('[WindowStore] 创建窗口:', newWindow);
+      log.info('window created', { windowId, branchName });
       return newWindow;
     } catch (e) {
-      console.error('[WindowStore] 创建窗口失败:', e);
+      log.error('create window failed', { branchName, err: e });
       error.value = '创建窗口失败';
       return null;
     } finally {
@@ -162,7 +165,7 @@ export const useWindowStore = defineStore('window', () => {
   ): Promise<boolean> => {
     const window = windows.value.find(w => w.id === windowId);
     if (!window) {
-      console.warn('[WindowStore] 窗口不存在:', windowId);
+      log.warn('window not found', { windowId });
       return false;
     }
 
@@ -190,10 +193,10 @@ export const useWindowStore = defineStore('window', () => {
           : null;
       }
 
-      console.log('[WindowStore] 关闭窗口:', windowId);
+      log.info('window closed', { windowId });
       return true;
     } catch (e) {
-      console.error('[WindowStore] 关闭窗口失败:', e);
+      log.error('close window failed', { windowId, err: e });
       error.value = '关闭窗口失败';
       return false;
     } finally {
@@ -207,12 +210,12 @@ export const useWindowStore = defineStore('window', () => {
   const activateWindow = (windowId: string): boolean => {
     const window = windows.value.find(w => w.id === windowId);
     if (!window) {
-      console.warn('[WindowStore] 窗口不存在:', windowId);
+      log.warn('window not found', { windowId });
       return false;
     }
 
     activeWindowId.value = windowId;
-    console.log('[WindowStore] 激活窗口:', windowId);
+    log.debug('window activated', { windowId });
     return true;
   };
 
@@ -246,11 +249,11 @@ export const useWindowStore = defineStore('window', () => {
       }
 
       // 404 或其他错误时，本地模式下允许继续
-      console.warn('[WindowStore] Server 分支锁 API 不可用，使用本地模式');
+      log.warn('branch lock API unavailable, fallback to local mode');
       return true;
     } catch (e) {
       // 网络错误时，本地模式下允许继续
-      console.warn('[WindowStore] 无法连接 Server，使用本地模式');
+      log.warn('server unreachable, fallback to local mode', { err: e });
       return true;
     }
   };
@@ -271,7 +274,7 @@ export const useWindowStore = defineStore('window', () => {
 
       return response.ok;
     } catch (e) {
-      console.warn('[WindowStore] 释放锁失败:', e);
+      log.warn('release branch lock failed', { err: e });
       return false;
     }
   };
@@ -286,7 +289,7 @@ export const useWindowStore = defineStore('window', () => {
         branchLocks.value = await response.json();
       }
     } catch (e) {
-      console.warn('[WindowStore] 刷新分支锁失败:', e);
+      log.warn('refresh branch locks failed', { err: e });
     }
   };
 

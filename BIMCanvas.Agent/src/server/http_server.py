@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -1080,6 +1081,13 @@ async def chat_stream_handler(request: web.Request) -> web.StreamResponse:
             window_id=window_id,
             event_payload=terminal_event,
         )
+        # 捕获并持久化 SDK 原生 session_id（续聊 resume 用，写入对话 meta/index）
+        try:
+            _sdk_sid = agent.get_sdk_session_id() if hasattr(agent, "get_sdk_session_id") else None
+            if _sdk_sid:
+                await runtime_store.set_sdk_session_id(session.session_id, _sdk_sid)
+        except Exception as _exc:  # noqa: BLE001 - 捕获失败不阻断回合
+            logger.warning("[history] capture sdk session id failed: %s", _exc)
         if client_stream_connected:
             client_stream_connected = await _try_write_sse_data(response, terminal_event)
 
@@ -1219,6 +1227,8 @@ async def get_history_handler(request: web.Request) -> web.Response:
     Get conversation history for a window.
     """
     window_id = request.query.get("windowId", "primary")
+    # 纯内存:刷新(Agent 存活)恢复实时会话。Agent 重启后内存为空 → 返回空,窗口空窗起步;
+    # 过往对话经历史面板(/api/history/sessions + /session)浏览,不在此自动回放(避免重启误恢复 + 轮询死循环)。
     session, history, interactions = await runtime_store.get_history_for_window(window_id)
     return web.json_response({
         "history": history,
@@ -1228,6 +1238,172 @@ async def get_history_handler(request: web.Request) -> web.Response:
         "sessionId": session["sessionId"] if session else None,
         "sessionStatus": session["status"] if session else None,
     })
+
+
+async def list_history_sessions_handler(request: web.Request) -> web.Response:
+    """列出项目历史会话(.history/index.json)。供历史面板渲染。"""
+    project_path = request.query.get("projectPath") or None
+    sessions = await runtime_store.list_history_sessions(project_path) if project_path else []
+    return web.json_response({"sessions": sessions})
+
+
+async def load_history_session_handler(request: web.Request) -> web.Response:
+    """按 sessionId 加载某历史会话事件流(只读回放)。返回与 /api/history 同形。"""
+    project_path = request.query.get("projectPath") or None
+    session_id = request.query.get("sessionId") or None
+    if not project_path or not session_id:
+        return web.json_response({"error": "projectPath and sessionId required"}, status=400)
+    session, history, interactions = await runtime_store.load_history_session(project_path, session_id)
+    return web.json_response({
+        "history": history,
+        "interactions": interactions,
+        "windowId": (session.get("windowId") if session else "") or "",
+        "session": session,
+        "sessionId": session_id,
+        "sessionStatus": (session.get("status") if session else "closed") or "closed",
+    })
+
+
+def _sdk_transcript_exists(working_dir: str, sdk_session_id: str) -> bool:
+    """探测 SDK 原生 transcript 是否存在(决定续聊 contextStatus)。
+    路径 = {CLAUDE_CONFIG_DIR|~/.claude}/projects/{sanitize(realpath(NFC(cwd)))}/{sdkSessionId}.jsonl,
+    与 SDK 0.2.87 sessions.py 的 _sanitize_path 规则一致(非字母数字→-;>200 字符的 hash 后缀 v1 暂不处理)。
+    """
+    if not sdk_session_id or not working_dir:
+        return False
+    import re
+    import unicodedata
+    try:
+        resolved = os.path.realpath(working_dir)
+    except OSError:
+        resolved = working_dir
+    sanitized = re.sub(r"[^a-zA-Z0-9]", "-", unicodedata.normalize("NFC", resolved))
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    return os.path.isfile(os.path.join(config_dir, "projects", sanitized, f"{sdk_session_id}.jsonl"))
+
+
+async def activate_conversation_handler(request: web.Request) -> web.Response:
+    """激活(切换/恢复)一段历史对话:拆窗口当前 agent → rehydrate host 会话 → connect(resume=sdkSessionId)
+    恢复 SDK 上下文 → 返回显示历史。此后该窗口的 sendMessage 打进这段对话(隔离 + 记忆)。
+    """
+    global _window_counter
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    window_id = data.get("windowId")
+    conversation_id = data.get("conversationId")
+    project_path = data.get("projectPath", "")
+    model = data.get("model")
+    effort = data.get("effort")
+    thinking = data.get("thinking")
+    if not window_id or not conversation_id or not project_path:
+        return web.json_response({"error": "windowId, conversationId, projectPath required"}, status=400)
+    if not model:
+        return web.json_response({"error": "model required"}, status=400)
+
+    try:
+        sessions = await runtime_store.list_history_sessions(project_path)
+        entry = next((s for s in sessions if s.get("sessionId") == conversation_id), None)
+        if not entry:
+            return web.json_response({"error": "conversation not found"}, status=404)
+
+        sdk_session_id = entry.get("sdkSessionId")
+        worktree_path = entry.get("worktreePath")
+        working_dir = worktree_path or project_path
+        context_status = "live" if (sdk_session_id and _sdk_transcript_exists(working_dir, sdk_session_id)) else "expired"
+
+        settings = get_settings()
+        runtime_provider = _resolve_runtime_provider_from_settings(settings)
+
+        async with _agents_lock:
+            if window_id in agents or await runtime_store.get_active_session(window_id):
+                await _teardown_window_locked(
+                    window_id,
+                    cancel_reason="conversation_switch",
+                    drop_window_seq=False,
+                    sleep_after_disconnect=False,
+                )
+
+            events = await runtime_store.rehydrate_conversation(window_id, project_path, conversation_id, entry)
+
+            if window_id == "primary":
+                seq = 0
+                _window_seq_map.setdefault(window_id, seq)
+            else:
+                seq = _window_seq_map.get(window_id)
+                if seq is None:
+                    seq = _window_counter
+                    _window_counter += 1
+                    _window_seq_map[window_id] = seq
+
+            agent = create_agent(
+                runtime_provider,
+                project_path=project_path,
+                working_directory=working_dir,
+                window_seq=seq,
+            )
+            agents[window_id] = agent
+            if hasattr(agent, "set_background_push"):
+                agent.set_background_push(_background_task_pusher)
+            if hasattr(agent, "set_background_progress_push"):
+                agent.set_background_progress_push(_background_progress_pusher)
+
+            await agent.connect(
+                effort=effort,
+                thinking=thinking,
+                model=model,
+                resume_session_id=(sdk_session_id if context_status == "live" else None),
+            )
+
+            session = await runtime_store.get_session_snapshot(conversation_id)
+
+        return web.json_response({
+            "history": events,
+            "interactions": [],
+            "windowId": window_id,
+            "session": session,
+            "sessionId": conversation_id,
+            "sessionStatus": (session.get("status") if session else "idle") or "idle",
+            "contextStatus": context_status,
+        })
+    except Exception as exc:  # noqa: BLE001 - 整段兜底:任何环节失败都返回可诊断错误 + 全 traceback,并清理半残留
+        logger.exception(
+            "[history] activate conversation failed (window=%s conv=%s): %s",
+            window_id, conversation_id, exc,
+        )
+        try:
+            async with _agents_lock:
+                await _teardown_window_locked(
+                    window_id,
+                    cancel_reason="activate_failed",
+                    drop_window_seq=False,
+                    sleep_after_disconnect=False,
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return web.json_response({"error": f"activate failed: {type(exc).__name__}: {exc}"}, status=500)
+
+
+async def new_conversation_handler(request: web.Request) -> web.Response:
+    """开始一段新对话:拆掉窗口当前 agent/session(下一条消息会创建全新会话)。"""
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    window_id = data.get("windowId")
+    if not window_id:
+        return web.json_response({"error": "windowId required"}, status=400)
+    async with _agents_lock:
+        if window_id in agents or await runtime_store.get_active_session(window_id):
+            await _teardown_window_locked(
+                window_id,
+                cancel_reason="new_conversation",
+                drop_window_seq=False,
+                sleep_after_disconnect=False,
+            )
+    return web.json_response({"success": True})
 
 
 async def interrupt_handler(request: web.Request) -> web.Response:
@@ -1950,6 +2126,10 @@ def create_app() -> web.Application:
         web.post("/api/agent/close", close_agent_handler),
         web.post("/api/agent/close-project", close_project_agents_handler),
         web.get("/api/history", get_history_handler),
+        web.get("/api/history/sessions", list_history_sessions_handler),
+        web.get("/api/history/session", load_history_session_handler),
+        web.post("/api/conversation/activate", activate_conversation_handler),
+        web.post("/api/conversation/new", new_conversation_handler),
         web.post("/api/interrupt", interrupt_handler),
         web.get("/api/interaction/events", interaction_events_handler),
         web.get("/api/interaction", interaction_query_handler),

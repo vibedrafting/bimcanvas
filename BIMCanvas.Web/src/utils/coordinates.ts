@@ -19,6 +19,9 @@
 
 import * as THREE from 'three';
 import type { FacingData, Point2D, Polygon2D, Line2D } from '../types/canvas';
+import { createLogger } from './logger';
+
+const log = createLogger('SYS');
 
 // ============================================================
 // 基础坐标转换
@@ -293,7 +296,7 @@ export function getFacingValue(facing: FacingData | null | undefined, context?: 
     }
 
     if (context) {
-        console.warn(`[Facing] Invalid facing.value, fallback to north (${context})`);
+        log.debug('invalid facing.value, fallback to north', { context });
     }
 
     return DEFAULT_FACING_VALUE;

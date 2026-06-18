@@ -5,6 +5,9 @@ import { ChatAttachmentService, dataUrlToFile, getImageDimensions } from '../../
 import type { ChatWindow } from '../../types/aiCommandCenter';
 import type { ChatAttachmentRef } from '../../types/chatAttachment';
 import type { InteractionRecord } from '../../types/agent';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 interface ScreenshotOptions {
   agentApiBase: string;
@@ -30,7 +33,7 @@ export const useScreenshot = (options: ScreenshotOptions) => {
 
     const win = findTargetWindow(record.windowId);
     if (!win) {
-      console.warn(`[useScreenshot] Pending screenshot points to missing window: ${record.windowId}`);
+      log.warn('pending screenshot points to missing window', { windowId: record.windowId });
       return;
     }
 
@@ -53,15 +56,15 @@ export const useScreenshot = (options: ScreenshotOptions) => {
 
       await screenshotService.submitResult(record.interactionId, imageData);
       submitted = true;
-      console.log(`[useScreenshot] Screenshot interaction submitted: ${record.interactionId}`);
+      log.debug('screenshot interaction submitted', { interactionId: record.interactionId });
     } catch (error) {
-      console.error(`[useScreenshot] Screenshot interaction failed: ${record.interactionId}`, error);
+      log.error('screenshot interaction failed', { interactionId: record.interactionId, err: error });
       try {
         const screenshotService = getScreenshotService(options.agentApiBase);
         await screenshotService.submitResult(record.interactionId, null, String(error));
         submitted = true;
       } catch (submitError) {
-        console.error(`[useScreenshot] Submit screenshot error failed: ${record.interactionId}`, submitError);
+        log.error('submit screenshot error failed', { interactionId: record.interactionId, err: submitError });
       }
     } finally {
       if (!submitted) {
@@ -93,7 +96,7 @@ export const useScreenshot = (options: ScreenshotOptions) => {
     try {
       await screenshotService.restorePending(windowIds);
     } catch (error) {
-      console.warn('[useScreenshot] Restore pending screenshots failed:', error);
+      log.warn('restore pending screenshots failed', { err: error });
     }
   };
 
@@ -128,9 +131,9 @@ export const useScreenshot = (options: ScreenshotOptions) => {
       });
 
       options.pendingAttachments.value.push(attachment);
-      console.log(`[Screenshot] Uploaded attachment: ${attachment.attachmentId}`);
+      log.debug('attachment uploaded', { attachmentId: attachment.attachmentId });
     } catch (error) {
-      console.error('[Screenshot] Save failed:', error);
+      log.error('screenshot save failed', { err: error });
     }
   };
 
@@ -151,7 +154,7 @@ export const useScreenshot = (options: ScreenshotOptions) => {
     try {
       await ChatAttachmentService.deleteAttachment(options.currentProjectPath.value, attachment.attachmentId);
     } catch (error) {
-      console.warn('[Screenshot] 删除附件失败:', error);
+      log.warn('delete attachment failed', { err: error });
     }
   };
 

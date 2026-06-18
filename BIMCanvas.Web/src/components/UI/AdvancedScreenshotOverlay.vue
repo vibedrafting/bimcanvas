@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import html2canvas from 'html2canvas'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('USER')
 
 const emit = defineEmits<{
   (e: 'capture', imageData: string): void
@@ -185,7 +188,7 @@ onMounted(async () => {
     await nextTick()
     updateToolbarSize()
   } catch (error) {
-    console.error('[Screenshot] Init failed:', error)
+    log.error('Screenshot init failed', { error })
     restoreUIElements()
     restoreBodyCursor()
     emit('cancel')

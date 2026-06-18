@@ -1,6 +1,9 @@
 import { ref } from 'vue';
 import type { ComputedRef, Ref } from 'vue';
 import { contextOptions } from '../../constants/aiCommandCenter';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 interface ContextMenuOptions {
   inputMessage: Ref<string>;
@@ -40,7 +43,7 @@ export const useContextMenu = (options: ContextMenuOptions) => {
   };
 
   const handleContextSelect = (type: string, item: { label: string }) => {
-    console.log('Selected context:', type, item);
+    log.debug('context selected', { type, label: item.label });
 
     if (type === 'zones') {
       // zone 选择追加 @zone 标记到输入框

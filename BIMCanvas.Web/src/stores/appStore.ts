@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { ProjectService } from '../services/ProjectService';
 import { useCanvasStore } from './canvasStore';
-import { useDebugStore } from './debugStore';
+import { createLogger } from '../utils/logger';
 import type { ProjectSummary, RecentProjectEntry } from '../types/homepage';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
@@ -10,7 +10,8 @@ import { supports } from '../runtime/WebRuntimeProtocol';
 export type AppView = 'homepage' | 'workspace';
 
 export const useAppStore = defineStore('app', () => {
-    const debugStore = useDebugStore();
+    const userLog = createLogger('USER');
+    const sysLog = createLogger('SYS');
     const runtime = getWebRuntime();
 
     // === 状态 ===
@@ -43,10 +44,10 @@ export const useAppStore = defineStore('app', () => {
             ]);
             projectList.value = projects;
             recentProjects.value = recent;
-            debugStore.log(`[AppStore] Loaded ${projects.length} projects, ${recent.length} recent`);
+            sysLog.debug('project list loaded', { projects: projects.length, recent: recent.length });
         } catch (err: any) {
             listError.value = err.message || '获取项目列表失败';
-            debugStore.error(`[AppStore] Failed to fetch projects: ${err}`);
+            sysLog.error('fetch projects failed', { err });
         } finally {
             isLoadingList.value = false;
         }
@@ -59,11 +60,11 @@ export const useAppStore = defineStore('app', () => {
      */
     const openProject = async (folderPath: string): Promise<boolean> => {
         if (!supports(runtime.capabilities.projectCatalog)) {
-            debugStore.warn('[AppStore] Standalone Runtime 不支持打开 Server 项目目录');
+            userLog.warn('open project unsupported in standalone runtime');
             return false;
         }
 
-        debugStore.log(`[AppStore] Opening project: ${folderPath}`);
+        userLog.info('open project', { path: folderPath });
         try {
             const result = await ProjectService.openFolder(folderPath);
             if (result.status === 'Success') {
@@ -72,12 +73,12 @@ export const useAppStore = defineStore('app', () => {
                 return true;
             } else {
                 clearPendingProjectWarnings();
-                debugStore.error(`[AppStore] Open failed: ${result.message}`);
+                userLog.error('open project failed', { message: result.message });
                 return false;
             }
         } catch (err: any) {
             clearPendingProjectWarnings();
-            debugStore.error(`[AppStore] Open error: ${err}`);
+            userLog.error('open project error', { err });
             return false;
         }
     };
@@ -88,7 +89,7 @@ export const useAppStore = defineStore('app', () => {
      * HomePage 的 onMounted 会自动 fetchProjectList
      */
     const closeProject = async (force: boolean = false): Promise<{ success: boolean; hasUnsavedChanges?: boolean }> => {
-        debugStore.log(`[AppStore] Closing project (force=${force})`);
+        userLog.info('close project', { force });
         try {
             if (supports(runtime.capabilities.serverPersistence)) {
                 const result = await ProjectService.closeProject(force);
@@ -108,7 +109,7 @@ export const useAppStore = defineStore('app', () => {
             currentView.value = 'homepage';
             return { success: true };
         } catch (err: any) {
-            debugStore.error(`[AppStore] Close error: ${err}`);
+            userLog.error('close project error', { err });
             // 即使 API 报错也尝试本地清理
             const canvasStore = useCanvasStore();
             canvasStore.resetProject();
@@ -122,21 +123,21 @@ export const useAppStore = defineStore('app', () => {
     /** 删除项目 */
     const deleteProject = async (name: string): Promise<boolean> => {
         if (!supports(runtime.capabilities.projectCatalog)) {
-            debugStore.warn('[AppStore] Standalone Runtime 不支持删除 Server 项目');
+            userLog.warn('delete project unsupported in standalone runtime');
             return false;
         }
 
-        debugStore.log(`[AppStore] Deleting project: ${name}`);
+        userLog.info('delete project', { name });
         try {
             const result = await ProjectService.deleteProject(name);
             if (result.success) {
                 await fetchProjectList();
                 return true;
             }
-            debugStore.error(`[AppStore] Delete failed: ${result.message}`);
+            userLog.error('delete project failed', { message: result.message });
             return false;
         } catch (err: any) {
-            debugStore.error(`[AppStore] Delete error: ${err}`);
+            userLog.error('delete project error', { err });
             return false;
         }
     };

@@ -28,6 +28,13 @@ namespace BIMCanvas.Server.Controllers
         /// <summary>
         /// 只查不改。返回各 check 发现的问题清单。
         /// </summary>
+        /// <summary>列出已注册 check（id + 描述），供前端配置面板渲染勾选项。</summary>
+        [HttpGet("checks")]
+        public ActionResult<IReadOnlyList<HealthCheckInfo>> ListChecks()
+        {
+            return Ok(_service.ListChecks());
+        }
+
         [HttpPost("inspect")]
         public ActionResult<ProjectInspectionReport> Inspect([FromBody] ProjectHealthRequest request)
         {
@@ -36,7 +43,7 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                var report = _service.InspectAll(request.FolderPath);
+                var report = _service.InspectAll(request.FolderPath, request.CheckIds);
                 _logger.LogInformation(
                     "[ProjectHealth] Inspect {Path}：{Total} 个问题",
                     request.FolderPath, report.TotalIssues);
@@ -64,7 +71,7 @@ namespace BIMCanvas.Server.Controllers
 
             try
             {
-                var report = _service.RepairAll(request.FolderPath, autoGitCommit: true);
+                var report = _service.RepairAll(request.FolderPath, autoGitCommit: true, checkIds: request.CheckIds);
                 _logger.LogInformation(
                     "[ProjectHealth] Repair {Path}：snapshot={Snapshot}",
                     request.FolderPath, report.SnapshotCommitHash ?? "-");
@@ -90,5 +97,8 @@ namespace BIMCanvas.Server.Controllers
     public class ProjectHealthRequest
     {
         public string FolderPath { get; set; } = string.Empty;
+
+        /// <summary>要跑的 check id 子集；null / 空 = 全部已注册 check。</summary>
+        public List<string>? CheckIds { get; set; }
     }
 }

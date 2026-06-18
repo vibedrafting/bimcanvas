@@ -70,9 +70,7 @@ static void WriteWithTimestampOnly(string message, ConsoleColor messageColor)
     Console.ForegroundColor = messageColor;
     Console.WriteLine(message);
     Console.ForegroundColor = originalColor;
-
-    // 对话日志持久化
-    BIMCanvas.Server.Logging.ConversationLogger.ProcessLine(message);
+    // 注：本地存档由 ConversationLogger 的 Console Tee 在更底层统一兜住，此处无需再调
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +81,10 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
     EnableVirtualTerminalProcessing();
 }
+
+// 控制台输出本地存档：在日志框架初始化前装好 Console Tee，
+// 此后打到控制台的一切（Server 日志 + Agent stdout/stderr）顺带镜像到项目 logs/。
+BIMCanvas.Server.Logging.ConversationLogger.Install();
 
 var agentProxyHttpClient = new HttpClient(new SocketsHttpHandler
 {
@@ -240,17 +242,15 @@ builder.Services.AddSingleton<ModuleNormalizationService>();  // 模块数据规
 builder.Services.AddSingleton<ModulesReaderService>();  // modules.json wrapper 读取
 builder.Services.AddSingleton<ModulesWriterService>();  // modules.json wrapper 写入（含 schemeMetadata 派生）
 
-// 项目健康检查 + 修复（schema 迁移工具的服务化入口）
+// 项目健康检查 + 修复。
+// 注意：5 个一次性 schema 迁移 check（phase0-tag / phase0b-wrapper / phase-e-metadata-slim /
+// phase-d-tag-value / pointer-model）已从此处**退役**——它们作用于当前版本已不再产生的旧格式
+// （semantic_plan.json / reference_analysis.json / 裸数组 modules / canonical 布局），在当前项目上
+// 纯空跑，且 pointer-model 对嵌套设计区有误伤风险。一次性迁移能力保留在独立 CLI
+// Scripts/MigrateProjectSchema（显式链接源码、不依赖此 DI），对已知远古项目人工跑一次。
+// 此处只注册**持续维护**类 check。
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.ModulesWrapperCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeMetadataSlimCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagValueCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.PointerModelMigrateCheck>();  // 指针模型迁移：末位注册=末位执行（依赖前序 wrapper/tag 已就位）；幂等+Web repair 入口有 git 兜底
+    BIMCanvas.Server.Services.ProjectHealth.Checks.GitignoreHistoryCheck>();  // .gitignore 补 .history/（存量项目）
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IGitCommitter>(sp =>
     new BIMCanvas.Server.Services.ProjectHealth.GitWorktreeServiceCommitter(
         sp.GetRequiredService<GitWorktreeService>()));
@@ -1099,6 +1099,9 @@ if (config.Startup.OpenBrowser && !isRestart)
 }
 
 await app.WaitForShutdownAsync();
+
+// 程序退出收尾：flush 并关闭本地存档文件
+BIMCanvas.Server.Logging.ConversationLogger.Shutdown();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 重启检查：app.Run() 返回后（进程已停止监听），检测重启标志文件

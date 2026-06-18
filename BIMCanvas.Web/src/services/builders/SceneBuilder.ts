@@ -4,6 +4,9 @@ import { LayerManager } from '../three/LayerManager';
 import { canvasStyleService } from '../canvas/CanvasStyleService';
 import { SVGModuleRenderer } from './SVGModuleRenderer';
 import { facingToAngle } from '../../utils/coordinates';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('RENDER');
 
 export class SceneBuilder {
     private scene: THREE.Scene;
@@ -1172,7 +1175,7 @@ export class SceneBuilder {
         // 异步渲染SVG（不阻塞模块创建）
         if (this.buildOptions.includeSvg) {
             this.svgRenderer.renderModuleSVG(mod).catch(error => {
-                console.error(`[SceneBuilder] Failed to render SVG for module ${mod.id}:`, error);
+                log.error('failed to render module SVG', { moduleId: mod.id, error });
             });
         }
     }

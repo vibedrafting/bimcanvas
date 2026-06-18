@@ -4,6 +4,9 @@
  */
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { normalizeMorphology, type ModuleMorphology, type RawModuleMorphology } from '../utils/moduleSize';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SYS');
 
 export type { ModuleMorphology, DimensionLimit } from '../utils/moduleSize';
 
@@ -64,13 +67,13 @@ class ModuleLibraryService {
         }
 
         if (!this.library) {
-          console.warn('[ModuleLibraryService] 模块库不可用（当前 Runtime 或 Snapshot 未提供）');
+          log.warn('module library unavailable from runtime or snapshot');
           return;
         }
 
-        console.log(`[ModuleLibraryService] Loaded ${this.library.modules.length} modules from Runtime`);
+        log.debug('module library loaded', { count: this.library.modules.length });
       } catch (error) {
-        console.error('[ModuleLibraryService] Failed to load module library:', error);
+        log.error('failed to load module library', { error });
         // 不抛出错误，允许应用继续运行（模块库加载失败不应阻塞整个应用）
       }
     })();
@@ -102,7 +105,7 @@ class ModuleLibraryService {
       }
       newLibrary = raw;
     } catch (error) {
-      console.error('[ModuleLibraryService] Failed to reload module library:', error);
+      log.error('failed to reload module library', { error });
       // 拉取失败：保留旧状态，避免 UI 退化
       return;
     }
@@ -114,9 +117,9 @@ class ModuleLibraryService {
     this.loadPromise = Promise.resolve();
 
     if (newLibrary?.modules) {
-      console.log(`[ModuleLibraryService] Reloaded ${newLibrary.modules.length} modules from Runtime`);
+      log.debug('module library reloaded', { count: newLibrary.modules.length });
     } else {
-      console.warn('[ModuleLibraryService] 模块库不可用（当前 Runtime 或 Snapshot 未提供）');
+      log.warn('module library unavailable from runtime or snapshot');
     }
   }
 

@@ -34,6 +34,8 @@ class RuntimeSessionRecord:
     base_status: str = "idle"
     ready_announced: bool = False
     active_turn_id: str | None = None
+    # SDK 原生 session id(从 ResultMessage.session_id 捕获),用于续聊 resume。
+    sdk_session_id: str | None = None
 
     def touch(self) -> None:
         self.last_active_at = _utcnow()
@@ -51,6 +53,7 @@ class RuntimeSessionRecord:
             "createdAt": _serialize_datetime(self.created_at),
             "lastActiveAt": _serialize_datetime(self.last_active_at),
             "closedAt": _serialize_datetime(self.closed_at),
+            "sdkSessionId": self.sdk_session_id,
         }
 
 

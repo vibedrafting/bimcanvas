@@ -53,10 +53,11 @@ export interface WebRuntime {
   closeProject(): Promise<void>;
   /**
    * 保存模块到持久层。
-   * @param variantSelection 可选：叶子 zone id → 方案 slug 的映射。命中的 zone 由服务端按指针模型
-   *   写入该方案路径 schemes/{dz}/{slug}/[{leaf}/]modules.json；未命中 zone 走 canonical（父 adopted 指向）。缺省/空 = 全 canonical。
+   * @param variantSelection 可选：设计区 id → 方案 slug 的映射。命中的设计区由服务端按指针模型
+   *   写入该方案路径 schemes/{dz}/{slug}/[{leaf}/]modules.json；未命中走 canonical（父 adopted 指向）。缺省/空 = 全 canonical。
+   * @param scope 可选：写入范围（设计区 id 列表）。给定时只写范围内设计区，范围外文件不碰（定向落盘）。缺省 = 全工程。
    */
-  saveModules(modules: Module[], variantSelection?: Record<string, string>): Promise<boolean>;
+  saveModules(modules: Module[], variantSelection?: Record<string, string>, scope?: string[]): Promise<boolean>;
   getModuleLibrary(): Promise<ModuleLibrary | null>;
   getModuleAsset(moduleId: string): Promise<string | null>;
   exportSnapshot(projectData: ProjectData): Promise<Blob>;

@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
+import { useSystemStore } from '../../stores/systemStore';
 import type { ChatAttachmentRef, ChatAttachmentSourceKind } from '../../types/chatAttachment';
 import { proposalMocks } from '../../constants/aiCommandCenter';
 import { useAgentConfig } from '../../composables/aiCommandCenter/useAgentConfig';
@@ -31,8 +32,12 @@ import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkfl
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 import ImageLightbox from './ImageLightbox.vue';
+import ChatHistoryPanel from './ChatHistoryPanel.vue';
 import { AGENT_API, SERVER_BASE } from '../../config/api';
 import { ChatAttachmentService, getImageDimensions } from '../../services/ChatAttachmentService';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 // === Lightbox 状态 ===
 const lightbox = ref({ visible: false, src: '' });
@@ -60,6 +65,7 @@ const gitStore = useGitStore();
 const { branches, currentBranch } = storeToRefs(gitStore);
 
 const store = useCanvasStore();
+const systemStore = useSystemStore();
 
 const {
   selectedCount,
@@ -296,7 +302,7 @@ const saveSpatialIntentOptions = () => {
   try {
     window.localStorage.setItem(SPATIAL_INTENT_STORAGE_KEY, JSON.stringify(spatialIntentOptions.value));
   } catch (error) {
-    console.warn('[AICommandCenter] Failed to save Space Mark tag presets:', error);
+    log.warn('Failed to save Space Mark tag presets', { error });
   }
 };
 
@@ -313,7 +319,7 @@ const loadSpatialIntentOptions = () => {
       .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
     spatialIntentOptions.value = options;
   } catch (error) {
-    console.warn('[AICommandCenter] Failed to load Space Mark tag presets:', error);
+    log.warn('Failed to load Space Mark tag presets', { error });
   }
 };
 
@@ -442,7 +448,7 @@ const openImagePicker = async () => {
     } catch (error) {
       const err = error as DOMException;
       if (err?.name !== 'AbortError') {
-        console.error('[ImageUpload] File picker failed:', error);
+        log.error('Image file picker failed', { error });
       }
     }
   }
@@ -512,6 +518,8 @@ const {
   restoreQueuedMessage,
   deleteQueuedMessage,
   restoreHistory,
+  activateConversation,
+  newConversation,
   waitForInteractionContinuation,
   interruptMessage,
   injectBackgroundSummary,
@@ -540,6 +548,41 @@ const {
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || hasBackgroundActivity.value);
+
+// === 历史对话面板（toolbar History 按钮） ===
+const showHistoryPanel = ref(false);
+const viewingHistorySessionId = ref<string | null>(null);
+
+const onHistorySelect = async (conversationId: string) => {
+  const win = activeWindow.value;
+  if (!win) return;
+  try {
+    const status = await activateConversation(win, conversationId);
+    viewingHistorySessionId.value = conversationId;
+    if (status === 'expired') {
+      systemStore.pushToast({ title: 'AI 上下文已过期', message: '仅恢复显示历史，模型不记得之前的内容', type: 'warning' });
+    }
+  } catch (err) {
+    log.warn('激活历史对话失败', { error: err });
+    systemStore.pushToast({ title: '激活历史对话失败', message: '请重试或检查 Agent 状态', type: 'error' });
+  }
+  showHistoryPanel.value = false;
+};
+
+const onNewConversation = async () => {
+  const win = activeWindow.value;
+  if (!win) return;
+  try {
+    await newConversation(win);
+    viewingHistorySessionId.value = null;
+  } catch (err) {
+    log.warn('新对话失败', { error: err });
+  }
+  showHistoryPanel.value = false;
+};
+
+// 切换窗口时退出历史激活态标记（激活是绑定到具体窗口的）
+watch(activeWindowId, () => { viewingHistorySessionId.value = null; });
 
 const {
   showScreenshotOverlay,
@@ -823,16 +866,28 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
             </div>
             
-            <!-- Right Side Actions (Placeholder for Balance) -->
+            <!-- Right Side Actions -->
             <div class="toolbar-actions">
-                <button class="icon-btn" title="History">
+                <button class="history-btn" :class="{ active: showHistoryPanel || viewingHistorySessionId }"
+                    title="历史对话" @click="showHistoryPanel = !showHistoryPanel">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
+                    <span>历史</span>
                 </button>
             </div>
         </div>
+
+        <!-- 历史对话下拉:挂在 layer-context 下、相对它定位 → 左右严格等距(不受 main-content padding / 滚动条影响) -->
+        <ChatHistoryPanel
+            :visible="showHistoryPanel"
+            :project-path="currentProjectPath"
+            :active-session-id="viewingHistorySessionId"
+            @select="onHistorySelect"
+            @new="onNewConversation"
+            @close="showHistoryPanel = false"
+        />
 
         <!-- Row 2: Window Context (Tabs with Inline Branch) -->
         <div class="header-tabs" v-if="mode === 'chat'">
@@ -1920,6 +1975,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    position: relative; /* 历史对话下拉的定位上下文(left/right 等距锚到此) */
 
     /* Row 1: Global Mode Switch (Compact Toolbar) */
     .header-toolbar {
@@ -1977,25 +2033,34 @@ watch(chatScrollRef, (newEl, oldEl) => {
         align-items: center;
         gap: 8px;
 
-        .icon-btn {
-            display: flex;
+        /* 历史入口:时钟图标 + 克制"历史"二字。默认无底色;激活态统一 Chat/Task 选中样式(浅底 pill) */
+        .history-btn {
+            display: inline-flex;
             align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
+            gap: 5px;
+            height: 26px;
+            padding: 0 10px;
             border: none;
+            border-radius: 4px;
             background: transparent;
-            color: var(--text-tertiary);
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1;
             cursor: pointer;
             transition: all 0.2s ease;
 
-            &:hover {
-                background: rgba(255, 255, 255, 0.1);
-                color: var(--text-primary);
-            }
-
             svg { width: 14px; height: 14px; }
+            span { white-space: nowrap; }
+
+            &:hover { color: var(--text-primary); }
+
+            &.active {
+                background: var(--surface-elevated);
+                color: var(--text-primary);
+                font-weight: 600;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+            }
         }
     }
 

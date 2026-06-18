@@ -946,42 +946,32 @@ namespace BIMCanvas.Server.Controllers
                 var computedData = LoadComputedData(projectPath);
                 var roomZones = computedData.RoomZones ?? new List<Zone>();
 
-                // Step 2: 根据 bounds 位置分组
-                var grouped = new Dictionary<string, List<Module>>();
-                var orphanModules = new List<string>();
+                // 写入范围（设计区 id 列表）；null = 全工程。范围外设计区一律不分组 / 不清旧 / 不写入，
+                // 供撤销/重做与单目标编辑做定向落盘，避免写放大与跨设计区污染。
+                var scope = (request.Scope != null && request.Scope.Count > 0)
+                    ? new HashSet<string>(
+                        request.Scope.Where(s => !string.IsNullOrWhiteSpace(s)),
+                        StringComparer.OrdinalIgnoreCase)
+                    : null;
 
-                foreach (var module in modules)
-                {
-                    var zoneId = CalculateModuleZone(module, roomZones);
-
-                    if (string.IsNullOrEmpty(zoneId))
-                    {
-                        // 不回头看：删 _unzoned 假桶。孤儿模块（bounds 中心不落任何分区）不落盘到黑洞目录
-                        // （递归模型下解析器不登记 _unzoned，写后不可读），改经响应 orphanModules 显式回传调用方。
-                        orphanModules.Add(module.Id);
-                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内，未落盘（经 orphanModules 回传）", module.Id);
-                        continue;
-                    }
-
-                    if (!grouped.ContainsKey(zoneId))
-                        grouped[zoneId] = new List<Module>();
-                    grouped[zoneId].Add(module);
-                }
-
-                // 变体激活映射：zoneId → variantSlug（仅保留 slug 非空且合法的条目）
-                // 命中的 zone：写入 schemes/{dz}/{slug}/[{leaf}/]modules.json（指针模型，非 variants/ 段），canonical 不动；
-                // 未命中：照常写入 canonical（adopted slug）modules.json。
-                var variantSelection = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                // 变体激活映射：designZoneId → variantSlug（设计区级；空/非法条目过滤）。
+                // 设计区在变体编辑态时，模块按该变体自身 zones.json 的子分区落盘到
+                // schemes/{dz}/{slug}/[{leaf}/]modules.json，canonical（adopted）不动；未在映射内的设计区照常写 canonical。
+                // 旧契约（leaf→slug）会让带子分区变体的 leaf key（dz_1/dz_2）与按房间分组的 key（rz_*）对不上，
+                // 静默回落 canonical（=adopted，常为 bootstrap 出的 main），导致变体编辑写错文件——改为设计区级索引根治。
+                var variantByDesignZone = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (request.VariantSelection != null)
                 {
                     foreach (var kvp in request.VariantSelection)
                     {
                         if (string.IsNullOrWhiteSpace(kvp.Key) || string.IsNullOrWhiteSpace(kvp.Value))
                             continue;
+                        if (scope != null && !scope.Contains(kvp.Key))
+                            continue;   // 范围外设计区：本次定向保存不处理其变体
                         try
                         {
                             ModuleFileTopologyService.EnsureSafeVariantId(kvp.Value);
-                            variantSelection[kvp.Key] = kvp.Value;
+                            variantByDesignZone[kvp.Key] = kvp.Value;
                         }
                         catch (ArgumentException ex)
                         {
@@ -990,42 +980,142 @@ namespace BIMCanvas.Server.Controllers
                     }
                 }
 
-                // 在 variantSelection 里出现但 grouped 中缺席的 zone 补空数组——
-                // 用户可能把变体里的所有家具拖光了，得写空数组到变体文件而不是放任不管。
-                foreach (var zoneId in variantSelection.Keys)
+                // 预载每个活跃变体设计区的子分区叶子（含边界），用于把模块从房间级细分到子分区级。
+                // designZoneId → (slug, leaves)；leaves 为空 = 单叶子变体（设计区自身即叶子）。
+                // 复用 BuildEffectiveZoneView（与 GetVariantZones 同一塑形源、走显式 slug，不经 adopted 中心拓扑），
+                // 故未采纳变体的子分区叶子也能正确解析。
+                var variantLeaves = new Dictionary<string, (string Slug, List<Zone> Leaves)>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pair in variantByDesignZone)
                 {
-                    if (!grouped.ContainsKey(zoneId))
-                        grouped[zoneId] = new List<Module>();
+                    var roots = ProjectService.BuildEffectiveZoneView(schemesPath, pair.Value, new[] { pair.Key });
+                    var root = roots.FirstOrDefault(z => string.Equals(z.Id, pair.Key, StringComparison.OrdinalIgnoreCase));
+                    variantLeaves[pair.Key] = (pair.Value, root?.SubZones ?? new List<Zone>());
                 }
 
-                // Step 3: 按 zone 状态分别清空旧文件
-                //   variant 状态的 zone：清空对应 variants/{slug}/{leaf}/modules.json，canonical 不动
-                //   canonical 状态的 zone：清空 canonical modules.json（防家具被拖出后残留）
-                var existingCanonicalFiles = ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath);
-                foreach (var entry in existingCanonicalFiles)
+                // Step 2: 分组。先按房间（baseline rz_*）定位，再对活跃变体设计区下钻到具体子分区叶子。
+                // leafTarget: leafZoneId → (designZoneId, variantId)，唯一确定落盘文件（variantId=null 即 canonical）。
+                var grouped = new Dictionary<string, List<Module>>(StringComparer.OrdinalIgnoreCase);
+                var leafTarget = new Dictionary<string, (string DesignZoneId, string? VariantId)>(StringComparer.OrdinalIgnoreCase);
+                var orphanModules = new List<string>();
+
+                foreach (var module in modules)
                 {
-                    if (variantSelection.TryGetValue(entry.ZoneId, out var slug))
+                    var roomId = CalculateModuleZone(module, roomZones);
+
+                    if (string.IsNullOrEmpty(roomId))
                     {
-                        // 该 zone 在变体状态——不动 canonical，只清它的 New 路径变体文件
-                        var dz = ResolveDesignZoneIdForLeaf(schemesPath, entry.ZoneId);
-                        var variantFileToDelete = _modulesWriter.ResolveModulesPath(
-                            projectPath, dz, entry.ZoneId, slug);
-                        DeleteFileIfWritable(variantFileToDelete);
+                        // 不回头看：删 _unzoned 假桶。孤儿模块（bounds 中心不落任何分区）不落盘到黑洞目录
+                        // （递归模型下解析器不登记 _unzoned，写后不可读），改经响应 orphanModules 显式回传调用方。
+                        orphanModules.Add(module.Id);
+                        _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在任何分区内，未落盘（经 orphanModules 回传）", module.Id);
+                        continue;
+                    }
+
+                    string leafZoneId;
+                    string designZoneId;
+                    string? variantId;
+
+                    if (variantLeaves.TryGetValue(roomId, out var vl))
+                    {
+                        // 该设计区在变体编辑态
+                        designZoneId = roomId;
+                        variantId = vl.Slug;
+                        if (vl.Leaves.Count > 0)
+                        {
+                            // 多子分区变体：按 bounds 中心落到具体子分区叶子
+                            var sub = FindContainingLeaf(module, vl.Leaves);
+                            if (string.IsNullOrEmpty(sub))
+                            {
+                                orphanModules.Add(module.Id);
+                                _logger.LogWarning("[SaveModules] 模块 {ModuleId} 不在变体 {Slug} 的任何子分区内，未落盘", module.Id, vl.Slug);
+                                continue;
+                            }
+                            leafZoneId = sub;
+                        }
+                        else
+                        {
+                            // 单叶子变体：设计区自身即叶子
+                            leafZoneId = roomId;
+                        }
                     }
                     else
                     {
-                        DeleteFileIfWritable(entry.FilePath);
+                        // 无活跃变体：写 canonical（adopted）。房间即叶子。
+                        designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, roomId);
+                        leafZoneId = roomId;
+                        variantId = null;
+                    }
+
+                    if (scope != null && !scope.Contains(designZoneId))
+                        continue;   // 范围外设计区：本次定向保存不碰（不分组、不报孤儿）
+
+                    if (!grouped.ContainsKey(leafZoneId))
+                        grouped[leafZoneId] = new List<Module>();
+                    grouped[leafZoneId].Add(module);
+                    leafTarget[leafZoneId] = (designZoneId, variantId);
+                }
+
+                // 活跃变体的每个叶子即使被拖空也要写空数组（否则旧家具残留在变体文件里）。
+                foreach (var pair in variantLeaves)
+                {
+                    var dz = pair.Key;
+                    var vl = pair.Value;
+                    if (vl.Leaves.Count > 0)
+                    {
+                        foreach (var leaf in vl.Leaves)
+                        {
+                            if (string.IsNullOrWhiteSpace(leaf.Id) || grouped.ContainsKey(leaf.Id))
+                                continue;
+                            grouped[leaf.Id] = new List<Module>();
+                            leafTarget[leaf.Id] = (dz, vl.Slug);
+                        }
+                    }
+                    else if (!grouped.ContainsKey(dz))
+                    {
+                        grouped[dz] = new List<Module>();
+                        leafTarget[dz] = (dz, vl.Slug);
                     }
                 }
 
-                // Step 4: 写入新数据（全部走 ModulesWriterService，wrapper 形态 + New 变体路径）
+                // Step 3: 清空旧文件
+                //   canonical 设计区：清 canonical 叶子文件（防家具被拖出后残留）
+                //   活跃变体设计区：清该变体所有叶子文件，canonical 不动
+                var existingCanonicalFiles = ModuleFileTopologyService.FindExistingCanonicalModuleFiles(schemesPath);
+                foreach (var entry in existingCanonicalFiles)
+                {
+                    var dzForLeaf = ResolveDesignZoneIdForLeaf(schemesPath, entry.ZoneId);
+                    if (scope != null && !scope.Contains(dzForLeaf))
+                        continue;   // 范围外设计区：canonical 文件不碰
+                    if (variantByDesignZone.ContainsKey(dzForLeaf))
+                        continue;   // 该设计区在变体编辑态——canonical 不动
+                    DeleteFileIfWritable(entry.FilePath);
+                }
+                foreach (var pair in variantLeaves)
+                {
+                    var dz = pair.Key;
+                    var vl = pair.Value;
+                    if (vl.Leaves.Count > 0)
+                    {
+                        foreach (var leaf in vl.Leaves)
+                        {
+                            if (string.IsNullOrWhiteSpace(leaf.Id))
+                                continue;
+                            DeleteFileIfWritable(_modulesWriter.ResolveModulesPath(projectPath, dz, leaf.Id, vl.Slug));
+                        }
+                    }
+                    else
+                    {
+                        DeleteFileIfWritable(_modulesWriter.ResolveModulesPath(projectPath, dz, dz, vl.Slug));
+                    }
+                }
+
+                // Step 4: 写入新数据（全部走 ModulesWriterService，wrapper 形态 + 指针变体路径）
                 foreach (var kvp in grouped)
                 {
                     var leafZoneId = kvp.Key;
-                    var designZoneId = ResolveDesignZoneIdForLeaf(schemesPath, leafZoneId);
-                    var variantId = variantSelection.TryGetValue(leafZoneId, out var vid) ? vid : null;
+                    var target = leafTarget[leafZoneId];
                     await _modulesWriter.WriteAsync(
-                        projectPath, designZoneId, leafZoneId, variantId,
+                        projectPath, target.DesignZoneId, leafZoneId, target.VariantId,
                         kvp.Value);
                 }
 
@@ -1071,6 +1161,31 @@ namespace BIMCanvas.Server.Controllers
             // 遍历所有房间区域，找到包含该点的分区
             foreach (var zone in roomZones.Where(z => z.Type == Core.Models.Shared.ZoneType.Room))
             {
+                var boundary = zone.ComputedBoundary ?? zone.RawBoundary;
+                if (boundary != null && CollisionDetector.Contains(boundary, center))
+                {
+                    return zone.Id;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 在给定 zone 列表（任意类型，含子分区 designable）中按模块 bounds 中心点找包含它的叶子。
+        /// 与 <see cref="CalculateModuleZone"/> 的区别：不限 ZoneType==Room，用于变体子分区落盘分组。
+        /// </summary>
+        private static string? FindContainingLeaf(Module module, List<Zone> leaves)
+        {
+            if (module.Bounds == null || module.Bounds.Vertices.Length < 3)
+                return null;
+
+            var center = module.Bounds.ComputeCenter();
+
+            foreach (var zone in leaves)
+            {
+                if (string.IsNullOrWhiteSpace(zone.Id))
+                    continue;
                 var boundary = zone.ComputedBoundary ?? zone.RawBoundary;
                 if (boundary != null && CollisionDetector.Contains(boundary, center))
                 {

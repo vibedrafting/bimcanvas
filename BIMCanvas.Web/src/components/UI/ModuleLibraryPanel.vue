@@ -7,6 +7,9 @@ import { useModuleLibraryPanelState } from '../../composables/useModuleLibraryPa
 import { getWebRuntime } from '../../runtime/runtimeRegistry';
 import { supports } from '../../runtime/WebRuntimeProtocol';
 import { useSystemStore } from '../../stores/systemStore';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 const sys = useSystemStore();
 
@@ -62,7 +65,7 @@ const onBindClick = async () => {
   try {
     const { count } = await runtime.bindModuleLibraryFolder();
     await reloadLibrary();
-    console.info(`[ModuleLibraryPanel] 模块库已绑定 · ${count} 个模块`);
+    log.debug('Module library bound', { count });
   } catch (err) {
     const msg = (err as Error)?.message ?? String(err);
     // 用户取消 picker 时浏览器抛 AbortError;静默忽略,其它错误才弹

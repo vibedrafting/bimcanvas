@@ -55,11 +55,16 @@ export class ConnectedRuntime implements WebRuntime {
     this.moduleAssets.clear();
   }
 
-  async saveModules(modules: Module[], variantSelection?: Record<string, string>): Promise<boolean> {
+  async saveModules(modules: Module[], variantSelection?: Record<string, string>, scope?: string[]): Promise<boolean> {
     const response = await fetch(`${SERVER_API}/project/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modules, variantSelection: variantSelection ?? {} })
+      body: JSON.stringify({
+        modules,
+        variantSelection: variantSelection ?? {},
+        // scope=设计区 id 列表：定向落盘，范围外文件不碰。省略=全工程（旧行为）。
+        ...(scope && scope.length > 0 ? { scope } : {})
+      })
     });
     return response.ok;
   }

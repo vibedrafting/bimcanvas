@@ -6,10 +6,12 @@ import { SnapIndex2D } from '../snap/SnapIndex2D';
 import { SnapSolver } from '../snap/SnapSolver';
 import { SnapVisual } from '../snap/SnapVisual';
 import { useCanvasStore } from '../../../stores/canvasStore';
-import { useDebugStore } from '../../../stores/debugStore';
 import { boundsCenterToWorld, createFacingData, getFacingValue, toModel, rotatePoint2D, rotateFacing2D } from '../../../utils/coordinates';
 import { LayerManager } from '../../three/LayerManager';
 import { NumericInputManager } from '../NumericInputManager';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 export class RotateTool implements Tool {
     name = 'Rotate';
@@ -129,8 +131,7 @@ export class RotateTool implements Tool {
         store.setPrompt(`请点击设置旋转中心 (已选${this.selectedObjects.length}个对象)`);
 
         // CAD Snap: 构建边索引（包含墙柱门窗 + 家具）
-        const debug = useDebugStore();
-        debug.log(`[Rotate] Building snap edges`);
+        log.debug('building snap edges');
         this.snapIndex.rebuild(store.projectData);
         // Phase 3: XY 轴和刻度圈只在按住 Shift 时显示，不在这里创建
     }
@@ -400,7 +401,7 @@ export class RotateTool implements Tool {
             if (this.state === 'multi_selection') {
                 // 确认选择
                 if (store.selectedIds.length === 0) {
-                    console.log('No objects selected');
+                    log.debug('no objects selected');
                     store.setPrompt('请先选择要旋转的对象');
                     return;
                 }
@@ -409,7 +410,7 @@ export class RotateTool implements Tool {
                 this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
 
                 if (this.selectedObjects.length === 0) {
-                    console.log('No rotatable modules selected');
+                    log.debug('no rotatable modules selected');
                     store.setPrompt('只有家具模块可以旋转，请重新选择');
                     return;
                 }
@@ -524,7 +525,7 @@ export class RotateTool implements Tool {
         // 清除选择
         store.clearSelection();
 
-        console.log(`Rotate executed: ${this.selectedObjects.length} objects rotated`);
+        log.info('rotate executed', { count: this.selectedObjects.length });
         this.deactivate();
         window.dispatchEvent(new CustomEvent('bimcanvas:tool-completed'));
     }

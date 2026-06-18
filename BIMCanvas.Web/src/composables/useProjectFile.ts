@@ -4,8 +4,12 @@ import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
 import { useSystemStore } from '../stores/systemStore';
 import { ProjectService, SceneService, type ProjectLoadResult } from '../services/ProjectService';
+import { ProjectHealthService } from '../services/ProjectHealthService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('USER');
 
 // Global state for the conflict dialog (singleton pattern to share state)
 const showConflictDialog = ref(false);
@@ -59,6 +63,14 @@ export function useProjectFile() {
     source: ChangeSource
   ): Promise<boolean> => {
     if (!result.projectPath) return false;
+    // 偏好门控：默认关闭（autoCheckOnLoad=false）→ 不挂起、直接放行加载。
+    // 读失败按默认（关）处理，绝不因健康检查偏好读取失败而卡住项目加载。
+    try {
+      const prefs = await ProjectHealthService.getPrefs();
+      if (!prefs.autoCheckOnLoad) return false;
+    } catch {
+      return false;
+    }
     const fallbackName = file ? file.name.replace(/\.bcp$/i, '') : '';
     pendingHealthCheck.value = {
       projectPath: result.projectPath,
@@ -100,7 +112,7 @@ export function useProjectFile() {
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        console.error('Failed to open file:', err);
+        log.error('open file failed', { err });
       }
     }
   };
@@ -192,7 +204,7 @@ export function useProjectFile() {
         }
       } catch (err: any) {
         appStore.clearPendingProjectWarnings();
-        console.error('Failed to resolve create conflict:', err);
+        log.error('resolve create conflict failed', { err });
         sys.pushToast({
           type: 'error',
           title: '冲突解决失败',
@@ -206,7 +218,7 @@ export function useProjectFile() {
 
     // 分支 2：导入 .bcp 的冲突
     if (!pendingFile.value) {
-      console.error('No pending file for conflict resolution');
+      log.error('no pending file for conflict resolution');
       return;
     }
 
@@ -227,7 +239,7 @@ export function useProjectFile() {
       }
     } catch (err: any) {
       appStore.clearPendingProjectWarnings();
-      console.error('Failed to resolve conflict:', err);
+      log.error('resolve conflict failed', { err });
       sys.pushToast({
         type: 'error',
         title: '冲突解决失败',
@@ -322,7 +334,7 @@ export function useProjectFile() {
       }
       return saved;
     } catch (err: any) {
-      console.error('Failed to export project:', err);
+      log.error('export snapshot failed', { err });
       sys.pushToast({
         type: 'error',
         title: '导出 Snapshot 失败',
@@ -341,7 +353,7 @@ export function useProjectFile() {
 
       return saveBlobToDisk(project.blob, project.filename, 'bcp');
     } catch (err: any) {
-      console.error('Failed to export BCP project:', err);
+      log.error('export BCP project failed', { err });
       sys.pushToast({
         type: 'error',
         title: '导出 .bcp 失败',

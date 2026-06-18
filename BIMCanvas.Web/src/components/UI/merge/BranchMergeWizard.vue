@@ -7,8 +7,11 @@ import { useCanvasStore } from '../../../stores/canvasStore';
 import { ChangeSource } from '../../../types/history';
 import BranchSelectStep from './BranchSelectStep.vue';
 import MergeConfirmStep from './MergeConfirmStep.vue';
+import { createLogger } from '../../../utils/logger';
 
-console.log('[BranchMergeWizard] Component script setup executing');
+const log = createLogger('USER');
+
+log.debug('BranchMergeWizard script setup executing');
 
 const mergeStore = useMergeStore();
 const gitStore = useGitStore();
@@ -23,7 +26,7 @@ const { branches, currentBranch } = storeToRefs(gitStore);
 
 // 分支选项（排除"创建新分支"选项）
 const branchOptions = computed(() => {
-  console.log('[BranchMergeWizard] branchOptions computed, branches count:', branches.value.length);
+  log.debug('branchOptions computed', { branchesCount: branches.value.length });
   return branches.value.map(b => ({
     value: b.name,
     label: b.name,
@@ -34,46 +37,47 @@ const branchOptions = computed(() => {
 
 // 当向导打开时，获取分支列表并设置默认目标分支
 watch(isVisible, async (visible, oldVisible) => {
-  console.log('[BranchMergeWizard] watch isVisible triggered:', oldVisible, '->', visible);
+  log.debug('watch isVisible triggered', { oldVisible, visible });
   if (visible) {
     // 立即设置默认目标分支，避免等待 fetchBranches 导致的 UI 闪烁
     if (currentBranch.value && !targetBranch.value) {
-      console.log('[BranchMergeWizard] Setting default targetBranch immediately to:', currentBranch.value);
+      log.debug('Setting default targetBranch immediately', { targetBranch: currentBranch.value });
       mergeStore.targetBranch = currentBranch.value;
     }
 
-    console.log('[BranchMergeWizard] Wizard opened, fetching branches...');
+    log.debug('Wizard opened, fetching branches');
     await gitStore.fetchBranches();
-    console.log('[BranchMergeWizard] Branches fetched, currentBranch:', currentBranch.value);
-    
+    log.debug('Branches fetched', { currentBranch: currentBranch.value });
+
     // fetch 后再次确认（以防 fetch 更新了 currentBranch）
     if (currentBranch.value && !targetBranch.value) {
-      console.log('[BranchMergeWizard] Setting default targetBranch (post-fetch) to:', currentBranch.value);
+      log.debug('Setting default targetBranch post-fetch', { targetBranch: currentBranch.value });
       mergeStore.targetBranch = currentBranch.value;
     }
   } else {
-    console.log('[BranchMergeWizard] Wizard closed');
+    log.debug('Wizard closed');
   }
 }, { immediate: false });
 
 // 监控 isVisible 的变化（用于调试）
 watch(() => mergeStore.isVisible, (val) => {
-  console.log('[BranchMergeWizard] Direct store isVisible changed to:', val);
+  log.debug('Direct store isVisible changed', { val });
 });
 
 onMounted(() => {
-  console.log('[BranchMergeWizard] Component mounted, isVisible:', isVisible.value);
+  log.debug('Component mounted', { isVisible: isVisible.value });
 });
 
 onUnmounted(() => {
-  console.log('[BranchMergeWizard] Component unmounted');
+  log.debug('Component unmounted');
 });
 
 // 执行合并
 const handleMerge = async () => {
-  console.log('[BranchMergeWizard] handleMerge called');
+  log.debug('handleMerge called');
   const result = await mergeStore.executeOverwriteMerge();
   if (result.success) {
+    log.info('Branch merge completed', { targetBranch: targetBranch.value, sourceBranch: sourceBranch.value });
     // 刷新 Canvas 显示合并后的结果
     await canvasStore.loadInitialProject({ source: ChangeSource.ServerSync, preserveView: true });
     // 刷新分支列表
@@ -83,14 +87,14 @@ const handleMerge = async () => {
 
 // 关闭向导
 const handleClose = () => {
-  console.log('[BranchMergeWizard] handleClose called');
+  log.debug('handleClose called');
   mergeStore.closeWizard();
 };
 
 // 暴露打开方法供外部调用
 defineExpose({
   open: () => {
-    console.log('[BranchMergeWizard] expose.open() called');
+    log.debug('expose.open() called');
     mergeStore.openWizard();
   }
 });

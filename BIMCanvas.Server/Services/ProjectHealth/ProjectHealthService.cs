@@ -26,15 +26,32 @@ namespace BIMCanvas.Server.Services.ProjectHealth
             _logger = logger;
         }
 
+        /// <summary>已注册 check 的元信息（id + 描述），供前端渲染勾选项。</summary>
+        public IReadOnlyList<HealthCheckInfo> ListChecks()
+        {
+            return _checks.Select(c => new HealthCheckInfo { Id = c.Id, Description = c.Description }).ToList();
+        }
+
+        /// <summary>按 id 过滤待跑 check；checkIds 为 null/空 → 全部。未知 id 静默忽略。</summary>
+        private IEnumerable<IProjectHealthCheck> SelectChecks(IEnumerable<string>? checkIds)
+        {
+            if (checkIds == null)
+                return _checks;
+            var set = new HashSet<string>(checkIds, StringComparer.Ordinal);
+            if (set.Count == 0)
+                return _checks;
+            return _checks.Where(c => set.Contains(c.Id));
+        }
+
         /// <summary>
-        /// 只查不改：遍历所有 check 跑 Inspect，聚合 issues。
+        /// 只查不改：遍历选中 check 跑 Inspect，聚合 issues。checkIds 为 null → 全部。
         /// </summary>
-        public ProjectInspectionReport InspectAll(string projectPath)
+        public ProjectInspectionReport InspectAll(string projectPath, IEnumerable<string>? checkIds = null)
         {
             ValidateProjectPath(projectPath);
 
             var report = new ProjectInspectionReport();
-            foreach (var check in _checks)
+            foreach (var check in SelectChecks(checkIds))
             {
                 CheckInspectionResult result;
                 try
@@ -62,10 +79,11 @@ namespace BIMCanvas.Server.Services.ProjectHealth
         ///   1. autoGitCommit=true 时先调 IGitCommitter.TryCommit 存档；项目非 git 仓库会抛 InvalidOperationException
         ///   2. 按 _checks 顺序跑各 Repair；单个 check 抛异常 → 记入 Errors 但继续后续 check
         /// </summary>
-        public ProjectRepairReport RepairAll(string projectPath, bool autoGitCommit = true)
+        public ProjectRepairReport RepairAll(string projectPath, bool autoGitCommit = true, IEnumerable<string>? checkIds = null)
         {
             ValidateProjectPath(projectPath);
 
+            var selectedChecks = SelectChecks(checkIds).ToList();
             var report = new ProjectRepairReport();
 
             if (autoGitCommit && _gitCommitter != null)
@@ -87,7 +105,7 @@ namespace BIMCanvas.Server.Services.ProjectHealth
                 }
             }
 
-            foreach (var check in _checks)
+            foreach (var check in selectedChecks)
             {
                 CheckRepairResult result;
                 try

@@ -137,11 +137,18 @@ namespace BIMCanvas.Server.Dtos
         public string? ZoneId { get; set; }
 
         /// <summary>
-        /// 按叶子分区 id → variantId 的映射，表示该 zone 当前显示的是哪份变体。
-        /// 命中的 zone：本次保存写入 modules-{variantId}.json，canonical modules.json 不动；
-        /// 未命中（或 variantId 为空）：照常写入 canonical modules.json。
+        /// 按设计区 id → variantSlug 的映射，表示该设计区当前显示/编辑的是哪份变体。
+        /// 命中的设计区：按该变体自身 zones.json 的子分区把模块落盘到 schemes/{dz}/{slug}/[{leaf}/]modules.json，canonical 不动；
+        /// 未命中（或 slug 为空）：照常写入 canonical（adopted）modules.json。
         /// 缺省（null/空）= 全 canonical，行为与旧版一致。
         /// </summary>
         public Dictionary<string, string>? VariantSelection { get; set; }
+
+        /// <summary>
+        /// 可选的写入范围（设计区 id 列表）。给定时，本次保存只对范围内设计区做分组/清旧/写入，
+        /// 范围外设计区的文件一律不碰（定向落盘，撤销/重做与单目标编辑用此避免写放大与跨区污染）。
+        /// 缺省（null/空）= 全工程，行为与旧版一致。
+        /// </summary>
+        public List<string>? Scope { get; set; }
     }
 }

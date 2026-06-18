@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { LayerManager } from '../../services/three/LayerManager';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 const isOpen = ref(false);
 const managerRef = ref<HTMLElement | null>(null);
@@ -70,7 +73,7 @@ onMounted(() => {
         layers.value[layerId] = layerStates[layerId];
       }
     });
-    console.log('[FloatingLayerManager] UI 图层状态已同步:', layers.value);
+    log.debug('UI layer states synced', { layers: layers.value });
   }) as EventListener);
 });
 

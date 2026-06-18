@@ -16,6 +16,9 @@
 
 import type { ProjectData } from '../../types/canvas';
 import { ChangeSource, ChangeType, type HistorySnapshot, type HistoryStats } from '../../types/history';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('SYS');
 
 export class TimelineManager {
   // ========== 私有状态 ==========
@@ -123,7 +126,8 @@ export class TimelineManager {
       this.currentIndex--;
     }
 
-    console.log(`[Timeline] Pushed snapshot: ${source}`, {
+    log.debug('snapshot pushed', {
+      source,
       index: this.currentIndex,
       total: this.snapshots.length,
       description: options?.description || '(no description)',
@@ -137,18 +141,19 @@ export class TimelineManager {
    */
   public undo(): HistorySnapshot | null {
     if (!this.canUndo) {
-      console.warn('[Timeline] Cannot undo: already at the beginning');
+      log.warn('cannot undo, already at beginning');
       return null;
     }
 
     this.currentIndex--;
     const snapshot = this.snapshots[this.currentIndex];
     if (!snapshot) {
-      console.warn('[Timeline] Undo target snapshot missing');
+      log.warn('undo target snapshot missing');
       return null;
     }
 
-    console.log(`[Timeline] Undo to snapshot: ${snapshot.source}`, {
+    log.debug('undo to snapshot', {
+      source: snapshot.source,
       index: this.currentIndex,
       timestamp: new Date(snapshot.timestamp).toLocaleString(),
       description: snapshot.description || '(no description)',
@@ -164,18 +169,19 @@ export class TimelineManager {
    */
   public redo(): HistorySnapshot | null {
     if (!this.canRedo) {
-      console.warn('[Timeline] Cannot redo: already at the end');
+      log.warn('cannot redo, already at end');
       return null;
     }
 
     this.currentIndex++;
     const snapshot = this.snapshots[this.currentIndex];
     if (!snapshot) {
-      console.warn('[Timeline] Redo target snapshot missing');
+      log.warn('redo target snapshot missing');
       return null;
     }
 
-    console.log(`[Timeline] Redo to snapshot: ${snapshot.source}`, {
+    log.debug('redo to snapshot', {
+      source: snapshot.source,
       index: this.currentIndex,
       timestamp: new Date(snapshot.timestamp).toLocaleString(),
       description: snapshot.description || '(no description)',
@@ -190,7 +196,7 @@ export class TimelineManager {
   public clear(): void {
     this.snapshots = [];
     this.currentIndex = -1;
-    console.log('[Timeline] History cleared');
+    log.debug('history cleared');
   }
 
   // ========== 策略决策 API ==========

@@ -7,10 +7,12 @@ import { SnapSolver } from '../snap/SnapSolver';
 import { SnapVisual } from '../snap/SnapVisual';
 import { AxisLockHelper } from '../AxisLockHelper';
 import { useCanvasStore } from '../../../stores/canvasStore';
-import { useDebugStore } from '../../../stores/debugStore';
 import { deltaToModel } from '../../../utils/coordinates';
 import { LayerManager } from '../../three/LayerManager';
 import { NumericInputManager } from '../NumericInputManager';
+import { createLogger } from '../../../utils/logger';
+
+const log = createLogger('USER');
 
 export class MoveTool implements Tool {
     name = 'Move';
@@ -77,7 +79,7 @@ export class MoveTool implements Tool {
 
             if (this.selectedObjects.length === 0) {
                 // 有选择但没有有效的家具模块
-                console.log('No movable modules selected');
+                log.debug('no movable modules selected');
                 store.setPrompt('只有家具模块可以移动，请重新选择');
                 this.state = 'multi_selection';
                 this.domElement.style.cursor = 'default';
@@ -122,8 +124,7 @@ export class MoveTool implements Tool {
         store.setPrompt(`请点击选择移动基点 (已选${this.selectedObjects.length}个对象)`);
 
         // CAD Snap: 构建边索引（包含墙柱门窗 + 家具）
-        const debug = useDebugStore();
-        debug.log(`[Move] Building snap edges`);
+        log.debug('building snap edges');
         this.snapIndex.rebuild(store.projectData);
     }
 
@@ -357,7 +358,7 @@ export class MoveTool implements Tool {
             if (this.state === 'multi_selection') {
                 // 确认选择
                 if (store.selectedIds.length === 0) {
-                    console.log('No objects selected');
+                    log.debug('no objects selected');
                     store.setPrompt('请先选择要移动的对象');
                     return;
                 }
@@ -366,7 +367,7 @@ export class MoveTool implements Tool {
                 this.selectedObjects = store.selectedObjects.filter((obj: any) => obj.type === 'module');
 
                 if (this.selectedObjects.length === 0) {
-                    console.log('No movable modules selected');
+                    log.debug('no movable modules selected');
                     store.setPrompt('只有家具模块可以移动，请重新选择');
                     return;
                 }
@@ -437,7 +438,7 @@ export class MoveTool implements Tool {
         // 清除选择
         store.clearSelection();
 
-        console.log(`Move executed: ${this.selectedObjects.length} objects moved`);
+        log.info('move executed', { count: this.selectedObjects.length });
         this.deactivate();
         window.dispatchEvent(new CustomEvent('bimcanvas:tool-completed'));
     }

@@ -4,6 +4,9 @@
  * Canvas visuals are controlled by CanvasStyleService.
  */
 import { ref, readonly } from 'vue';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('SYS');
 
 // ============================================================================
 // 类型定义
@@ -388,7 +391,7 @@ class ThemeServiceClass {
         // Scene Background (Solid)
         root.style.setProperty('--bg-scene', css.bgScene);
 
-        console.log(`[ThemeService] CSS 变量已更新为 ${theme.name} 主题`);
+        log.debug('css variables updated', { theme: theme.name });
     }
 
     /**
@@ -405,7 +408,7 @@ class ThemeServiceClass {
             detail: this._currentTheme.value
         }));
 
-        console.log(`[ThemeService] 主题已切换为: ${this._currentTheme.value.name}`);
+        log.debug('theme toggled', { theme: this._currentTheme.value.name });
     }
 
     /**
@@ -421,7 +424,7 @@ class ThemeServiceClass {
                 detail: this._currentTheme.value
             }));
 
-            console.log(`[ThemeService] 主题已设置为: ${targetTheme.name}`);
+            log.debug('theme set', { theme: targetTheme.name });
         }
     }
 

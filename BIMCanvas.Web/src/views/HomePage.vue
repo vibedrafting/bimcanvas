@@ -13,6 +13,9 @@ import type { ProjectSummary } from '../types/homepage';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 import { SceneService } from '../services/ProjectService';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SYS');
 
 const appStore = useAppStore();
 const canvasStore = useCanvasStore();
@@ -81,7 +84,7 @@ const onImportHealthAbort = () => {
 // ============================================================
 watch(() => canvasStore.projectData, (newData, oldData) => {
   if (newData && !oldData && appStore.currentView === 'homepage') {
-    console.log('[HomePage] Project data loaded, transitioning to workspace...');
+    log.debug('Project data loaded, transitioning to workspace');
     appStore.goToWorkspace();
   }
 });

@@ -2,6 +2,9 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { WorktreeMetadataEntry } from '../types/worktree';
 import { SERVER_API } from '../config/api';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('USER');
 
 /**
  * 覆盖合并结果
@@ -97,8 +100,7 @@ export const useMergeStore = defineStore('merge', () => {
    * 打开合并向导（传统模式）
    */
   const openWizard = (): void => {
-    console.log('[MergeStore] openWizard() called, current isVisible:', isVisible.value);
-    console.trace('[MergeStore] openWizard call stack');
+    log.debug('openWizard called', { isVisible: isVisible.value });
     isVisible.value = true;
     currentStep.value = 1;
     targetBranch.value = '';
@@ -110,14 +112,14 @@ export const useMergeStore = defineStore('merge', () => {
     worktreeMetadata.value = [];
     branchesToCleanup.value = [];
     worktreeBranchMapping.value = {};
-    console.log('[MergeStore] openWizard() done, isVisible now:', isVisible.value);
+    log.debug('openWizard done', { isVisible: isVisible.value });
   };
 
   /**
    * 打开合并向导（Worktree 模式）
    */
   const openWizardWithWorktrees = async (names: string[]): Promise<void> => {
-    console.log('[MergeStore] openWizardWithWorktrees() called with:', names);
+    log.debug('openWizardWithWorktrees called', { names });
     isVisible.value = true;
     currentStep.value = 1;
     targetBranch.value = '';
@@ -134,7 +136,7 @@ export const useMergeStore = defineStore('merge', () => {
       const metaResp = await fetch(`${SERVER_API}/worktree/metadata`);
       const metaResult = await metaResp.json();
 
-      console.log('[MergeStore] metadata 响应:', metaResult);
+      log.debug('metadata response', { metaResult });
 
       if (metaResult.success) {
         // 过滤出当前 worktree 相关的元数据
@@ -147,12 +149,14 @@ export const useMergeStore = defineStore('merge', () => {
         // 用户需要主动勾选才会删除分支
         branchesToCleanup.value = [];
 
-        console.log('[MergeStore] 可清理分支（默认未勾选）:', relevantMetadata
-          .filter((w: WorktreeMetadataEntry) => w.intent === 'isolation')
-          .map((w: WorktreeMetadataEntry) => w.branchName));
+        log.debug('cleanable branches (unchecked by default)', {
+          branches: relevantMetadata
+            .filter((w: WorktreeMetadataEntry) => w.intent === 'isolation')
+            .map((w: WorktreeMetadataEntry) => w.branchName)
+        });
       }
     } catch (e) {
-      console.error('[MergeStore] 获取元数据失败:', e);
+      log.error('fetch metadata failed', { err: e });
       error.value = '无法获取 worktree 元数据';
     }
 
@@ -165,7 +169,7 @@ export const useMergeStore = defineStore('merge', () => {
       });
 
       const result = await response.json();
-      console.log('[MergeStore] batch-resolve 响应:', result);
+      log.debug('batch-resolve response', { result });
 
       if (result.success) {
         worktreeBranchMapping.value = result.mapping;
@@ -173,7 +177,7 @@ export const useMergeStore = defineStore('merge', () => {
         error.value = `部分任务未找到: ${result.errors?.join(', ')}`;
       }
     } catch (e) {
-      console.error('[MergeStore] 解析 worktree 映射失败:', e);
+      log.error('resolve worktree mapping failed', { err: e });
       error.value = '无法解析 worktree 元数据';
     }
   };
@@ -182,8 +186,7 @@ export const useMergeStore = defineStore('merge', () => {
    * 关闭合并向导
    */
   const closeWizard = (): void => {
-    console.log('[MergeStore] closeWizard() called, current isVisible:', isVisible.value);
-    console.trace('[MergeStore] closeWizard call stack');
+    log.debug('closeWizard called', { isVisible: isVisible.value });
     isVisible.value = false;
     currentStep.value = 1;
     targetBranch.value = '';
@@ -195,7 +198,7 @@ export const useMergeStore = defineStore('merge', () => {
     worktreeMetadata.value = [];
     branchesToCleanup.value = [];
     worktreeBranchMapping.value = {};
-    console.log('[MergeStore] closeWizard() done, isVisible now:', isVisible.value);
+    log.debug('closeWizard done', { isVisible: isVisible.value });
   };
 
   /**
@@ -239,7 +242,7 @@ export const useMergeStore = defineStore('merge', () => {
         targetBranch: targetBranch.value,
         branchesToCleanup: branchesToCleanup.value
       };
-      console.log('[MergeStore] 发送合并请求:', requestBody);
+      log.debug('sending merge request', { requestBody });
 
       const response = await fetch(`${SERVER_API}/merge/overwrite`, {
         method: 'POST',
@@ -248,17 +251,17 @@ export const useMergeStore = defineStore('merge', () => {
       });
 
       const result = await response.json();
-      console.log('[MergeStore] 合并响应:', result);
+      log.debug('merge response', { result });
 
       if (response.ok && result.success) {
         // 检查是否实际执行了合并（mergedZoneCount > 0）
         if (result.mergedZoneCount === 0) {
           // 无差异，自动清理并关闭向导
-          console.log('[MergeStore] 两个分支内容相同，无需合并，自动清理worktree并关闭');
+          log.info('branches identical, no merge needed, auto cleanup', { cleanup: branchesToCleanup.value });
           closeWizard();
           return { success: true, message: '两个分支内容相同，无需合并', mergedZoneCount: 0 };
         }
-        console.log('[MergeStore] 覆盖合并成功');
+        log.info('overwrite merge succeeded', { source: sourceBranch.value, target: targetBranch.value, mergedZoneCount: result.mergedZoneCount, cleanup: branchesToCleanup.value });
         closeWizard();
         return { success: true, mergedZoneCount: result.mergedZoneCount };
       } else {
@@ -267,7 +270,7 @@ export const useMergeStore = defineStore('merge', () => {
         return { success: false, message: errMsg };
       }
     } catch (e) {
-      console.error('[MergeStore] 执行合并失败:', e);
+      log.error('execute merge failed', { err: e });
       error.value = '网络错误';
       return { success: false, message: '网络错误' };
     } finally {

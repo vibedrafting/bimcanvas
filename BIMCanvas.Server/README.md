@@ -31,7 +31,7 @@ dotnet run --project BIMCanvas.Server
 
 #### Agent stdout 日志
 
-Development 托管 Agent 时，Server 以字符块读取 Agent stdout，只在物理行开头补时间戳。这样 Agent 的流式思考/回答可以继续追加到当前行，不会因为内部 flush 被拆成大量带重复前缀的日志；完整物理行结束后再同步交给 `ConversationLogger` 做对话日志持久化。
+Development 托管 Agent 时，Server 以字符块读取 Agent stdout，只在物理行开头补时间戳。这样 Agent 的流式思考/回答可以继续追加到当前行，不会因为内部 flush 被拆成大量带重复前缀的日志。打到控制台的内容（含 Agent 输出）由 §11「日志系统」的 Console Tee 在底层统一镜像到本地文件，无需各打印点单独落盘。
 
 ### Production / Docker
 
@@ -836,7 +836,79 @@ v3.4: + 可视化 Diff（MergeService + 选择性/覆盖合并）← 当前
 
 ---
 
-## 11. 相关文档
+## 11. 日志系统
+
+Server 的日志分**两个出口、同一份内容**：实时打到**控制台**，并由一层 Console Tee「顺带」镜像到**本地文件**。两者不是冗余，是同一字节流的「易失视图」与「持久档案」。
+
+实现集中在两处：`Logging/ServerConsoleFormatter.cs`（控制台格式化）、`Logging/ConversationLogger.cs`（本地文件镜像）；输出辅助与安装点在 `Program.cs`。
+
+### 11.1 定位
+
+| | Server 控制台 | 本地文件 `logs/session_*.log` |
+|---|---|---|
+| 时效 | 实时，关窗即丢 | 持久，按「项目 × Server 会话」分文件 |
+| 内容 | Server 自身日志 + Agent stdout/stderr + Web(Vite) 输出 | **与控制台一模一样**（去掉颜色码） |
+| 定位 | 运维实时视图：此刻 Server / Agent / Web 在干什么 | 事后复盘档案：这个项目这次会话的完整输出 |
+
+> 关键：本地文件**不是只存 AI 对话**，而是整条控制台的存档。文件名前缀为 `session_`（旧版 `chat_` 已废弃）。
+
+### 11.2 控制台内容来源（靠前缀区分）
+
+| 前缀 | 来源 | 说明 |
+|------|------|------|
+| `[Server]` / `[Server:WARN]` / `[Server:ERR]` / `[Server:DBG]` … | Server 自身 `ILogger` | 经 `ServerConsoleFormatter` 格式化；覆盖 REST / SignalR / SSE、几何 / Git / 落盘、子进程编排等「通信中枢」职责 |
+| `[Agent]` / `[Agent#n]` | Agent(Python) 进程 stdout | 前缀由 Python 端自己打，Server 只转发；这是 AI 执行轨迹本身，**不属于** Server 自身日志 |
+| `[Agent:ERR]` | Agent 进程 stderr | Server 转发 |
+| `[Web]` | 托管的 Vite dev server 输出 | Server 转发 |
+
+`[Server]` 与 `[Agent]` 是两套不同日志：前者是 Server「居中调度」时自己说的话，后者是 AI「干活」时说的话，Server 只是后者的管道。
+
+### 11.3 控制台格式化（ServerConsoleFormatter）
+
+- `Program.cs` 启动时 `builder.Logging.ClearProviders()` 清掉默认格式，`AddServerConsoleFormatter()` 注册自定义格式化器。
+- 统一格式：`[HH:mm:ss] [前缀] 消息`，时间戳灰色、前缀按 `LogLevel` 着色（ANSI）。
+- 前缀按级别映射：`Information→[Server]`、`Warning→[Server:WARN]`、`Error→[Server:ERR]`、`Debug→[Server:DBG]` 等。
+- 异常只打印 `BIMCanvas` 相关的堆栈帧（红色），避免框架噪声刷屏。
+
+Agent / Web 子进程输出不走 `ILogger`，由 `Program.cs` 两个辅助函数直接写控制台：
+
+- `WriteWithColoredPrefix(prefix, msg, color)`：补时间戳 + 着色前缀 + 消息。用于 Server 自身的启动期直写日志、Agent stderr、Web 输出。
+- `WriteWithTimestampOnly(msg, color)`：只补时间戳，前缀由 Python 端自带。用于 Agent stdout（见 §0「Agent stdout 日志」的字符块读取策略）。
+
+### 11.4 本地文件镜像（Console Tee）
+
+`ConversationLogger` 在控制台输出的**最末端**（`Console.Out` / `Console.Error`）套一层分叉写入器 `TeeTextWriter`：每一行原样送控制台（保留颜色），同时去掉 ANSI 颜色码后追加到当前项目的日志文件。
+
+为什么用 Tee 而不是在各打印点单独落盘：
+
+- **最大复用**：文件拿到的是 Server 日志系统**已格式化、已带时间戳**的成品，不重复实现任何格式化。
+- **零维护**：分叉点是所有 `Console.*` 输出的必经出口，**后续日志打印逻辑怎么变都自动被镜像，无需同步本模块**。
+- **不丢内容**：不依赖任何「对话边界」标记。（旧版用 `[START]→[COMPLETE]` 状态机切片，workflow 真后台脱离后内容落在回合 `[COMPLETE]` 之后被静默丢弃——Tee 从结构上免疫这类时序变化。）
+
+生命周期：
+
+| 时机 | 方法 | 行为 |
+|------|------|------|
+| 进程启动最早期 | `Install()` | 装 Tee（**须在日志框架初始化前**，否则 Console 日志 provider 已捕获原始 `Console.Out`，Server 自身日志将不进文件） |
+| 打开 / 切换项目 | `Initialize(projectPath)` | 在 `{projectPath}/logs/` 下确定新文件 `session_{yyyyMMdd_HHmmss}.log`；切项目即滚动到新文件 |
+| 程序退出 | `Shutdown()` | 停止落盘 |
+
+落盘策略——**写完即关，从不持有文件句柄**：每行用 `File.AppendAllText` 追加后立即关闭。这样删除 / 移动项目时不会被日志文件占住目录（曾因持续打开的 `StreamWriter` 报 `IOException: being used by another process`，已修）。项目打开前 / 目录被删后写入静默忽略，不落盘、不重建目录。
+
+文件分级由现有 ASP.NET 日志配置统一控制（文件 = 控制台显示什么就有什么），本模块不另设过滤。
+
+### 11.5 已知约束
+
+- **多线程交错**：控制台有多个并发写入者（Server 日志线程、Agent stdout 泵线程、Web 输出泵线程）。高并发瞬间单行可能交错，文件会如实镜像这一交错。目前未做行级串行化。
+- **Tee 安装时序**：依赖 `Install()` 早于日志框架初始化。若未来某版 .NET 控制台 logger 绕过 `Console.Out`、缓存了原始流，Server 自身日志会不进文件（Agent / Web 输出不受影响，因其走 `Console.Write`）；届时退路是在 `ServerConsoleFormatter` 内再写一笔文件，效果等同。
+
+### 11.6 与 Web 前端日志的关系
+
+Web 端有独立日志系统（`BIMCanvas.Web/src/utils/logger.ts`），与 Server 日志**互补**：Web 记「浏览器视角的意图与感知」（用户操作 / SSE 收发 / 渲染），Server 记「服务端执行与状态」（几何 / Git / 落盘 / 通信）。两端以 **windowId + 时间戳**对齐，合起来才是端到端全貌。注意不对称：Server 日志有本地持久化（`session_*.log`），Web 日志目前是浏览器内存环形 buffer + F12，纯易失。
+
+---
+
+## 12. 相关文档
 
 | 文档 | 路径 | 内容 |
 |------|------|------|

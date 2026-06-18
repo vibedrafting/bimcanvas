@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('RENDER');
 
 // 图层预设配置类型
 export interface LayerPresetConfig {
@@ -110,7 +113,7 @@ export class LayerManager {
      */
     public setPresetConfig(config: LayerPresetsConfig): void {
         this.presetConfig = config;
-        console.log('[LayerManager] 预设配置已更新:', config);
+        log.debug('preset config updated', { config });
     }
 
     public toggleLayer(layerId: number, visible: boolean) {
@@ -163,7 +166,7 @@ export class LayerManager {
 
         // 配置缺失或 enabledLayers 为空数组 → 退化到硬编码默认(applyPresetHardcoded 已实现完整启用逻辑)
         if (!config || !config.enabledLayers || config.enabledLayers.length === 0) {
-            console.log(`[LayerManager] 预设 "${preset}" 配置缺失或为空,退化到硬编码默认`);
+            log.debug('preset config missing or empty, falling back to hardcoded', { preset });
             this.applyPresetHardcoded(preset);
             return;
         }
@@ -190,11 +193,11 @@ export class LayerManager {
                 this.camera.layers.enable(layerId);
                 layerStates[layerId] = true;
             } else {
-                console.warn(`[LayerManager] 未知图层名称: ${layerName}`);
+                log.warn('unknown layer name', { layerName });
             }
         });
 
-        console.log(`[LayerManager] 已应用预设 "${preset}":`, config.enabledLayers);
+        log.debug('preset applied', { preset, enabledLayers: config.enabledLayers });
         this.dispatchLayerStateChangeEvent(preset, layerStates);
     }
 
@@ -205,7 +208,7 @@ export class LayerManager {
         window.dispatchEvent(new CustomEvent('bimcanvas:layer-state-change', {
             detail: { preset, layerStates }
         }));
-        console.log(`[LayerManager] 已派发 layer-state-change 事件:`, { preset, layerStates });
+        log.debug('layer-state-change dispatched', { preset, layerStates });
     }
 
     /**

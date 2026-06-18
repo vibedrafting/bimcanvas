@@ -2,6 +2,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { EffortLevel, ModelOption, ThinkingLevel } from '../../types/aiCommandCenter';
 import { effortLevels, thinkingLevels } from '../../constants/aiCommandCenter';
 import type { RuntimeCapabilityMap, RuntimeCapabilityMatrixRow } from '../../types/agent';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('SYS');
 
 // 图层预设配置类型
 export interface LayerPresetConfig {
@@ -125,7 +128,7 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
       if (webConfigRes.ok) {
         const webConfig = await webConfigRes.json();
         applyWebConfig(webConfig);
-        console.log('图层预设配置已加载:', layerPresets.value);
+        log.debug('layer presets loaded', { layerPresets: layerPresets.value });
       }
 
       if (configRes.ok) {
@@ -166,14 +169,14 @@ export const useAgentConfig = (agentApiBase: string, serverApiBase: string) => {
 
       applyDefaultModel(agentDefaultModel);
 
-      console.log('Agent 配置已加载:', {
+      log.debug('agent config loaded', {
         runtime: currentRuntime.value,
         model: currentModel.value?.id,
         effort: currentEffort.value.id,
         thinking: currentThinking.value.id
       });
     } catch (error) {
-      console.warn('获取 Agent 配置失败:', error);
+      log.warn('fetch agent config failed', { err: error });
     }
   };
 

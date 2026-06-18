@@ -8,6 +8,10 @@
  * 借鉴自 docs/ppt/v2.1/bimcanvas-overview.html 的句柄持久化模式。
  */
 
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('SYS');
+
 const DB_NAME = 'bimcanvas-web-standalone';
 const DB_VERSION = 1;
 const STORE_NAME = 'handles';
@@ -45,7 +49,7 @@ export const ModuleLibraryDirHandleStore = {
         db.close();
       }
     } catch (err) {
-      console.warn('[ModuleLibraryDirHandleStore] load failed', err);
+      log.warn('handle load failed', { error: err });
       return null;
     }
   },
@@ -66,7 +70,7 @@ export const ModuleLibraryDirHandleStore = {
         db.close();
       }
     } catch (err) {
-      console.warn('[ModuleLibraryDirHandleStore] save failed', err);
+      log.warn('handle save failed', { error: err });
     }
   },
 
@@ -86,7 +90,7 @@ export const ModuleLibraryDirHandleStore = {
         db.close();
       }
     } catch (err) {
-      console.warn('[ModuleLibraryDirHandleStore] clear failed', err);
+      log.warn('handle clear failed', { error: err });
     }
   }
 };

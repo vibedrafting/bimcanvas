@@ -4,105 +4,165 @@ using System.Text.RegularExpressions;
 namespace BIMCanvas.Server.Logging;
 
 /// <summary>
-/// 对话日志持久化。
-/// 将 Agent 对话内容（START→COMPLETE）保存到项目目录下的日志文件。
-/// 同一次 Server 会话（不关闭程序、不切换项目）的所有对话追加到同一个文件。
-/// 按阶段批量写入，避免高频 IO。
+/// 控制台输出本地存档（Tee 镜像）。
+/// 在 Console.Out / Console.Error 上套一层分叉写入器：打到控制台的内容原样保留，
+/// 同时去除 ANSI 颜色码后追加到当前项目的日志文件。
+/// 复用 Server 既有日志系统（ServerConsoleFormatter / WriteWithTimestampOnly 等）已经
+/// 格式化好、已带时间戳的成品，不重复实现格式化；后续日志打印逻辑变动无需同步本文件。
+///
+/// 生命周期：
+/// - Install()：进程启动最早期调用一次（须在日志框架初始化前，否则捕获不到原始 Console.Out）。
+/// - Initialize(projectPath)：打开 / 切换项目时调用，关旧文件、在项目 logs/ 下起新文件。
+/// - Shutdown()：程序退出时调用，flush 并关闭文件。
+///
+/// 项目打开前 _fileWriter 为 null，仅输出控制台、不落盘（此时也无项目 logs/ 目录）。
 /// </summary>
 public static class ConversationLogger
 {
-    // ── 配置 ──
+    private static TeeTextWriter? _outTee;
+    private static TeeTextWriter? _errTee;
+
+    private static readonly object _fileLock = new();
+    // 当前日志文件路径。写完即关、从不持有句柄——否则会占住项目目录，
+    // 导致删除/移动项目时报「file is being used by another process」。
     private static string? _currentFilePath;
 
-    // ── 状态机 ──
-    private static bool _isActive = false;
-    private static readonly List<string> _buffer = new();
-
-    // ── ANSI 转义码清理 ──
+    // ANSI 颜色转义码清理（文件存纯文本，控制台仍保留颜色）
     private static readonly Regex AnsiRegex =
         new(@"\x1b\[[0-9;]*m", RegexOptions.Compiled);
 
     /// <summary>
-    /// 初始化日志文件（Server 启动加载项目后调用一次）。
-    /// 创建 logs/ 目录并确定本次会话的日志文件路径。
-    /// 切换项目时再次调用会创建新文件。
+    /// 安装控制台分叉（启动最早期调用一次，幂等）。
+    /// 须在 ASP.NET 日志框架初始化前调用——Console 日志 provider 在构造时捕获
+    /// Console.Out，此后才换回我们的 Tee 已来不及。
+    /// </summary>
+    public static void Install()
+    {
+        if (_outTee != null) return; // 幂等
+
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
+
+        // out / err 各自独立缓行（分别受各自 Console 同步包装器串行化，互不共享可变状态）；
+        // 文件写入由 _fileLock 统一保护。
+        _outTee = new TeeTextWriter(originalOut, WriteLineToFile, originalOut.Encoding);
+        _errTee = new TeeTextWriter(originalErr, WriteLineToFile, originalErr.Encoding);
+
+        Console.SetOut(_outTee);
+        Console.SetError(_errTee);
+    }
+
+    /// <summary>
+    /// 打开 / 切换项目时调用：关闭旧文件，在项目 logs/ 下建新文件。
+    /// 切项目再次调用即自动滚动到新文件。
     /// </summary>
     public static void Initialize(string projectPath)
     {
-        var logDir = Path.Combine(projectPath, "logs");
-        Directory.CreateDirectory(logDir);
-        _currentFilePath = Path.Combine(logDir,
-            $"chat_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-    }
-
-    /// <summary>
-    /// 处理一行 Agent stdout 输出。
-    /// 由 WriteWithTimestampOnly() 调用，与控制台输出同步。
-    /// 仅记录 [START]→[COMPLETE] 之间的对话内容。
-    /// </summary>
-    public static void ProcessLine(string rawLine)
-    {
-        if (_currentFilePath == null) return;
-
-        var cleanLine = AnsiRegex.Replace(rawLine, "");
-        var timestampedLine = $"[{DateTime.Now:HH:mm:ss}] {cleanLine}";
-
-        if (!_isActive)
+        lock (_fileLock)
         {
-            // 未在对话中 → 检测 [START] 标记
-            if (cleanLine.Contains("[START]"))
+            try
             {
-                _buffer.Add(timestampedLine);
-                _isActive = true;
+                var logDir = Path.Combine(projectPath, "logs");
+                Directory.CreateDirectory(logDir);
+                _currentFilePath = Path.Combine(logDir, $"session_{DateTime.Now:yyyyMMdd_HHmmss}.log");
             }
-            return;
-        }
-
-        // 对话中 → 检测是否有新对话开始（上一轮异常中断的恢复）
-        if (cleanLine.Contains("[START]"))
-        {
-            // 上一轮未正常 COMPLETE，先 flush 残留内容
-            Flush();
-            // 新对话的第一行
-            _buffer.Add(timestampedLine);
-            return;
-        }
-
-        // 正常对话行 → 缓冲
-        _buffer.Add(timestampedLine);
-
-        // ── 阶段边界检测 → 触发 Flush ──
-        bool shouldFlush =
-            cleanLine.Contains("[COMPLETE]") ||
-            cleanLine.Contains("[USER]") ||
-            cleanLine.Contains("thinking complete") ||
-            cleanLine.Contains("[Result]") ||
-            (cleanLine.Contains("SUBAGENT") && cleanLine.Contains("COMPLETE"));
-
-        if (shouldFlush)
-            Flush();
-
-        // 对话结束 → 回到 Idle（文件不关闭，下次对话继续追加）
-        if (cleanLine.Contains("[COMPLETE]"))
-        {
-            _isActive = false;
+            catch
+            {
+                // 目录创建失败不影响主流程，退化为仅控制台
+                _currentFilePath = null;
+            }
         }
     }
 
     /// <summary>
-    /// 将缓冲区内容批量写入文件
+    /// 程序退出收尾：停止落盘。无持有句柄，无需 flush/close。
     /// </summary>
-    private static void Flush()
+    public static void Shutdown()
     {
-        if (_currentFilePath == null || _buffer.Count == 0) return;
-        try
+        lock (_fileLock)
         {
-            File.AppendAllLines(_currentFilePath, _buffer, Encoding.UTF8);
-            _buffer.Clear();
+            _currentFilePath = null;
         }
-        catch
+    }
+
+    /// <summary>
+    /// 由 Tee 在写出一整行（不含换行符）时回调：去 ANSI 后追加写入文件。
+    /// 写完即关、从不持有句柄——避免占住项目目录阻塞删除/移动。
+    /// </summary>
+    private static void WriteLineToFile(string line)
+    {
+        var clean = AnsiRegex.Replace(line, "");
+        lock (_fileLock)
         {
-            // 日志写入失败不影响主流程
+            if (_currentFilePath == null) return;
+            try
+            {
+                // 追加单行后立即关闭；目录已被删除时抛异常 → 静默忽略，不重建目录
+                File.AppendAllText(_currentFilePath, clean + Environment.NewLine, Encoding.UTF8);
+            }
+            catch
+            {
+                // 日志写入失败不影响主流程
+            }
+        }
+    }
+}
+
+/// <summary>
+/// 分叉写入器：转发所有写入给原始控制台（保留颜色），同时按物理行回调存档。
+/// 控制台输出的最终必经出口——任何走 Console.* 的内容都被自动镜像，
+/// 故 Server 日志打印逻辑变动时无需同步此处。
+/// </summary>
+internal sealed class TeeTextWriter : TextWriter
+{
+    private readonly TextWriter _inner;       // 原始控制台写入器
+    private readonly Action<string> _onLine;  // 整行回调（不含换行）
+    private readonly Encoding _encoding;
+    private readonly StringBuilder _lineBuffer = new();
+
+    public TeeTextWriter(TextWriter inner, Action<string> onLine, Encoding encoding)
+    {
+        _inner = inner;
+        _onLine = onLine;
+        _encoding = encoding;
+    }
+
+    public override Encoding Encoding => _encoding;
+
+    public override void Write(char value)
+    {
+        _inner.Write(value);
+        Accumulate(value);
+    }
+
+    public override void Write(string? value)
+    {
+        if (value == null) return;
+        _inner.Write(value);
+        foreach (var ch in value)
+            Accumulate(ch);
+    }
+
+    public override void Write(char[] buffer, int index, int count)
+    {
+        _inner.Write(buffer, index, count);
+        for (var i = 0; i < count; i++)
+            Accumulate(buffer[index + i]);
+    }
+
+    public override void Flush() => _inner.Flush();
+
+    private void Accumulate(char ch)
+    {
+        if (ch == '\n')
+        {
+            var line = _lineBuffer.ToString();
+            _lineBuffer.Clear();
+            _onLine(line);
+        }
+        else if (ch != '\r')
+        {
+            _lineBuffer.Append(ch);
         }
     }
 }

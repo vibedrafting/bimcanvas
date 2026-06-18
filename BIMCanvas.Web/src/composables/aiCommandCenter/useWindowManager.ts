@@ -7,6 +7,9 @@ import { GitWorktreeService } from '../../services/GitWorktreeService';
 import { SignalRService } from '../../services/SignalRService';
 import { createDraftMessageId } from '../../services/ChatAttachmentService';
 import { SERVER_API } from '../../config/api';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('SYS');
 
 const WINDOW_SESSION_STORAGE_KEY = 'bimcanvas.ai-command-center.window-session.v1';
 
@@ -108,13 +111,13 @@ export const useWindowManager = (options: WindowManagerOptions) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ windowId })
       });
-      console.log(`[Window] 激活窗口: ${win.name} (${windowId})`);
+      log.debug('window activated', { name: win.name, windowId });
     } catch (error) {
-      console.warn('[Window] 通知 Server 激活窗口失败:', error);
+      log.warn('notify server window activation failed', { err: error });
     }
 
     await options.store.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
-    console.log('[Window] 重新加载项目数据完成');
+    log.debug('project data reloaded');
   };
 
   const initDefaultWindow = () => {
@@ -155,7 +158,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     try {
       snapshot = JSON.parse(raw) as WindowSessionSnapshot;
     } catch (error) {
-      console.warn('[Window] 解析窗口快照失败，已忽略:', error);
+      log.warn('parse window snapshot failed, ignored', { err: error });
       window.sessionStorage.removeItem(WINDOW_SESSION_STORAGE_KEY);
       return false;
     }
@@ -208,13 +211,13 @@ export const useWindowManager = (options: WindowManagerOptions) => {
           })
         });
       } catch (error) {
-        console.warn(`[Window] 恢复 Worktree 映射失败: ${restoredWindow.id}`, error);
+        log.warn('restore worktree mapping failed', { windowId: restoredWindow.id, err: error });
       }
 
       void SignalRService.getInstance().registerWindow(restoredWindow.id, restoredWindow.branchId);
     }
 
-    console.log(`[Window] 已恢复 ${windows.value.length} 个窗口快照`);
+    log.debug('window snapshots restored', { count: windows.value.length });
     return true;
   };
 
@@ -313,7 +316,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
         return;
       }
 
-      console.error('切换分支失败:', result.message);
+      log.error('branch switch failed', { message: result.message });
     } finally {
       setPrimaryWindowLoading(false);
     }
@@ -332,7 +335,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       if (saveBeforeSwitch) {
         const saved = await options.store.saveModules();
         if (!saved) {
-          console.error('保存数据失败，无法切换分支');
+          log.error('save data failed, cannot switch branch');
           pendingCheckoutBranch.value = '';
           pendingWindowId.value = '';
           pendingIsCreateBranch.value = false;
@@ -407,7 +410,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
         return;
       }
 
-      console.error('创建/切换分支失败:', result.message);
+      log.error('create/switch branch failed', { message: result.message });
     } finally {
       if (isPrimarySwitch) {
         const primaryWindow = windows.value.find(w => w.isPrimary);
@@ -434,17 +437,17 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     if (!win) return;
 
     if (win.isPrimary) {
-      console.warn('[Window] Cannot close primary window');
+      log.warn('cannot close primary window');
       return;
     }
 
     if (win.isLoading) {
-      console.warn('[Window] Cannot close window while loading');
+      log.warn('cannot close window while loading');
       return;
     }
 
     win.isLoading = true;
-    console.log(`[Window] Closing window: ${win.name}...`);
+    log.debug('closing window', { name: win.name });
 
     // ① 先关闭 Agent（释放 claude.exe 对 worktree 目录的 CWD 文件锁）
     try {
@@ -453,19 +456,19 @@ export const useWindowManager = (options: WindowManagerOptions) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ windowId: id })
       });
-      console.log(`[Window] Agent 实例已关闭: ${id}`);
+      log.debug('agent instance closed', { windowId: id });
     } catch (error: any) {
-      console.warn(`[Window] 关闭 Agent 实例失败: ${error.message}`);
+      log.warn('close agent instance failed', { err: error.message });
     }
 
     // ② 再删除 Worktree（Agent 已释放 CWD 锁，目录可被删除）
     try {
       if (win.worktreeName) {
         await GitWorktreeService.deleteWorktree(win.worktreeName, false);
-        console.log(`[Window] Worktree deleted: ${win.worktreeName}`);
+        log.debug('worktree deleted', { worktreeName: win.worktreeName });
       }
     } catch (error: any) {
-      console.error(`[Window] Delete worktree failed: ${error.message}`);
+      log.error('delete worktree failed', { err: error.message });
     }
 
     // ③ 注销映射
@@ -473,13 +476,13 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       await fetch(`${SERVER_API}/windows/worktree/${id}`, {
         method: 'DELETE'
       });
-      console.log(`[Window] 注销 Worktree 映射: ${id}`);
+      log.debug('worktree mapping unregistered', { windowId: id });
     } catch (error: any) {
-      console.warn(`[Window] 注销 Worktree 映射失败: ${error.message}`);
+      log.warn('unregister worktree mapping failed', { err: error.message });
     }
 
     windows.value.splice(index, 1);
-    console.log(`[Window] Closed window: ${win.name}`);
+    log.info('window closed', { name: win.name });
 
     if (activeWindowId.value === id) {
       const newActiveIndex = Math.min(index, windows.value.length - 1);
@@ -575,7 +578,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
     windows.value.push(newWindow);
     switchWindow(newId);
     showNewWindowDropdown.value = false;
-    console.log(`[Window] Creating window: ${newWindow.name} on branch ${branch.name}...`);
+    log.debug('creating window', { name: newWindow.name, branch: branch.name });
 
     try {
       await GitWorktreeService.createWorktree({
@@ -588,7 +591,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       const createdWindow = idx !== -1 ? windows.value[idx] : undefined;
       if (createdWindow) {
         createdWindow.isLoading = false;
-        console.log(`[Window] Created successfully: ${newWindow.name}`);
+        log.info('window created', { name: newWindow.name, branch: branch.name });
       }
 
       const worktreeInfo = await GitWorktreeService.getWorktrees();
@@ -602,7 +605,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
             worktreePath: createdWorktree.path
           })
         });
-        console.log(`[Window] 注册 Worktree 映射: ${newId} -> ${createdWorktree.path}`);
+        log.debug('worktree mapping registered', { windowId: newId, path: createdWorktree.path });
 
         const pathIdx = windows.value.findIndex(w => w.id === newId);
         const pathWindow = pathIdx !== -1 ? windows.value[pathIdx] : undefined;
@@ -611,7 +614,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
         }
 
         await options.store.loadInitialProject({ source: ChangeSource.GitCheckout, preserveView: true });
-        console.log('[Window] 重新加载项目数据完成');
+        log.debug('project data reloaded');
       }
 
       SignalRService.getInstance().registerWindow(newId, branch.name);
@@ -625,7 +628,7 @@ export const useWindowManager = (options: WindowManagerOptions) => {
       if (errorWindow) {
         errorWindow.isLoading = false;
         errorWindow.error = error.message || '创建失败';
-        console.error(`[Window] Create failed: ${error.message}`);
+        log.error('window create failed', { err: error.message });
       }
       setTimeout(() => {
         const idx = windows.value.findIndex(w => w.id === newId);

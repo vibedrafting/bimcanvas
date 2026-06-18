@@ -5,6 +5,9 @@ import { GhostManager } from './GhostManager';
 import { ConstraintService } from '../validation/ConstraintService';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { deltaToModel } from '../../utils/coordinates';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('USER');
 
 export class DragManager {
     private camera: THREE.Camera;
@@ -120,7 +123,7 @@ export class DragManager {
                 // Ghost stays static (managed by GhostManager)
             }
         } catch (error) {
-            console.error('Error in DragManager.onMouseMove:', error);
+            log.error('drag move failed', { error });
         }
     }
 
@@ -143,7 +146,7 @@ export class DragManager {
                 // Validate
                 const validation = this.constraintService.validate(this.dragObject);
                 if (!validation.isValid) {
-                    console.warn('Constraint Violation:', validation.errors);
+                    log.warn('constraint violation', { errors: validation.errors });
                 }
 
                 // Calculate Delta
@@ -166,7 +169,7 @@ export class DragManager {
                 }
 
             } catch (error) {
-                console.error('Error in DragManager.onMouseUp:', error);
+                log.error('drag finalize failed', { error });
             } finally {
                 // Always clean up
                 this.isDragging = false;

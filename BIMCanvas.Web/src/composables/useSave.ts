@@ -3,6 +3,9 @@ import { GitService, type GitStatus } from '../services/GitService';
 import { useCanvasStore } from '../stores/canvasStore';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('USER');
 
 /**
  * 保存状态（单例模式，跨组件共享）
@@ -20,7 +23,7 @@ let isListenerRegistered = false;
  */
 function handleGitStatusChanged(event: CustomEvent<GitStatus>) {
     const status = event.detail;
-    console.log('[useSave] Git status changed (SignalR):', status);
+    log.debug('git status changed (SignalR)', { status });
 
     hasUncommittedChanges.value = status.hasUncommittedChanges;
     currentBranch.value = status.currentBranch || null;
@@ -34,7 +37,7 @@ function registerSignalRListener() {
 
     window.addEventListener('bimcanvas:git-status-changed', handleGitStatusChanged as EventListener);
     isListenerRegistered = true;
-    console.log('[useSave] SignalR listener registered');
+    log.debug('SignalR listener registered');
 }
 
 /**
@@ -43,7 +46,7 @@ function registerSignalRListener() {
 function unregisterSignalRListener() {
     window.removeEventListener('bimcanvas:git-status-changed', handleGitStatusChanged as EventListener);
     isListenerRegistered = false;
-    console.log('[useSave] SignalR listener unregistered');
+    log.debug('SignalR listener unregistered');
 }
 
 /**
@@ -51,13 +54,13 @@ function unregisterSignalRListener() {
  */
 async function refreshStatus() {
     try {
-        console.log('[useSave] Manually refreshing git status...');
+        log.debug('manually refreshing git status');
         const status = await GitService.getStatus();
-        console.log('[useSave] Git status response:', status);
+        log.debug('git status response', { status });
         hasUncommittedChanges.value = status.hasUncommittedChanges;
         currentBranch.value = status.currentBranch || null;
     } catch (error) {
-        console.error('[useSave] Failed to refresh git status:', error);
+        log.error('refresh git status failed', { err: error });
     }
 }
 
@@ -96,17 +99,17 @@ export function useSave() {
      */
     async function handleSave(message?: string): Promise<boolean> {
         if (!canUseServerPersistence.value) {
-            console.log('[useSave] Current runtime does not support server persistence');
+            log.debug('runtime does not support server persistence');
             return false;
         }
 
         if (isSaving.value) {
-            console.log('[useSave] Already saving, skip');
+            log.debug('already saving, skip');
             return false;
         }
 
         if (!canSave.value) {
-            console.log('[useSave] Nothing to save');
+            log.debug('nothing to save');
             return false;
         }
 
@@ -119,20 +122,20 @@ export function useSave() {
 
             if (result.success) {
                 if (result.committed) {
-                    console.log('[useSave] Saved successfully:', result.commit?.hash);
+                    log.info('saved successfully', { hash: result.commit?.hash });
                     lastSaveTime.value = new Date();
                     // 保存成功后，状态会通过 SignalR 推送更新
                 } else {
-                    console.log('[useSave] No changes to save');
+                    log.debug('no changes to save');
                 }
 
                 return true;
             } else {
-                console.error('[useSave] Save failed:', result.message);
+                log.error('save failed', { message: result.message });
                 return false;
             }
         } catch (error) {
-            console.error('[useSave] Save error:', error);
+            log.error('save error', { err: error });
             return false;
         } finally {
             isSaving.value = false;

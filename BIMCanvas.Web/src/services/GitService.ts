@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { SERVER_API } from '../config/api';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SYS');
 
 const API_BASE = `${SERVER_API}/git`;
 
@@ -54,7 +57,7 @@ export class GitService {
       const response = await axios.get<GitStatus>(`${API_BASE}/status`);
       return response.data;
     } catch (error: any) {
-      console.error('Failed to get git status:', error);
+      log.error('failed to get git status', { error });
       return {
         isLoaded: false,
         hasUncommittedChanges: false
@@ -71,7 +74,7 @@ export class GitService {
       const response = await axios.post<CommitResult>(`${API_BASE}/commit`, request || {});
       return response.data;
     } catch (error: any) {
-      console.error('Failed to commit:', error);
+      log.error('failed to commit', { error });
       return {
         success: false,
         message: error.response?.data?.message || error.message || '提交失败',
@@ -88,7 +91,7 @@ export class GitService {
       const response = await axios.get<{ branch: string }>(`${API_BASE}/current-branch`);
       return response.data.branch;
     } catch (error: any) {
-      console.error('Failed to get current branch:', error);
+      log.error('failed to get current branch', { error });
       return null;
     }
   }
