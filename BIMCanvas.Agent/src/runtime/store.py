@@ -817,6 +817,58 @@ class RuntimeStateStore:
             return None, [], []
         return self._index_entry_to_snapshot(entry), events, []
 
+    async def list_history_sessions(self, project_path: str) -> list[dict[str, Any]]:
+        """列出项目 .history 索引(会话摘要,按 lastActiveAt 倒序)。供历史面板渲染。"""
+        if not project_path:
+            return []
+        try:
+            return await asyncio.to_thread(history_persistence.load_index, project_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[history] list sessions failed project=%s: %s", project_path, exc)
+            return []
+
+    async def load_history_session(
+        self,
+        project_path: str,
+        session_id: str,
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+        """按 sessionId 从磁盘加载某历史会话的事件流 + 会话快照(只读回放用)。
+
+        interactions 不持久化,返回空。session 快照由 index 摘要还原;摘要缺失则给最小快照。
+        """
+        if not project_path or not session_id:
+            return None, [], []
+        try:
+            index = await asyncio.to_thread(history_persistence.load_index, project_path)
+            entry = next((e for e in index if e.get("sessionId") == session_id), None)
+            events = await asyncio.to_thread(
+                history_persistence.load_session_events, project_path, session_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[history] load session failed session=%s: %s", session_id, exc)
+            return None, [], []
+        if entry is None and not events:
+            return None, [], []
+        snapshot = (
+            self._index_entry_to_snapshot(entry)
+            if entry is not None
+            else {
+                "sessionId": session_id,
+                "runtimeId": "claude",
+                "runtimeVersion": "0.1.0",
+                "windowId": "",
+                "projectPath": project_path,
+                "worktreePath": None,
+                "status": "closed",
+                "activeTurnId": None,
+                "createdAt": None,
+                "lastActiveAt": None,
+                "closedAt": None,
+                "sdkSessionId": None,
+            }
+        )
+        return snapshot, events, []
+
     @staticmethod
     def _index_entry_to_snapshot(entry: dict[str, Any]) -> dict[str, Any]:
         """把磁盘 index 摘要还原成与 _serialize_session_locked 同形的 session 快照。"""

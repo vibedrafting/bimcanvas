@@ -31,6 +31,7 @@ import { useWorkflowProgress } from '../../composables/aiCommandCenter/useWorkfl
 import MarkdownText from './base/MarkdownText.vue';
 import AdvancedScreenshotOverlay from './AdvancedScreenshotOverlay.vue';
 import ImageLightbox from './ImageLightbox.vue';
+import ChatHistoryPanel from './ChatHistoryPanel.vue';
 import { AGENT_API, SERVER_BASE } from '../../config/api';
 import { ChatAttachmentService, getImageDimensions } from '../../services/ChatAttachmentService';
 import { createLogger } from '../../utils/logger';
@@ -515,6 +516,8 @@ const {
   restoreQueuedMessage,
   deleteQueuedMessage,
   restoreHistory,
+  loadHistorySessionIntoWindow,
+  reloadLiveHistory,
   waitForInteractionContinuation,
   interruptMessage,
   injectBackgroundSummary,
@@ -543,6 +546,34 @@ const {
 });
 
 const hasProgressOverlay = computed(() => !!activeTodoProgress.value || hasBackgroundActivity.value);
+
+// === 历史对话面板（toolbar History 按钮） ===
+const showHistoryPanel = ref(false);
+const viewingHistorySessionId = ref<string | null>(null);
+
+const onHistorySelect = async (sessionId: string) => {
+  const win = activeWindow.value;
+  if (!win) return;
+  try {
+    await loadHistorySessionIntoWindow(win, sessionId);
+    viewingHistorySessionId.value = sessionId;
+  } catch (err) {
+    log.warn('加载历史会话失败', { error: err });
+  }
+  showHistoryPanel.value = false;
+};
+
+const onHistoryBackToLive = async () => {
+  const id = activeWindowId.value;
+  if (id) {
+    try { await reloadLiveHistory(id); } catch (err) { log.warn('回到当前对话失败', { error: err }); }
+  }
+  viewingHistorySessionId.value = null;
+  showHistoryPanel.value = false;
+};
+
+// 切换窗口时退出历史回放态（历史是加载进具体窗口的）
+watch(activeWindowId, () => { viewingHistorySessionId.value = null; });
 
 const {
   showScreenshotOverlay,
@@ -826,15 +857,25 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 <button :class="{ active: mode === 'tasks' }" @click="mode = 'tasks'">Task</button>
             </div>
             
-            <!-- Right Side Actions (Placeholder for Balance) -->
+            <!-- Right Side Actions -->
             <div class="toolbar-actions">
-                <button class="icon-btn" title="History">
+                <button class="icon-btn" :class="{ active: showHistoryPanel || viewingHistorySessionId }"
+                    title="历史对话" @click="showHistoryPanel = !showHistoryPanel">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
                 </button>
             </div>
+
+            <ChatHistoryPanel
+                :visible="showHistoryPanel"
+                :project-path="currentProjectPath"
+                :active-session-id="viewingHistorySessionId"
+                @select="onHistorySelect"
+                @back-to-live="onHistoryBackToLive"
+                @close="showHistoryPanel = false"
+            />
         </div>
 
         <!-- Row 2: Window Context (Tabs with Inline Branch) -->

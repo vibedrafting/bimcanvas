@@ -1234,6 +1234,30 @@ async def get_history_handler(request: web.Request) -> web.Response:
     })
 
 
+async def list_history_sessions_handler(request: web.Request) -> web.Response:
+    """列出项目历史会话(.history/index.json)。供历史面板渲染。"""
+    project_path = request.query.get("projectPath") or None
+    sessions = await runtime_store.list_history_sessions(project_path) if project_path else []
+    return web.json_response({"sessions": sessions})
+
+
+async def load_history_session_handler(request: web.Request) -> web.Response:
+    """按 sessionId 加载某历史会话事件流(只读回放)。返回与 /api/history 同形。"""
+    project_path = request.query.get("projectPath") or None
+    session_id = request.query.get("sessionId") or None
+    if not project_path or not session_id:
+        return web.json_response({"error": "projectPath and sessionId required"}, status=400)
+    session, history, interactions = await runtime_store.load_history_session(project_path, session_id)
+    return web.json_response({
+        "history": history,
+        "interactions": interactions,
+        "windowId": (session.get("windowId") if session else "") or "",
+        "session": session,
+        "sessionId": session_id,
+        "sessionStatus": (session.get("status") if session else "closed") or "closed",
+    })
+
+
 async def interrupt_handler(request: web.Request) -> web.Response:
     """
     中断当前任务
@@ -1954,6 +1978,8 @@ def create_app() -> web.Application:
         web.post("/api/agent/close", close_agent_handler),
         web.post("/api/agent/close-project", close_project_agents_handler),
         web.get("/api/history", get_history_handler),
+        web.get("/api/history/sessions", list_history_sessions_handler),
+        web.get("/api/history/session", load_history_session_handler),
         web.post("/api/interrupt", interrupt_handler),
         web.get("/api/interaction/events", interaction_events_handler),
         web.get("/api/interaction", interaction_query_handler),

@@ -1919,6 +1919,20 @@ export const useChatStream = (options: ChatStreamOptions) => {
     return response.sessionStatus ?? response.session?.status ?? null;
   };
 
+  // 历史面板：把某历史会话(只读)加载进指定窗口的消息区,复用现有回放管线。
+  const loadHistorySessionIntoWindow = async (windowState: ChatWindow, sessionId: string): Promise<void> => {
+    const historyService = getChatHistoryService(options.agentApiBase);
+    const response = await historyService.loadSession(currentProjectPath.value, sessionId);
+    restoreHistoryForWindow(windowState, response);
+    await nextTick();
+    options.scrollToBottom({ windowId: windowState.id });
+  };
+
+  // 历史面板「回到当前对话」：重新拉该窗口的实时会话(P0 持久化保证可恢复)。
+  const reloadLiveHistory = async (windowId: string): Promise<void> => {
+    await syncHistoryForWindow(windowId);
+  };
+
   /**
    * 注入「后台 Workflow 完成的主控原生总结」为一条 AI 气泡——走与 history 重建**完全相同**的渲染
    * 管线（createRestoredAiMessage + applyNormalizedEventToMessage），而非手搓 createTextBubble。
@@ -2326,6 +2340,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     restoreQueuedMessage,
     deleteQueuedMessage,
     restoreHistory,
+    loadHistorySessionIntoWindow,
+    reloadLiveHistory,
     waitForInteractionContinuation,
     interruptMessage,
     injectBackgroundSummary,
