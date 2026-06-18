@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -1302,80 +1303,87 @@ async def activate_conversation_handler(request: web.Request) -> web.Response:
     if not model:
         return web.json_response({"error": "model required"}, status=400)
 
-    sessions = await runtime_store.list_history_sessions(project_path)
-    entry = next((s for s in sessions if s.get("sessionId") == conversation_id), None)
-    if not entry:
-        return web.json_response({"error": "conversation not found"}, status=404)
+    try:
+        sessions = await runtime_store.list_history_sessions(project_path)
+        entry = next((s for s in sessions if s.get("sessionId") == conversation_id), None)
+        if not entry:
+            return web.json_response({"error": "conversation not found"}, status=404)
 
-    sdk_session_id = entry.get("sdkSessionId")
-    worktree_path = entry.get("worktreePath")
-    working_dir = worktree_path or project_path
-    context_status = "live" if (sdk_session_id and _sdk_transcript_exists(working_dir, sdk_session_id)) else "expired"
+        sdk_session_id = entry.get("sdkSessionId")
+        worktree_path = entry.get("worktreePath")
+        working_dir = worktree_path or project_path
+        context_status = "live" if (sdk_session_id and _sdk_transcript_exists(working_dir, sdk_session_id)) else "expired"
 
-    settings = get_settings()
-    runtime_provider = _resolve_runtime_provider_from_settings(settings)
+        settings = get_settings()
+        runtime_provider = _resolve_runtime_provider_from_settings(settings)
 
-    async with _agents_lock:
-        if window_id in agents or await runtime_store.get_active_session(window_id):
-            await _teardown_window_locked(
-                window_id,
-                cancel_reason="conversation_switch",
-                drop_window_seq=False,
-                sleep_after_disconnect=False,
+        async with _agents_lock:
+            if window_id in agents or await runtime_store.get_active_session(window_id):
+                await _teardown_window_locked(
+                    window_id,
+                    cancel_reason="conversation_switch",
+                    drop_window_seq=False,
+                    sleep_after_disconnect=False,
+                )
+
+            events = await runtime_store.rehydrate_conversation(window_id, project_path, conversation_id, entry)
+
+            if window_id == "primary":
+                seq = 0
+                _window_seq_map.setdefault(window_id, seq)
+            else:
+                seq = _window_seq_map.get(window_id)
+                if seq is None:
+                    seq = _window_counter
+                    _window_counter += 1
+                    _window_seq_map[window_id] = seq
+
+            agent = create_agent(
+                runtime_provider,
+                project_path=project_path,
+                working_directory=working_dir,
+                window_seq=seq,
             )
+            agents[window_id] = agent
+            if hasattr(agent, "set_background_push"):
+                agent.set_background_push(_background_task_pusher)
+            if hasattr(agent, "set_background_progress_push"):
+                agent.set_background_progress_push(_background_progress_pusher)
 
-        events = await runtime_store.rehydrate_conversation(window_id, project_path, conversation_id, entry)
-
-        if window_id == "primary":
-            seq = 0
-            _window_seq_map.setdefault(window_id, seq)
-        else:
-            seq = _window_seq_map.get(window_id)
-            if seq is None:
-                seq = _window_counter
-                _window_counter += 1
-                _window_seq_map[window_id] = seq
-
-        agent = create_agent(
-            runtime_provider,
-            project_path=project_path,
-            working_directory=working_dir,
-            window_seq=seq,
-        )
-        agents[window_id] = agent
-        if hasattr(agent, "set_background_push"):
-            agent.set_background_push(_background_task_pusher)
-        if hasattr(agent, "set_background_progress_push"):
-            agent.set_background_progress_push(_background_progress_pusher)
-
-        try:
             await agent.connect(
                 effort=effort,
                 thinking=thinking,
                 model=model,
                 resume_session_id=(sdk_session_id if context_status == "live" else None),
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("[history] activate conversation connect failed: %s", exc)
-            await _teardown_window_locked(
-                window_id,
-                cancel_reason="activate_failed",
-                drop_window_seq=False,
-                sleep_after_disconnect=False,
-            )
-            return web.json_response({"error": f"connect failed: {exc}"}, status=500)
 
-        session = await runtime_store.get_session_snapshot(conversation_id)
+            session = await runtime_store.get_session_snapshot(conversation_id)
 
-    return web.json_response({
-        "history": events,
-        "interactions": [],
-        "windowId": window_id,
-        "session": session,
-        "sessionId": conversation_id,
-        "sessionStatus": (session.get("status") if session else "idle") or "idle",
-        "contextStatus": context_status,
-    })
+        return web.json_response({
+            "history": events,
+            "interactions": [],
+            "windowId": window_id,
+            "session": session,
+            "sessionId": conversation_id,
+            "sessionStatus": (session.get("status") if session else "idle") or "idle",
+            "contextStatus": context_status,
+        })
+    except Exception as exc:  # noqa: BLE001 - 整段兜底:任何环节失败都返回可诊断错误 + 全 traceback,并清理半残留
+        logger.exception(
+            "[history] activate conversation failed (window=%s conv=%s): %s",
+            window_id, conversation_id, exc,
+        )
+        try:
+            async with _agents_lock:
+                await _teardown_window_locked(
+                    window_id,
+                    cancel_reason="activate_failed",
+                    drop_window_seq=False,
+                    sleep_after_disconnect=False,
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        return web.json_response({"error": f"activate failed: {type(exc).__name__}: {exc}"}, status=500)
 
 
 async def new_conversation_handler(request: web.Request) -> web.Response:

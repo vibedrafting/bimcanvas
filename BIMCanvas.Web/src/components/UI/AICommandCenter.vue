@@ -868,24 +868,26 @@ watch(chatScrollRef, (newEl, oldEl) => {
             
             <!-- Right Side Actions -->
             <div class="toolbar-actions">
-                <button class="icon-btn" :class="{ active: showHistoryPanel || viewingHistorySessionId }"
+                <button class="history-btn" :class="{ active: showHistoryPanel || viewingHistorySessionId }"
                     title="历史对话" @click="showHistoryPanel = !showHistoryPanel">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="10"></circle>
                         <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
+                    <span>历史</span>
                 </button>
             </div>
-
-            <ChatHistoryPanel
-                :visible="showHistoryPanel"
-                :project-path="currentProjectPath"
-                :active-session-id="viewingHistorySessionId"
-                @select="onHistorySelect"
-                @new="onNewConversation"
-                @close="showHistoryPanel = false"
-            />
         </div>
+
+        <!-- 历史对话下拉:挂在 layer-context 下、相对它定位 → 左右严格等距(不受 main-content padding / 滚动条影响) -->
+        <ChatHistoryPanel
+            :visible="showHistoryPanel"
+            :project-path="currentProjectPath"
+            :active-session-id="viewingHistorySessionId"
+            @select="onHistorySelect"
+            @new="onNewConversation"
+            @close="showHistoryPanel = false"
+        />
 
         <!-- Row 2: Window Context (Tabs with Inline Branch) -->
         <div class="header-tabs" v-if="mode === 'chat'">
@@ -1973,6 +1975,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    position: relative; /* 历史对话下拉的定位上下文(left/right 等距锚到此) */
 
     /* Row 1: Global Mode Switch (Compact Toolbar) */
     .header-toolbar {
@@ -2030,25 +2033,34 @@ watch(chatScrollRef, (newEl, oldEl) => {
         align-items: center;
         gap: 8px;
 
-        .icon-btn {
-            display: flex;
+        /* 历史入口:时钟图标 + 克制"历史"二字。默认无底色;激活态统一 Chat/Task 选中样式(浅底 pill) */
+        .history-btn {
+            display: inline-flex;
             align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            border-radius: 4px;
+            gap: 5px;
+            height: 26px;
+            padding: 0 10px;
             border: none;
+            border-radius: 4px;
             background: transparent;
-            color: var(--text-tertiary);
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1;
             cursor: pointer;
             transition: all 0.2s ease;
 
-            &:hover {
-                background: rgba(255, 255, 255, 0.1);
-                color: var(--text-primary);
-            }
-
             svg { width: 14px; height: 14px; }
+            span { white-space: nowrap; }
+
+            &:hover { color: var(--text-primary); }
+
+            &.active {
+                background: var(--surface-elevated);
+                color: var(--text-primary);
+                font-weight: 600;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+            }
         }
     }
 

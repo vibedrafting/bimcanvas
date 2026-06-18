@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import {
     getChatHistoryService,
     type ChatHistorySessionListItem
@@ -23,6 +23,7 @@ type Phase = 'loading' | 'ready' | 'error';
 const phase = ref<Phase>('loading');
 const sessions = ref<ChatHistorySessionListItem[]>([]);
 const errorMessage = ref('');
+const panelRef = ref<HTMLElement | null>(null);
 
 const load = async () => {
     phase.value = 'loading';
@@ -41,133 +42,128 @@ const load = async () => {
     }
 };
 
+// 点击面板外部关闭。排除"历史"切换按钮(让它自己 toggle,避免开关打架)。
+const onDocMouseDown = (e: MouseEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (!t) return;
+    if (panelRef.value && panelRef.value.contains(t)) return;
+    if (typeof t.closest === 'function' && t.closest('.history-btn')) return;
+    emit('close');
+};
+
 watch(() => props.visible, (visible) => {
-    if (visible) load();
+    if (visible) {
+        load();
+        // 延一拍注册,避免"打开这一下"的 mousedown 立即把自己关掉。
+        setTimeout(() => document.addEventListener('mousedown', onDocMouseDown), 0);
+    } else {
+        document.removeEventListener('mousedown', onDocMouseDown);
+    }
 }, { immediate: true });
 
+onBeforeUnmount(() => document.removeEventListener('mousedown', onDocMouseDown));
+
+// 短/相对时间:今天 HH:MM / 昨天 HH:MM / M/D / YYYY/M/D，去掉秒与冗余年份。
 const formatTime = (iso?: string | null): string => {
     if (!iso) return '';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString();
+    const now = new Date();
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    if (d.toDateString() === now.toDateString()) return `今天 ${hm}`;
+    const yest = new Date(now);
+    yest.setDate(now.getDate() - 1);
+    if (d.toDateString() === yest.toDateString()) return `昨天 ${hm}`;
+    if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}/${d.getDate()}`;
+    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 };
 
 const onSelect = (sessionId: string) => emit('select', sessionId);
 </script>
 
 <template>
-    <div v-if="visible" class="history-panel-overlay" @click.self="emit('close')">
-        <div class="history-panel">
-            <div class="panel-header">
-                <span class="panel-title">历史对话</span>
-                <button class="panel-close" title="关闭" @click="emit('close')">✕</button>
-            </div>
+    <div v-if="visible" class="history-panel" ref="panelRef">
+        <button class="new-chat-btn" @click="emit('new')">
+            <span class="new-chat-plus">＋</span>新对话
+        </button>
 
-            <button class="back-live" @click="emit('new')">
-                ＋ 新对话
-            </button>
+        <div class="dropdown-divider"></div>
 
-            <div class="panel-body">
-                <div v-if="phase === 'loading'" class="panel-hint">加载中…</div>
-                <div v-else-if="phase === 'error'" class="panel-error">⚠ {{ errorMessage }}</div>
-                <div v-else-if="sessions.length === 0" class="panel-hint">暂无历史会话。</div>
-                <ul v-else class="session-list">
-                    <li v-for="s in sessions" :key="s.sessionId"
-                        class="session-item"
-                        :class="{ active: s.sessionId === activeSessionId }"
-                        @click="onSelect(s.sessionId)">
-                        <div class="session-title">{{ s.title || '（无标题会话）' }}</div>
-                        <div class="session-meta">
-                            <span class="session-time">{{ formatTime(s.lastActiveAt || s.createdAt) }}</span>
-                            <span v-if="s.turnCount" class="session-turns">· {{ s.turnCount }} 轮</span>
-                            <span v-if="s.status === 'closed'" class="session-badge">已结束</span>
-                        </div>
-                    </li>
-                </ul>
-            </div>
+        <div class="panel-body">
+            <div v-if="phase === 'loading'" class="panel-hint">加载中…</div>
+            <div v-else-if="phase === 'error'" class="panel-error">⚠ {{ errorMessage }}</div>
+            <div v-else-if="sessions.length === 0" class="panel-hint">暂无历史会话</div>
+            <ul v-else class="session-list">
+                <li v-for="s in sessions" :key="s.sessionId"
+                    class="session-item"
+                    :class="{ active: s.sessionId === activeSessionId }"
+                    @click="onSelect(s.sessionId)">
+                    <span class="session-title">{{ s.title || '（无标题会话）' }}</span>
+                    <span class="session-time">{{ formatTime(s.lastActiveAt || s.createdAt) }}</span>
+                </li>
+            </ul>
         </div>
     </div>
 </template>
 
 <style scoped>
-.history-panel-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9000;
-}
-
+/* 配色/填充/形态对齐 .unified-dropdown(分支下拉同款)。挂在 layer-context 下,
+   left/right 等距锚定 → 左右严格相等,不受 main-content padding / 滚动条影响。 */
 .history-panel {
     position: absolute;
-    top: 56px;
-    right: 16px;
-    width: 320px;
-    max-height: 70vh;
+    top: 48px;
+    left: 12px;
+    right: 12px;
+    z-index: 200;
+    max-height: 420px;
     display: flex;
     flex-direction: column;
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: var(--glass-border);
-    border-radius: var(--radius-md, 8px);
-    box-shadow: var(--shadow-island);
+    background: #14141e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
     overflow: hidden;
 }
 
-.panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.panel-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.panel-close {
-    background: none;
-    border: none;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    font-size: 14px;
-    line-height: 1;
-}
-
-.panel-close:hover {
-    color: var(--text-primary);
-}
-
-.back-live {
-    margin: 8px 12px 4px;
-    padding: 6px 10px;
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm, 4px);
-    color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
+/* 新对话:同 .dropdown-option.create-new — accent 文字 + 蓝色微底 hover */
+.new-chat-btn {
+    display: block;
+    width: 100%;
     text-align: left;
-    transition: border-color 0.15s ease, color 0.15s ease;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--accent-blue);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
 }
 
-.back-live:hover,
-.back-live.active {
-    color: var(--text-primary);
-    border-color: var(--accent-blue);
+.new-chat-plus {
+    font-weight: 600;
+    margin-right: 5px;
+}
+
+.new-chat-btn:hover {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 4px 0;
 }
 
 .panel-body {
     overflow-y: auto;
-    padding: 4px 8px 10px;
 }
 
 .panel-hint,
 .panel-error {
-    padding: 16px;
-    font-size: 13px;
+    padding: 14px 10px;
+    font-size: 0.8rem;
     color: var(--text-tertiary);
     text-align: center;
 }
@@ -182,45 +178,63 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
     padding: 0;
 }
 
+/* 会话项:紧凑单行 [图标] 标题 …… 时间。同 .dropdown-option 的 hover/选中配色 */
 .session-item {
-    padding: 8px 10px;
-    border-radius: var(--radius-sm, 4px);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 4px;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: all 0.2s;
 }
 
 .session-item:hover {
-    background: var(--surface-highlight);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.session-item:hover .session-title {
+    color: var(--text-primary);
 }
 
 .session-item.active {
-    background: var(--surface-highlight);
-    box-shadow: inset 2px 0 0 var(--accent-blue);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.session-item.active .session-title,
+.session-item.active .session-icon {
+    color: var(--accent-blue);
+}
+
+.session-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    width: 15px;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.session-icon svg {
+    width: 15px;
+    height: 15px;
 }
 
 .session-title {
-    font-size: 13px;
-    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: color 0.2s;
 }
 
-.session-meta {
-    margin-top: 3px;
-    font-size: 11px;
+.session-time {
+    flex-shrink: 0;
+    font-size: 0.65rem;
     color: var(--text-tertiary);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.session-badge {
-    margin-left: auto;
-    padding: 0 6px;
-    border-radius: 8px;
-    background: var(--surface-highlight);
-    color: var(--text-tertiary);
-    font-size: 10px;
+    white-space: nowrap;
 }
 </style>
