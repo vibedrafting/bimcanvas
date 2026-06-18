@@ -4,14 +4,15 @@ import GlassButton from './base/GlassButton.vue';
 import {
     ProjectHealthService,
     type ProjectInspectionReport,
-    type ProjectRepairReport
+    type ProjectRepairReport,
+    type HealthCheckInfo
 } from '../../services/ProjectHealthService';
 
 interface Props {
     visible: boolean;
     projectName: string;
     folderPath: string;
-    // 'standalone' = 首页扳手按钮触发；'import' = .bcp 导入前自动健康检查
+    // 'standalone' = 首页扳手按钮触发（先进配置面板）；'import' = 项目导入前自动健康检查（用已存偏好直接 inspect）
     mode?: 'standalone' | 'import';
 }
 
@@ -22,25 +23,38 @@ const emit = defineEmits<{
     (e: 'abort'): void;   // import 模式：用户取消导入
 }>();
 
-type Phase = 'inspecting' | 'preview' | 'repairing' | 'done' | 'error';
+type Phase = 'config' | 'inspecting' | 'preview' | 'repairing' | 'done' | 'error';
 
-const phase = ref<Phase>('inspecting');
+const phase = ref<Phase>('config');
 const inspection = ref<ProjectInspectionReport | null>(null);
 const repairResult = ref<ProjectRepairReport | null>(null);
 const errorMessage = ref<string>('');
 // 记录 error 阶段失败发生在哪个步骤，决定重试入口
 const errorStage = ref<'inspect' | 'repair'>('inspect');
 
+// 配置面板状态
+const availableChecks = ref<HealthCheckInfo[]>([]);
+const checkedIds = ref<string[]>([]);
+const autoCheckOnLoad = ref<boolean>(false);
+// 本轮 inspect/repair 实际使用的 check 子集（null = 全部）
+const activeCheckIds = ref<string[] | null>(null);
+
 const ISSUES_PER_CHECK_PREVIEW = 10;
 const isImportMode = computed(() => props.mode === 'import');
 
-const runInspect = async () => {
+// 全选时存 null（语义：跟随未来新增的 check），否则存显式子集
+const normalizedSelection = computed<string[] | null>(() =>
+    checkedIds.value.length === availableChecks.value.length ? null : [...checkedIds.value]
+);
+
+const runInspect = async (checkIds: string[] | null) => {
+    activeCheckIds.value = checkIds;
     phase.value = 'inspecting';
     inspection.value = null;
     repairResult.value = null;
     errorMessage.value = '';
     try {
-        const report = await ProjectHealthService.inspect(props.folderPath);
+        const report = await ProjectHealthService.inspect(props.folderPath, checkIds);
         inspection.value = report;
         // import 模式且无问题：静默放行，不展示对话框内容
         if (isImportMode.value && report.totalIssues === 0) {
@@ -55,10 +69,48 @@ const runInspect = async () => {
     }
 };
 
-// 可见性变化时自动 inspect
+// 进入配置面板：加载可选 check + 已存偏好
+const enterConfig = async () => {
+    phase.value = 'config';
+    try {
+        const [checks, prefs] = await Promise.all([
+            ProjectHealthService.listChecks(),
+            ProjectHealthService.getPrefs()
+        ]);
+        availableChecks.value = checks;
+        autoCheckOnLoad.value = prefs.autoCheckOnLoad;
+        checkedIds.value = prefs.enabledCheckIds ?? checks.map(c => c.id);
+    } catch (err: any) {
+        availableChecks.value = [];
+        checkedIds.value = [];
+        errorStage.value = 'inspect';
+        errorMessage.value = err?.response?.data?.message || err?.message || '加载检查项失败';
+        phase.value = 'error';
+    }
+};
+
+// 「开始检查」：存偏好 + 跑 inspect
+const handleStartInspect = async () => {
+    try {
+        await ProjectHealthService.savePrefs({
+            autoCheckOnLoad: autoCheckOnLoad.value,
+            enabledCheckIds: normalizedSelection.value
+        });
+    } catch {
+        // 偏好存盘失败不阻断检查本身
+    }
+    await runInspect(normalizedSelection.value);
+};
+
+// 可见性变化：standalone 进配置面板；import 用已存偏好直接 inspect
 watch(() => props.visible, async (visible) => {
     if (!visible) return;
-    await runInspect();
+    if (isImportMode.value) {
+        const prefs = await ProjectHealthService.getPrefs();
+        await runInspect(prefs.enabledCheckIds ?? null);
+    } else {
+        await enterConfig();
+    }
 }, { immediate: true });
 
 const totalIssues = computed(() => inspection.value?.totalIssues ?? 0);
@@ -96,7 +148,7 @@ const repairTotals = computed(() => {
 const handleConfirm = async () => {
     phase.value = 'repairing';
     try {
-        repairResult.value = await ProjectHealthService.repair(props.folderPath);
+        repairResult.value = await ProjectHealthService.repair(props.folderPath, activeCheckIds.value);
         phase.value = 'done';
     } catch (err: any) {
         errorStage.value = 'repair';
@@ -111,8 +163,10 @@ const handleAbort = () => emit('abort');
 const handleRetry = async () => {
     if (errorStage.value === 'repair') {
         await handleConfirm();
+    } else if (isImportMode.value) {
+        await runInspect(activeCheckIds.value);
     } else {
-        await runInspect();
+        await enterConfig();
     }
 };
 </script>
@@ -130,15 +184,33 @@ const handleRetry = async () => {
                         <h3>修复项目「{{ projectName }}」</h3>
                     </div>
 
+                    <!-- config（仅 standalone 入口） -->
+                    <div v-if="phase === 'config'" class="dialog-content">
+                        <p>选择要运行的检查项：</p>
+                        <div v-if="availableChecks.length === 0" class="hint">暂无可用检查项。</div>
+                        <ul v-else class="check-select-list">
+                            <li v-for="check in availableChecks" :key="check.id">
+                                <label class="check-option">
+                                    <input type="checkbox" :value="check.id" v-model="checkedIds" />
+                                    <span class="check-desc">{{ check.description }}</span>
+                                </label>
+                            </li>
+                        </ul>
+                        <label class="auto-toggle">
+                            <input type="checkbox" v-model="autoCheckOnLoad" />
+                            <span>导入 / 新建 / 恢复项目时自动运行所选检查</span>
+                        </label>
+                    </div>
+
                     <!-- inspecting -->
-                    <div v-if="phase === 'inspecting'" class="dialog-content">
+                    <div v-else-if="phase === 'inspecting'" class="dialog-content">
                         <p class="hint">检查中...</p>
                     </div>
 
                     <!-- preview -->
                     <div v-else-if="phase === 'preview'" class="dialog-content">
                         <template v-if="totalIssues === 0">
-                            <p>项目 schema 已是最新版本，无需修复。</p>
+                            <p>所选检查项均无问题，项目无需修复。</p>
                         </template>
                         <template v-else>
                             <p>发现 <strong>{{ totalIssues }}</strong> 个待修复问题。修复前 Server 会自动 git 存档，可随时
@@ -192,7 +264,12 @@ const handleRetry = async () => {
 
                     <!-- actions -->
                     <div class="dialog-actions">
-                        <template v-if="phase === 'inspecting' || phase === 'repairing'">
+                        <template v-if="phase === 'config'">
+                            <GlassButton variant="primary" :disabled="checkedIds.length === 0"
+                                @click="handleStartInspect">开始检查</GlassButton>
+                            <GlassButton variant="ghost" @click="handleClose">取消</GlassButton>
+                        </template>
+                        <template v-else-if="phase === 'inspecting' || phase === 'repairing'">
                             <GlassButton variant="ghost" disabled>请稍候...</GlassButton>
                         </template>
                         <template v-else-if="phase === 'preview' && totalIssues > 0">
@@ -206,7 +283,7 @@ const handleRetry = async () => {
                             </template>
                         </template>
                         <template v-else-if="phase === 'preview'">
-                            <!-- standalone 模式下 totalIssues===0 才会落到这里；import 模式已自动 proceed -->
+                            <!-- totalIssues===0：import 模式已自动 proceed，仅 standalone 落到这里 -->
                             <GlassButton variant="primary" @click="handleClose">完成</GlassButton>
                         </template>
                         <template v-else-if="phase === 'done'">
@@ -219,7 +296,10 @@ const handleRetry = async () => {
                                 <GlassButton variant="ghost" @click="handleProceed">跳过并打开</GlassButton>
                                 <GlassButton variant="ghost" @click="handleAbort">取消导入</GlassButton>
                             </template>
-                            <GlassButton v-else variant="primary" @click="handleClose">完成</GlassButton>
+                            <template v-else>
+                                <GlassButton variant="primary" @click="handleRetry">重试</GlassButton>
+                                <GlassButton variant="ghost" @click="handleClose">关闭</GlassButton>
+                            </template>
                         </template>
                     </div>
                 </div>
@@ -297,6 +377,42 @@ const handleRetry = async () => {
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 12px;
+}
+
+.check-select-list {
+    margin: 0 0 16px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.check-select-list li {
+    padding: 4px 0;
+}
+
+.check-option,
+.auto-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.check-option input,
+.auto-toggle input {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.auto-toggle {
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+}
+
+.check-desc {
+    word-break: break-word;
 }
 
 .check-group {

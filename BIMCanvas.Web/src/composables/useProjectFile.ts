@@ -4,6 +4,7 @@ import { useCanvasStore } from '../stores/canvasStore';
 import { useAppStore } from '../stores/appStore';
 import { useSystemStore } from '../stores/systemStore';
 import { ProjectService, SceneService, type ProjectLoadResult } from '../services/ProjectService';
+import { ProjectHealthService } from '../services/ProjectHealthService';
 import { getWebRuntime } from '../runtime/runtimeRegistry';
 import { supports } from '../runtime/WebRuntimeProtocol';
 import { createLogger } from '../utils/logger';
@@ -62,6 +63,14 @@ export function useProjectFile() {
     source: ChangeSource
   ): Promise<boolean> => {
     if (!result.projectPath) return false;
+    // 偏好门控：默认关闭（autoCheckOnLoad=false）→ 不挂起、直接放行加载。
+    // 读失败按默认（关）处理，绝不因健康检查偏好读取失败而卡住项目加载。
+    try {
+      const prefs = await ProjectHealthService.getPrefs();
+      if (!prefs.autoCheckOnLoad) return false;
+    } catch {
+      return false;
+    }
     const fallbackName = file ? file.name.replace(/\.bcp$/i, '') : '';
     pendingHealthCheck.value = {
       projectPath: result.projectPath,

@@ -242,17 +242,15 @@ builder.Services.AddSingleton<ModuleNormalizationService>();  // 模块数据规
 builder.Services.AddSingleton<ModulesReaderService>();  // modules.json wrapper 读取
 builder.Services.AddSingleton<ModulesWriterService>();  // modules.json wrapper 写入（含 schemeMetadata 派生）
 
-// 项目健康检查 + 修复（schema 迁移工具的服务化入口）
+// 项目健康检查 + 修复。
+// 注意：5 个一次性 schema 迁移 check（phase0-tag / phase0b-wrapper / phase-e-metadata-slim /
+// phase-d-tag-value / pointer-model）已从此处**退役**——它们作用于当前版本已不再产生的旧格式
+// （semantic_plan.json / reference_analysis.json / 裸数组 modules / canonical 布局），在当前项目上
+// 纯空跑，且 pointer-model 对嵌套设计区有误伤风险。一次性迁移能力保留在独立 CLI
+// Scripts/MigrateProjectSchema（显式链接源码、不依赖此 DI），对已知远古项目人工跑一次。
+// 此处只注册**持续维护**类 check。
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.ModulesWrapperCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.SchemeMetadataSlimCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.SemanticPlanTagValueCheck>();
-builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IProjectHealthCheck,
-    BIMCanvas.Server.Services.ProjectHealth.Checks.PointerModelMigrateCheck>();  // 指针模型迁移：末位注册=末位执行（依赖前序 wrapper/tag 已就位）；幂等+Web repair 入口有 git 兜底
+    BIMCanvas.Server.Services.ProjectHealth.Checks.GitignoreHistoryCheck>();  // .gitignore 补 .history/（存量项目）
 builder.Services.AddSingleton<BIMCanvas.Server.Services.ProjectHealth.IGitCommitter>(sp =>
     new BIMCanvas.Server.Services.ProjectHealth.GitWorktreeServiceCommitter(
         sp.GetRequiredService<GitWorktreeService>()));

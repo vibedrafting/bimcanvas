@@ -24,6 +24,13 @@ namespace BIMCanvas.Server.Services.ProjectHealth
         CheckRepairResult Repair(string projectPath);
     }
 
+    /// <summary>已注册 check 的元信息，供前端配置面板渲染勾选项。</summary>
+    public class HealthCheckInfo
+    {
+        public string Id { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+
     public class HealthIssue
     {
         /// <summary>相对项目根目录的路径，前端展示用。</summary>
