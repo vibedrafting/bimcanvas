@@ -1918,18 +1918,36 @@ export const useChatStream = (options: ChatStreamOptions) => {
     return response.sessionStatus ?? response.session?.status ?? null;
   };
 
-  // 历史面板：把某历史会话(只读)加载进指定窗口的消息区,复用现有回放管线。
-  const loadHistorySessionIntoWindow = async (windowState: ChatWindow, sessionId: string): Promise<void> => {
+  // 历史面板：激活(切换/恢复)一段历史对话——后端拆当前 agent + resume 该对话 SDK 上下文 + 返回显示历史。
+  // 激活后该窗口的输入即打进这段对话(隔离 + 记忆)。返回 contextStatus('live'/'expired')。
+  const activateConversation = async (
+    windowState: ChatWindow,
+    conversationId: string
+  ): Promise<'live' | 'expired' | null> => {
     const historyService = getChatHistoryService(options.agentApiBase);
-    const response = await historyService.loadSession(currentProjectPath.value, sessionId);
+    const response = await historyService.activateConversation({
+      windowId: windowState.id,
+      conversationId,
+      projectPath: currentProjectPath.value,
+      model: options.currentModel.value?.id ?? '',
+      effort: options.currentEffort.value?.id,
+      thinking: options.currentThinking.value?.id
+    });
     restoreHistoryForWindow(windowState, response);
     await nextTick();
     options.scrollToBottom({ windowId: windowState.id });
+    return response.contextStatus ?? null;
   };
 
-  // 历史面板「回到当前对话」：重新拉该窗口的实时会话(P0 持久化保证可恢复)。
-  const reloadLiveHistory = async (windowId: string): Promise<void> => {
-    await syncHistoryForWindow(windowId);
+  // 历史面板：开始新对话——后端拆当前会话,清空窗口显示并重放欢迎语(下一条消息创建全新会话)。
+  const newConversation = async (windowState: ChatWindow): Promise<void> => {
+    const historyService = getChatHistoryService(options.agentApiBase);
+    await historyService.newConversation(windowState.id);
+    windowState.messages = [];
+    windowState.isStreaming = false;
+    windowState.todoProgress = null;
+    await nextTick();
+    await streamWelcomeMessage();
   };
 
   /**
@@ -2339,8 +2357,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     restoreQueuedMessage,
     deleteQueuedMessage,
     restoreHistory,
-    loadHistorySessionIntoWindow,
-    reloadLiveHistory,
+    activateConversation,
+    newConversation,
     waitForInteractionContinuation,
     interruptMessage,
     injectBackgroundSummary,

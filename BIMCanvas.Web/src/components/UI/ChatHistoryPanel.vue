@@ -15,7 +15,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), { activeSessionId: null });
 const emit = defineEmits<{
     (e: 'select', sessionId: string): void;
-    (e: 'back-to-live'): void;
+    (e: 'new'): void;
     (e: 'close'): void;
 }>();
 
@@ -63,8 +63,8 @@ const onSelect = (sessionId: string) => emit('select', sessionId);
                 <button class="panel-close" title="关闭" @click="emit('close')">✕</button>
             </div>
 
-            <button class="back-live" :class="{ active: activeSessionId === null }" @click="emit('back-to-live')">
-                ↩ 回到当前对话
+            <button class="back-live" @click="emit('new')">
+                ＋ 新对话
             </button>
 
             <div class="panel-body">

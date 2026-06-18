@@ -304,7 +304,8 @@ class MainAgent:
     # Configuration
     # ─────────────────────────────────────────────────────
 
-    def _create_options(self, effort: str = None, thinking: str = None, model: str = None) -> ClaudeAgentOptions:
+    def _create_options(self, effort: str = None, thinking: str = None, model: str = None,
+                        resume_session_id: str = None) -> ClaudeAgentOptions:
         """
         Create agent options with SubAgent support.
 
@@ -312,6 +313,8 @@ class MainAgent:
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
             model: 模型名称
+            resume_session_id: 续聊时传 SDK 原生 session_id，SDK 读 transcript 重建上下文
+                （fork_session=False 续同一会话）；None=全新会话。
         """
         if not model:
             raise ValueError("Model is required")
@@ -400,6 +403,7 @@ class MainAgent:
         return ClaudeAgentOptions(
             system_prompt=system_prompt_file,      # WP-2 M2: SystemPromptFile dict,走 --system-prompt-file 绕 32767 上限
             cwd=self.working_directory,
+            resume=resume_session_id,              # 续聊：续指定 SDK session;None=新会话。fork_session 默认 False=续同一 transcript
             max_turns=30,
             model=model,
             allowed_tools=allowed_tools,           # 工具权限 v3.2: bundle.tools_allow 原样;空 list = SDK 全开
@@ -632,7 +636,8 @@ class MainAgent:
     # Connection Management
     # ─────────────────────────────────────────────────────
 
-    async def connect(self, effort: str = None, thinking: str = None, model: str = None) -> None:
+    async def connect(self, effort: str = None, thinking: str = None, model: str = None,
+                      resume_session_id: str = None) -> None:
         """
         Establish persistent connection.
 
@@ -640,6 +645,7 @@ class MainAgent:
             effort: 推理深度 ("low"/"medium"/"high"/"max")，None 使用默认配置
             thinking: 扩展思考开关 ("off"/"adaptive")，None 使用默认配置
             model: 模型名称；首次连接必须提供，后续可复用当前模型
+            resume_session_id: 续聊时传 SDK 原生 session_id（切换/恢复历史对话用）；None=新会话
         """
         async with self._lock:
             if self._connected:
@@ -648,7 +654,9 @@ class MainAgent:
             if not resolved_model:
                 raise ValueError("Model is required before establishing the first connection")
 
-            options = self._create_options(effort, thinking, resolved_model)
+            options = self._create_options(effort, thinking, resolved_model, resume_session_id)
+            # resume 时先把已知的 SDK session id 记下;否则等首个 ResultMessage 捕获。
+            self._sdk_session_id = resume_session_id
 
             # 调试日志：打印实际使用的配置（使用 _agent_logger 确保带窗口前缀）
             tools_display = options.allowed_tools if options.allowed_tools else "默认全开"
@@ -695,6 +703,10 @@ class MainAgent:
             self._drain_task = asyncio.create_task(self._drain_loop())
             if self.verbose:
                 self._agent_logger.log_info(f"Connected to project: {self.project_path or 'default'}")
+
+    def get_sdk_session_id(self) -> str | None:
+        """当前 SDK 原生 session_id（首个 ResultMessage 后可用 / resume 连接即可用）。续聊持久化用。"""
+        return getattr(self, "_sdk_session_id", None)
 
     async def disconnect(self) -> None:
         """Disconnect from the agent with force-kill fallback."""
@@ -2136,6 +2148,10 @@ class MainAgent:
                         self._current_tool_name = None
 
             elif isinstance(message, ResultMessage):
+                # 捕获 SDK 原生 session_id（续聊 resume 用，跨回合稳定）
+                _sid = getattr(message, "session_id", None)
+                if _sid:
+                    self._sdk_session_id = _sid
                 # SDK 级结果消息（超轮、超预算、执行错误、正常完成）
                 # S3: 软读 SDK 0.2.87 新字段 api_error_status（0.1.76 引入）/ errors（0.1.51 引入）
                 api_error_status = getattr(message, "api_error_status", None)

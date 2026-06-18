@@ -839,6 +839,56 @@ class RuntimeStateStore:
         )
         return snapshot, events, []
 
+    async def rehydrate_conversation(
+        self,
+        window_id: str,
+        project_path: str,
+        conversation_id: str,
+        index_entry: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """把磁盘上的历史对话恢复成内存活跃会话:重建 RuntimeSessionRecord、绑定 window→conversation、
+        把事件流灌回 _session_history(供 get_history / 轮询返回完整历史)。返回事件公共字典供前端显示。
+
+        与 SDK resume 配套:本方法只管 host 侧会话状态,SDK 上下文由 connect(resume=sdkSessionId) 恢复。
+        """
+        events = await asyncio.to_thread(
+            history_persistence.load_session_events, project_path, conversation_id
+        )
+        record = RuntimeSessionRecord(
+            session_id=conversation_id,
+            window_id=window_id,
+            project_path=index_entry.get("projectPath") or project_path,
+            worktree_path=index_entry.get("worktreePath"),
+            sdk_session_id=index_entry.get("sdkSessionId"),
+            created_at=_parse_iso_dt(index_entry.get("createdAt")),
+            last_active_at=datetime.now(timezone.utc),
+            base_status="idle",
+        )
+        entries = [self._entry_from_public_dict(e) for e in events]
+        async with self._lock:
+            self._sessions[conversation_id] = record
+            self._window_sessions[window_id] = conversation_id
+            self._session_pending.setdefault(conversation_id, set())
+            self._session_terminal.setdefault(conversation_id, [])
+            self._session_history[conversation_id] = entries
+        return events
+
+    @staticmethod
+    def _entry_from_public_dict(d: dict[str, Any]) -> SessionHistoryEntry:
+        """把 SessionHistoryEntry.to_public_dict() 反向重建为 entry(rehydrate 用)。"""
+        return SessionHistoryEntry(
+            entry_id=d.get("entryId") or str(uuid.uuid4()),
+            session_id=d.get("sessionId") or "",
+            turn_id=d.get("turnId") or "",
+            window_id=d.get("windowId") or "",
+            kind=d.get("kind") or "assistant_event",
+            created_at=_parse_iso_dt(d.get("createdAt")),
+            client_message_id=d.get("clientMessageId"),
+            message=d.get("message"),
+            attachments=d.get("attachments"),
+            event_payload=d.get("event"),
+        )
+
     @staticmethod
     def _index_entry_to_snapshot(entry: dict[str, Any]) -> dict[str, Any]:
         """把磁盘 index 摘要还原成与 _serialize_session_locked 同形的 session 快照。"""
@@ -856,6 +906,16 @@ class RuntimeStateStore:
             "closedAt": entry.get("closedAt"),
             "sdkSessionId": entry.get("sdkSessionId"),
         }
+
+
+def _parse_iso_dt(value: str | None) -> datetime:
+    """解析 ISO 时间串(含尾 Z)为 datetime;失败回退当前 UTC。"""
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return datetime.now(timezone.utc)
 
 
 def _history_title(message: str | None, *, limit: int = 40) -> str:

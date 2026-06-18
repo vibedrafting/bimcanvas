@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCanvasStore } from '../../stores/canvasStore';
 import { useGitStore } from '../../stores/gitStore';
+import { useSystemStore } from '../../stores/systemStore';
 import type { ChatAttachmentRef, ChatAttachmentSourceKind } from '../../types/chatAttachment';
 import { proposalMocks } from '../../constants/aiCommandCenter';
 import { useAgentConfig } from '../../composables/aiCommandCenter/useAgentConfig';
@@ -64,6 +65,7 @@ const gitStore = useGitStore();
 const { branches, currentBranch } = storeToRefs(gitStore);
 
 const store = useCanvasStore();
+const systemStore = useSystemStore();
 
 const {
   selectedCount,
@@ -516,8 +518,8 @@ const {
   restoreQueuedMessage,
   deleteQueuedMessage,
   restoreHistory,
-  loadHistorySessionIntoWindow,
-  reloadLiveHistory,
+  activateConversation,
+  newConversation,
   waitForInteractionContinuation,
   interruptMessage,
   injectBackgroundSummary,
@@ -551,28 +553,35 @@ const hasProgressOverlay = computed(() => !!activeTodoProgress.value || hasBackg
 const showHistoryPanel = ref(false);
 const viewingHistorySessionId = ref<string | null>(null);
 
-const onHistorySelect = async (sessionId: string) => {
+const onHistorySelect = async (conversationId: string) => {
   const win = activeWindow.value;
   if (!win) return;
   try {
-    await loadHistorySessionIntoWindow(win, sessionId);
-    viewingHistorySessionId.value = sessionId;
+    const status = await activateConversation(win, conversationId);
+    viewingHistorySessionId.value = conversationId;
+    if (status === 'expired') {
+      systemStore.pushToast({ title: 'AI 上下文已过期', message: '仅恢复显示历史，模型不记得之前的内容', type: 'warning' });
+    }
   } catch (err) {
-    log.warn('加载历史会话失败', { error: err });
+    log.warn('激活历史对话失败', { error: err });
+    systemStore.pushToast({ title: '激活历史对话失败', message: '请重试或检查 Agent 状态', type: 'error' });
   }
   showHistoryPanel.value = false;
 };
 
-const onHistoryBackToLive = async () => {
-  const id = activeWindowId.value;
-  if (id) {
-    try { await reloadLiveHistory(id); } catch (err) { log.warn('回到当前对话失败', { error: err }); }
+const onNewConversation = async () => {
+  const win = activeWindow.value;
+  if (!win) return;
+  try {
+    await newConversation(win);
+    viewingHistorySessionId.value = null;
+  } catch (err) {
+    log.warn('新对话失败', { error: err });
   }
-  viewingHistorySessionId.value = null;
   showHistoryPanel.value = false;
 };
 
-// 切换窗口时退出历史回放态（历史是加载进具体窗口的）
+// 切换窗口时退出历史激活态标记（激活是绑定到具体窗口的）
 watch(activeWindowId, () => { viewingHistorySessionId.value = null; });
 
 const {
@@ -873,7 +882,7 @@ watch(chatScrollRef, (newEl, oldEl) => {
                 :project-path="currentProjectPath"
                 :active-session-id="viewingHistorySessionId"
                 @select="onHistorySelect"
-                @back-to-live="onHistoryBackToLive"
+                @new="onNewConversation"
                 @close="showHistoryPanel = false"
             />
         </div>
