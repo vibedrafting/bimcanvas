@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from . import history_persistence
 from .records import (
     PendingInteractionRecord,
     PendingInteractionRuntimeBinding,
     RuntimeSessionRecord,
     SessionHistoryEntry,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeStateStore:
@@ -221,6 +225,10 @@ class RuntimeStateStore:
                 self._window_sessions.pop(session.window_id, None)
             pending_ids = list(self._session_pending.pop(session_id, set()))
             terminal_ids = list(self._session_terminal.pop(session_id, []))
+            # 丢内存历史前先快照 index/meta,使关闭后的会话仍可从磁盘恢复。
+            close_summary = self._index_summary_locked(session)
+            close_meta = self._serialize_session_locked(session)
+            close_project_path = session.project_path
             self._session_history.pop(session_id, None)
 
             purge_ids = list(dict.fromkeys([*pending_ids, *terminal_ids]))
@@ -245,6 +253,23 @@ class RuntimeStateStore:
                     "cancelReason": "session_closed",
                 }
             )
+
+        if close_project_path:
+            try:
+                await asyncio.to_thread(
+                    history_persistence.write_meta,
+                    close_project_path,
+                    session_id,
+                    close_meta,
+                )
+                await asyncio.to_thread(
+                    history_persistence.upsert_index,
+                    close_project_path,
+                    close_summary,
+                )
+            except Exception as exc:  # noqa: BLE001 - 持久化失败不阻断关闭
+                logger.warning("[history] close persist failed session=%s: %s", session_id, exc)
+
         return session
 
     async def derive_session_status(self, session_id: str) -> str | None:
@@ -378,7 +403,13 @@ class RuntimeStateStore:
             session = self._sessions.get(session_id)
             if session:
                 session.touch()
+            summary = (
+                self._index_summary_locked(session, title=_history_title(message))
+                if session
+                else None
+            )
 
+        await self._persist_entry(session, entry, summary)
         return entry
 
     async def append_event_history(
@@ -404,7 +435,9 @@ class RuntimeStateStore:
             session = self._sessions.get(session_id)
             if session:
                 session.touch()
+            summary = self._index_summary_locked(session) if session else None
 
+        await self._persist_entry(session, entry, summary)
         return entry
 
     async def get_interaction(self, interaction_id: str) -> PendingInteractionRecord | None:
@@ -671,3 +704,141 @@ class RuntimeStateStore:
         if binding is None:
             return
         self._runtime_bindings_by_token.pop(binding.resume_token, None)
+
+    # ------------------------------------------------------------------
+    # History persistence(显示投影落盘 .history/,gitignored 运行时基础设施)
+    # ------------------------------------------------------------------
+
+    def _index_summary_locked(
+        self, session: RuntimeSessionRecord, *, title: str | None = None
+    ) -> dict[str, Any]:
+        """构造一条 .history/index.json 摘要(须在持锁状态调用)。"""
+        snapshot = session.to_public_dict()
+        user_count = sum(
+            1
+            for entry in self._session_history.get(session.session_id, [])
+            if entry.kind == "user_message"
+        )
+        summary = {
+            "sessionId": session.session_id,
+            "windowId": snapshot.get("windowId"),
+            "projectPath": snapshot.get("projectPath"),
+            "worktreePath": snapshot.get("worktreePath"),
+            "createdAt": snapshot.get("createdAt"),
+            "lastActiveAt": snapshot.get("lastActiveAt"),
+            "closedAt": snapshot.get("closedAt"),
+            "status": snapshot.get("status"),
+            "sdkSessionId": snapshot.get("sdkSessionId"),
+            "turnCount": user_count,
+        }
+        if title is not None:
+            summary["title"] = title
+        return summary
+
+    async def _persist_entry(
+        self,
+        session: RuntimeSessionRecord | None,
+        entry: SessionHistoryEntry,
+        summary: dict[str, Any] | None,
+    ) -> None:
+        """把一条 history entry 追加到磁盘并刷新索引(失败仅告警,不阻断回合)。"""
+        if session is None or not session.project_path or summary is None:
+            return
+        project_path = session.project_path
+        session_id = session.session_id
+        entry_dict = entry.to_public_dict()
+        try:
+            await asyncio.to_thread(
+                history_persistence.append_entry_line,
+                project_path,
+                session_id,
+                entry_dict,
+            )
+            await asyncio.to_thread(
+                history_persistence.upsert_index, project_path, summary
+            )
+        except Exception as exc:  # noqa: BLE001 - 持久化失败不阻断在线对话
+            logger.warning("[history] append persist failed session=%s: %s", session_id, exc)
+
+    async def set_sdk_session_id(
+        self, session_id: str, sdk_session_id: str | None
+    ) -> RuntimeSessionRecord | None:
+        """记录 SDK 原生 session id(续聊 resume 用),并刷新磁盘 index/meta。"""
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if not session:
+                return None
+            if session.sdk_session_id == sdk_session_id:
+                return session
+            session.sdk_session_id = sdk_session_id
+            session.touch()
+            summary = self._index_summary_locked(session)
+            meta = self._serialize_session_locked(session)
+            project_path = session.project_path
+        if project_path:
+            try:
+                await asyncio.to_thread(
+                    history_persistence.upsert_index, project_path, summary
+                )
+                await asyncio.to_thread(
+                    history_persistence.write_meta, project_path, session_id, meta
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[history] sdk id persist failed session=%s: %s", session_id, exc)
+        return session
+
+    async def get_history_for_window_or_disk(
+        self,
+        window_id: str,
+        project_path: str | None = None,
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+        """优先返回内存历史;内存无该窗口活跃会话时(已关闭 / 进程重启后)回退磁盘。
+
+        磁盘回退仅恢复显示投影(history),interactions 不持久化故返回空。
+        """
+        snapshot, history, interactions = await self.get_history_for_window(window_id)
+        if snapshot is not None:
+            return snapshot, history, interactions
+        if not project_path:
+            return None, [], []
+        try:
+            entry = await asyncio.to_thread(
+                history_persistence.latest_session_for_window, project_path, window_id
+            )
+            if not entry:
+                return None, [], []
+            events = await asyncio.to_thread(
+                history_persistence.load_session_events,
+                project_path,
+                entry.get("sessionId"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[history] disk load failed window=%s: %s", window_id, exc)
+            return None, [], []
+        return self._index_entry_to_snapshot(entry), events, []
+
+    @staticmethod
+    def _index_entry_to_snapshot(entry: dict[str, Any]) -> dict[str, Any]:
+        """把磁盘 index 摘要还原成与 _serialize_session_locked 同形的 session 快照。"""
+        return {
+            "sessionId": entry.get("sessionId"),
+            "runtimeId": "claude",
+            "runtimeVersion": "0.1.0",
+            "windowId": entry.get("windowId"),
+            "projectPath": entry.get("projectPath"),
+            "worktreePath": entry.get("worktreePath"),
+            "status": entry.get("status") or "closed",
+            "activeTurnId": None,
+            "createdAt": entry.get("createdAt"),
+            "lastActiveAt": entry.get("lastActiveAt"),
+            "closedAt": entry.get("closedAt"),
+            "sdkSessionId": entry.get("sdkSessionId"),
+        }
+
+
+def _history_title(message: str | None, *, limit: int = 40) -> str:
+    """从首条用户消息派生会话标题(单行、截断)。"""
+    if not message:
+        return ""
+    text = " ".join(message.split())
+    return text[:limit] + "…" if len(text) > limit else text

@@ -1911,7 +1911,8 @@ export const useChatStream = (options: ChatStreamOptions) => {
     }
 
     const historyService = getChatHistoryService(options.agentApiBase);
-    const response = await historyService.getHistory(windowId);
+    // 传 projectPath:内存无活跃会话(会话已关闭 / Agent 重启)时后端回退磁盘 .history 恢复。
+    const response = await historyService.getHistory(windowId, currentProjectPath.value || undefined);
     restoreHistoryForWindow(windowState, response);
     await nextTick();
     options.scrollToBottom({ windowId });
