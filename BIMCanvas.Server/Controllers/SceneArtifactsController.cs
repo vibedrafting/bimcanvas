@@ -73,7 +73,7 @@ namespace BIMCanvas.Server.Controllers
         // ============================================================
 
         [HttpGet("artifacts/{artifactKind}")]
-        public IActionResult GetSceneArtifact(string artifactKind, [FromQuery] string? path = null)
+        public IActionResult GetSceneArtifact(string artifactKind, [FromQuery] string? path = null, [FromQuery] string? variantId = null)
         {
             if (!_projectContext.IsLoaded || string.IsNullOrWhiteSpace(_projectContext.CurrentProjectPath))
                 return StatusCode(404, new { code = "no_project_loaded", message = "未加载项目" });
@@ -90,6 +90,14 @@ namespace BIMCanvas.Server.Controllers
             }
 
             var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
+
+            // 指针模型:kind=modules + variantId 非空 → 解析「指定候选变体自身」的叶子 modules
+            // (线性 = slug 根单文件;分区 = slug 内各叶子;统一覆盖,复用 validate 同款 topology variantId 解析)。
+            // path 此时须为设计区路径(裸 zoneId 或容器路径),candidate slug 由 variantId 给出、不进 path。
+            if (kind == "modules" && !string.IsNullOrWhiteSpace(variantId))
+            {
+                return ReadVariantModulesForDesignZone(projectPath, path, variantId!);
+            }
 
             // 精确读:path 非空时 → 读单文件 schemes/{path}/{artifactKind}.json
             if (!string.IsNullOrWhiteSpace(path))
@@ -385,6 +393,68 @@ namespace BIMCanvas.Server.Controllers
             }
 
             return Ok(new { artifactKind = "modules", path = designZoneId, files = aggregated });
+        }
+
+        // ---------- modules:指定候选变体 slug → 枚举该候选自身叶子 modules ----------
+
+        /// <summary>
+        /// 指针模型下精确读「指定候选变体(variantId=slug)」的叶子 modules——线性变体取 slug 根单文件、
+        /// 分区思维变体取 slug 内各叶子,统一覆盖(直读 schemes/{zone}/{slug}/modules.json 对分区变体会 404,故走拓扑)。
+        /// 复用 validate 同款 topology variantId 解析(FindExistingCanonicalModuleFiles(zone, variantId));
+        /// 返回形态与 adopted 读一致 { files:[{relativePath, content}] }。candidate 不存在/未写完 → 空 files(404)。
+        /// 主用方:canvas_vision 截图+识图 的 id→名称 图例注入(渲染同源 variantId)。
+        /// </summary>
+        private IActionResult ReadVariantModulesForDesignZone(string projectPath, string? designZoneId, string variantId)
+        {
+            var zone = (designZoneId ?? string.Empty).Trim().Trim('/', '\\');
+            if (zone.Length == 0)
+                return BadRequest(new { code = "invalid_path", message = "variantId 非空时 path 必须为设计区路径(不能为空)" });
+            if (zone.Contains("..") || zone.Contains('\\') || !PathSegmentPattern.IsMatch(zone))
+                return BadRequest(new { code = "invalid_path", message = "path 仅允许 [a-zA-Z0-9_/-]+,禁止 .. / \\ / 前导斜杠" });
+
+            IReadOnlyList<Services.ModuleFileEntry> entries;
+            try
+            {
+                entries = Services.ModuleFileTopologyService.FindExistingCanonicalModuleFiles(
+                    Path.Combine(projectPath, "schemes"), new[] { zone }, variantId);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { code = "invalid_variant", message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[SceneArtifact] 解析候选 {Zone}/{Variant} 的 modules 失败", zone, variantId);
+                return StatusCode(500, new { code = "read_failed", message = ex.Message });
+            }
+
+            if (entries.Count == 0)
+            {
+                return StatusCode(404, new
+                {
+                    code = "artifact_not_found",
+                    message = $"候选 {zone}/{variantId} 无 modules(可能尚未写入或候选不存在)",
+                    artifactKind = "modules",
+                    path = zone,
+                    variantId,
+                });
+            }
+
+            var aggregated = new List<object>();
+            foreach (var entry in entries)
+            {
+                try
+                {
+                    var content = System.IO.File.ReadAllText(entry.FilePath, Encoding.UTF8);
+                    aggregated.Add(new { relativePath = entry.RelativePath, content });
+                }
+                catch (Exception exc)
+                {
+                    _logger.LogWarning(exc, "读取 modules.json 失败: {File}", entry.FilePath);
+                }
+            }
+
+            return Ok(new { artifactKind = "modules", path = zone, variantId, files = aggregated });
         }
 
         // ---------- zones:schemes/zones.json 全 scene 共享 ----------

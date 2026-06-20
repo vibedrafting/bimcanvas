@@ -271,7 +271,7 @@ _CANVAS_VISION_DESC = (
     "【模式判定】"
     "① 不传 prompt → 只截图:用 targetId/targetIds/viewport/shots/variantId 截图,直接返回截图图片(同时保存到 screenshots 目录备查)。"
     "② 传 prompt + 传图源(attachmentId/path/base64 三选一)→ 只识图:把该图喂 aoment 图像识别,返回纯文字结论。"
-    "③ 传 prompt + 不传图源 + 传截图范围(targetId/viewport 等)→ 截图+识图:先截单图存 bg_*.png,再喂 aoment,返回纯文字结论。"
+    "③ 传 prompt + 不传图源 + 传截图范围(targetId/viewport 等)→ 截图+识图:先截单图存 bg_*.png,再喂 aoment,返回纯文字结论(若截图范围解析到设计区方案,自动附该方案 id→家具名 图例,无需手动写入)。"
     "【约束】图源与截图范围同时给会报错(二选一);识图(②③)只返回文字、不返回图片;截图+识图(③)不支持批量(批量截图仅①可用)。"
 )
 _CANVAS_VISION_SCHEMA = {
@@ -634,6 +634,78 @@ async def _recognize_image(
     if error2 is None:
         return result2, None
     return None, f"识图失败:主 {cfg.provider}({error});备用 {other}({error2})"
+
+
+# ============================================================
+# 截图+识图(模式③)专用:id→moduleName 图例自动注入
+#   渲染同源(zone/variant)取 modules,把「图中 id = 家具名」图例 prepend 到 caller 的 prompt,
+#   让无 vision 的识图后端按名字认家具(实测:有图例才不把窗帘误识成高柜、才能判最优墙)。
+#   任何失败一律静默跳过、绝不阻断识图——图例是增强项,不是前置条件。
+# ============================================================
+
+def _zone_id_from_viewport(viewport: dict[str, Any]) -> str | None:
+    """从单个 viewport 取设计区 zoneId(供 mode③ 图例注入);full/bounds/room 取不到则返回 None。"""
+    vid = str(viewport.get("id") or "").strip()
+    if vid:
+        return vid
+    if viewport.get("mode") == "zone":
+        return str(viewport.get("zoneId") or "").strip() or None
+    return None
+
+
+def _build_module_legend(files: list[Any]) -> str | None:
+    """从 artifacts/modules 的 files[{relativePath, content}] 抽 id=moduleName 拼图例;无模块返回 None。"""
+    lines: list[str] = []
+    for f in files:
+        content = f.get("content") if isinstance(f, dict) else None
+        if not content:
+            continue
+        try:
+            obj = json.loads(content)
+        except (ValueError, TypeError):
+            continue
+        for m in (obj.get("modules") or []) if isinstance(obj, dict) else []:
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("id") or "").strip()
+            if not mid:
+                continue
+            name = str(m.get("moduleName") or "").strip()
+            lines.append(f"- {mid} = {name}")
+    if not lines:
+        return None
+    return (
+        "【图中模块清单（id = 家具名；图中标签 #xx 为 id 前缀，按前缀对应认）】\n"
+        + "\n".join(lines)
+    )
+
+
+async def _fetch_scheme_modules(
+    session: Any,
+    server_url: str,
+    zone_id: str,
+    variant_id: str,
+    request_timeout: "aiohttp.ClientTimeout",
+) -> list[Any] | None:
+    """取渲染同源方案 modules(variant 空=adopted;非空=指定候选)。返回 files 列表;任何失败返回 None。"""
+    params: dict[str, str] = {"path": zone_id}
+    if variant_id:
+        params["variantId"] = variant_id
+    try:
+        async with session.get(
+            f"{server_url}/api/scheme/artifacts/modules",
+            params=params,
+            timeout=request_timeout,
+        ) as resp:
+            if resp.status != 200 or resp.content_type != "application/json":
+                return None
+            data = await resp.json()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    files = data.get("files")
+    return files if isinstance(files, list) else None
 
 
 _LOAD_ARTIFACT_DESC = (
@@ -1172,7 +1244,24 @@ def register(builder: McpServerBuilder) -> None:
         label = _sanitize_filename(_build_shot_label(viewports[0], 1))
         filename = f"bg_{label}_{timestamp}.png"
         saved_path = _save_screenshot(image_data, project_dir, filename)
-        result_text, aerr = await _recognize_image(ctx.session, cfg, Path(saved_path), prompt)
+
+        # id→家具名 图例自动注入(仅③):从渲染同源 zone/variant 取 modules 拼图例 prepend 到 prompt。
+        # 任何失败静默跳过、绝不阻断识图(图例是增强项)。空户型/无方案/外部图天然 no-op。
+        effective_prompt = prompt
+        try:
+            zone_id = _zone_id_from_viewport(viewports[0])
+            if zone_id:
+                module_files = await _fetch_scheme_modules(
+                    ctx.session, ctx.server_url, zone_id, variant_id, request_timeout
+                )
+                if module_files:
+                    legend = _build_module_legend(module_files)
+                    if legend:
+                        effective_prompt = legend + "\n\n" + prompt
+        except Exception as exc:  # noqa: BLE001 —— 图例注入失败不得阻断识图
+            print(f"[canvas_vision] 图例注入跳过: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+
+        result_text, aerr = await _recognize_image(ctx.session, cfg, Path(saved_path), effective_prompt)
         if aerr:
             return {"content": [{"type": "text", "text": f"{aerr}(截图已存 {saved_path})"}], "is_error": True}
         return {"content": [{"type": "text", "text": result_text}]}
