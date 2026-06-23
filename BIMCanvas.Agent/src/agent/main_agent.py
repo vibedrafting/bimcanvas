@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -202,6 +203,11 @@ class MainAgent:
         self._bg_turn_events: list[dict[str, Any]] = []
         self._bg_tool_names: dict[str, str] = {}   # tool_use_id → tool_name（跨 Assistant/User 消息配对工具完成）
         self._bg_stream_mapper: MainStreamMapper | None = None
+        # P1 live 流式：后台总结回合逐 envelope 实时推送回调（host 注入；瞬时、不落盘）
+        self._background_turn_chunk_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        self._background_turn_started_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        # P2 用：最近一次 live envelope 推送时刻（monotonic），供 _flush_pending_background 判断回合是否仍活跃
+        self._bg_last_chunk_at: float | None = None
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -238,6 +244,15 @@ class MainAgent:
     ) -> None:
         """注入后台 Workflow 进度的带外推送回调（host → runtime_store 发布，只实时不落盘）。"""
         self._background_progress_push = callback
+
+    def set_background_turn_push(
+        self,
+        chunk_callback: Callable[[dict[str, Any]], Awaitable[None]] | None,
+        started_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> None:
+        """注入后台总结回合 live 流式推送回调（逐 envelope + 回合开始信号；只实时不落盘）。"""
+        self._background_turn_chunk_push = chunk_callback
+        self._background_turn_started_push = started_callback
 
     @staticmethod
     def _normalize_response_model(model: Any) -> str | None:
@@ -881,6 +896,8 @@ class MainAgent:
                 self._in_response = False
                 if self.verbose:
                     self._agent_logger.log_info("[Background] ↓ 主控原生完成总结回合（自动唤醒）")
+                # P1 live 流式：回合开始即推信号，前端立即建 streaming 气泡（不再等首个 envelope）
+                await self._emit_bg_turn_started()
         elif isinstance(message, AssistantMessage) and self._bg_completion_pending is not None:
             # 原生总结/绕行回合：可能多轮 agentic（每 tool-call 一个 ResultMessage）。
             # 记录本轮是否含工具调用（方案①据此判定收口）；复用正常日志路径（_process_message
@@ -890,7 +907,7 @@ class MainAgent:
             text = self._process_message(message)
             if text:
                 self._bg_summary_parts.append(text)
-            self._collect_bg_turn_events(message)   # T2：收 thinking/tool_use/text 的 envelope 序列
+            await self._collect_bg_turn_events(message)   # T2：收 thinking/tool_use/text 的 envelope 序列
         elif isinstance(message, ResultMessage):
             if self._bg_completion_pending is None:
                 # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
@@ -947,7 +964,7 @@ class MainAgent:
         elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
             # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
             await self._sniff_injected_task_notifications(message)
-            self._collect_bg_turn_events(message)
+            await self._collect_bg_turn_events(message)
         elif isinstance(message, UserMessage):
             # 注入式 task-notification 嗅探（终态投递第三路径），其余内容仍静默
             await self._sniff_injected_task_notifications(message)
@@ -994,7 +1011,7 @@ class MainAgent:
         prefix = f"后台任务{status_text}"
         return f"{prefix}\n\n{body}" if body else prefix
 
-    def _collect_bg_turn_events(self, message: Any) -> None:
+    async def _collect_bg_turn_events(self, message: Any) -> None:
         """T2：把后台原生总结回合一条 SDK 消息(Assistant/User)的 block 序列，镜像前台 block→chunk
         构造，经 per-turn MainStreamMapper 映射成 envelope，按序追加进 self._bg_turn_events。
         复用前台同一 mapper → envelope 形状零漂移；工具 started/completed 用 SDK tool_use_id 配对。
@@ -1042,7 +1059,9 @@ class MainAgent:
                 ))
         for chunk in chunks:
             try:
-                self._bg_turn_events.extend(mapper.map_chunk(chunk))
+                for envelope in mapper.map_chunk(chunk):
+                    self._bg_turn_events.append(envelope)
+                    await self._emit_bg_turn_chunk(envelope)
             except Exception as e:
                 logger.warning(f"[Background] map bg turn chunk failed: {e}")
 
@@ -1134,6 +1153,52 @@ class MainAgent:
     def _extract_tag(blob: str, tag: str) -> str | None:
         m = re.search(rf"<{tag}>(.*?)</{tag}>", blob, re.DOTALL)
         return m.group(1).strip() if m else None
+
+    async def _emit_bg_turn_started(self) -> None:
+        """P1 live 流式：后台总结回合开始信号——前端据此立即建一条 streaming 气泡。
+        turnId 用 bgtask:<taskId>，与逐 envelope / 完成兜底 / history 重建同键。失败仅告警。"""
+        push = self._background_turn_started_push
+        pending = self._bg_completion_pending
+        if push is None or not pending:
+            return
+        self._bg_last_chunk_at = time.monotonic()
+        ctx = self._last_runtime_context or {}
+        task_id = pending.get("taskId")
+        record = {
+            "kind": "background_task_turn_started",
+            "taskId": task_id,
+            "turnId": f"bgtask:{task_id}",
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+        }
+        try:
+            await push(record)
+        except Exception as e:
+            logger.warning(f"background turn_started push failed: {e}")
+
+    async def _emit_bg_turn_chunk(self, envelope: dict[str, Any]) -> None:
+        """P1 live 流式：把后台总结回合的单条 envelope 即时推前端（瞬时、不落盘）。
+        与完成兜底（background_task.completed 携全量 events）+ history 重建用同一 turnId 键，
+        前端据此去重（live 已渲染则完成事件不重渲、重载复现同一条）。失败仅告警，不破坏收口。"""
+        push = self._background_turn_chunk_push
+        pending = self._bg_completion_pending
+        if push is None or not pending:
+            return
+        self._bg_last_chunk_at = time.monotonic()
+        ctx = self._last_runtime_context or {}
+        task_id = pending.get("taskId")
+        record = {
+            "kind": "background_task_turn_chunk",
+            "taskId": task_id,
+            "turnId": f"bgtask:{task_id}",
+            "envelope": envelope,
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+        }
+        try:
+            await push(record)
+        except Exception as e:
+            logger.warning(f"background turn_chunk push failed: {e}")
 
     async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
         """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。

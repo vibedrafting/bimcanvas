@@ -2015,6 +2015,73 @@ export const useChatStream = (options: ChatStreamOptions) => {
     void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
   };
 
+  /**
+   * P1 live 流式：后台总结回合按 turnId 维护的"进行中"消息（begin→apply→finalize）。
+   * 与 injectBackgroundTurn（完成时一次性兜底）+ history 重建共用 turnId=bgtask:<taskId> 键，
+   * useBackgroundTask.handleCompleted 据此去重：live 已渲染则完成事件只 finalize、不重渲。
+   * 治本：用户全程看到总结回合逐步出现（思考→文本→工具气泡），不再空白等待数十秒后打断。
+   */
+  const bgLiveTurns = new Map<string, { windowId: string; message: ChatMessage }>();
+
+  /** 后台总结回合开始：建一条 streaming AI 气泡（与前台回合等价的 createRestoredAiMessage）。 */
+  const beginBackgroundTurn = (
+    windowId: string | null | undefined,
+    turnId: string,
+    timestamp?: number
+  ): void => {
+    if (!turnId || bgLiveTurns.has(turnId)) return;
+    isAwaitingTaskResult.value = false;
+    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
+      ?? options.windows.value[0];
+    if (!windowState) return;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+    const aiMessage = createRestoredAiMessage(ts);   // isStreaming=true（保持流式态直到 finalize）
+    windowState.messages.push(aiMessage);
+    bgLiveTurns.set(turnId, { windowId: windowState.id, message: aiMessage });
+    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
+  };
+
+  /** 后台总结回合逐 envelope：增量 apply 到该 turnId 的 streaming 气泡（复用前台同款渲染入口）。 */
+  const applyBackgroundTurnChunk = (
+    windowId: string | null | undefined,
+    turnId: string,
+    envelope: Record<string, unknown>
+  ): void => {
+    if (!turnId || !envelope) return;
+    let live = bgLiveTurns.get(turnId);
+    if (!live) {
+      // 漏收 turn_started（乱序/晚到）→ 用首个 chunk lazily 建消息，保证不丢内容。
+      beginBackgroundTurn(windowId, turnId);
+      live = bgLiveTurns.get(turnId);
+      if (!live) return;
+    }
+    const normalized = normalizeStreamEvent(envelope);
+    if (!normalized || RUNTIME_ONLY_EVENT_TYPES.has(normalized.eventType)) return;
+    applyNormalizedEventToMessage(live.message, normalized, undefined);
+    const targetWindowId = live.windowId;
+    void nextTick().then(() => options.scrollToBottom({ windowId: targetWindowId }));
+  };
+
+  /** 后台总结回合收口：结束 streaming 态。返回 true 表示 live 路径已处理（完成兜底不必再注入）。 */
+  const finalizeBackgroundTurn = (
+    turnId: string,
+    timestamp?: number
+  ): boolean => {
+    const live = bgLiveTurns.get(turnId);
+    if (!live) return false;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+    live.message.isStreaming = false;
+    live.message.endTime = ts;
+    exitWaitingState(live.message.waitingState);
+    bgLiveTurns.delete(turnId);
+    const targetWindowId = live.windowId;
+    void nextTick().then(() => options.scrollToBottom({ windowId: targetWindowId }));
+    return true;
+  };
+
+  /** 该 turnId 是否存在 live 进行中/已建的消息（handleCompleted 去重用）。 */
+  const hasBackgroundLiveTurn = (turnId: string): boolean => bgLiveTurns.has(turnId);
+
   const wait = (ms: number): Promise<void> =>
     new Promise(resolve => setTimeout(resolve, ms));
 
@@ -2363,6 +2430,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
     interruptMessage,
     injectBackgroundSummary,
     injectBackgroundTurn,
+    beginBackgroundTurn,
+    applyBackgroundTurnChunk,
+    finalizeBackgroundTurn,
+    hasBackgroundLiveTurn,
     checkAgentHealth,
     fetchProjectPath,
     cleanupHealthCheck,

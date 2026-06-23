@@ -120,6 +120,27 @@ class RuntimeStateStore:
             subscribers = list(self._interaction_subscribers)
         self._publish(subscribers, "background_task.progress", record)
 
+    async def push_background_turn_started(self, *, record: dict[str, Any]) -> None:
+        """P1 后台总结回合开始信号：前端据此立即建一条 streaming AI 气泡。瞬时、不落 history。
+        事件名 background_task.turn_started。"""
+        record = dict(record)
+        if not record.get("timestamp"):
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+        async with self._lock:
+            subscribers = list(self._interaction_subscribers)
+        self._publish(subscribers, "background_task.turn_started", record)
+
+    async def push_background_turn_chunk(self, *, record: dict[str, Any]) -> None:
+        """P1 后台总结回合 live 流式：单条 envelope 即时经 interaction SSE 推送，不落 history
+        （瞬时增量；完成态由 push_background_task 落盘，重载由 history 重建复现，故此处不重复落盘）。
+        事件名 background_task.turn_chunk。"""
+        record = dict(record)
+        if not record.get("timestamp"):
+            record["timestamp"] = datetime.now(timezone.utc).isoformat()
+        async with self._lock:
+            subscribers = list(self._interaction_subscribers)
+        self._publish(subscribers, "background_task.turn_chunk", record)
+
     async def create_session(
         self,
         *,

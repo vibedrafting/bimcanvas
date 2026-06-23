@@ -201,11 +201,35 @@ export interface WorkflowPhasesRecord {
   timestamp?: string | null;
 }
 
-export type ChannelEventName = InteractionEventName | BackgroundTaskEventName | WorkflowProgressEventName;
+// P1 后台总结回合 live 流式 —— 复用 interaction SSE 通道，逐 envelope 实时投递，前端增量渲染。
+// 与 background_task.completed（完成兜底，携全量 events）+ history 重建共用 turnId=bgtask:<taskId> 去重。
+export type BackgroundTurnEventName = 'background_task.turn_started' | 'background_task.turn_chunk';
+
+export interface BackgroundTurnStartedRecord {
+  kind: 'background_task_turn_started';
+  taskId: string;
+  turnId: string;
+  windowId?: string | null;
+  sessionId?: string | null;
+  timestamp?: string | null;
+}
+
+export interface BackgroundTurnChunkRecord {
+  kind: 'background_task_turn_chunk';
+  taskId: string;
+  turnId: string;
+  /** 单条 main-stream envelope（eventType/payload/turnId…），喂 applyNormalizedEventToMessage 增量渲染 */
+  envelope: Record<string, unknown>;
+  windowId?: string | null;
+  sessionId?: string | null;
+  timestamp?: string | null;
+}
+
+export type ChannelEventName = InteractionEventName | BackgroundTaskEventName | WorkflowProgressEventName | BackgroundTurnEventName;
 
 export interface InteractionEventEnvelope {
   event: ChannelEventName;
-  record: InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord | WorkflowPhasesRecord;
+  record: InteractionRecord | BackgroundTaskRecord | WorkflowProgressRecord | WorkflowPhasesRecord | BackgroundTurnStartedRecord | BackgroundTurnChunkRecord;
 }
 
 export type InteractionEventListener = (event: InteractionEventEnvelope) => void;

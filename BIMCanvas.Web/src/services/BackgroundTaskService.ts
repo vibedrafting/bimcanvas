@@ -1,5 +1,5 @@
 import { AGENT_API } from '../config/api';
-import type { BackgroundTaskRecord, InteractionEventListener, WorkflowProgressRecord, WorkflowPhasesRecord } from '../types/agent';
+import type { BackgroundTaskRecord, InteractionEventListener, WorkflowProgressRecord, WorkflowPhasesRecord, BackgroundTurnStartedRecord, BackgroundTurnChunkRecord } from '../types/agent';
 import { getInteractionChannelService } from './InteractionChannelService';
 
 export interface BackgroundTaskHandlers {
@@ -9,6 +9,10 @@ export interface BackgroundTaskHandlers {
   onProgress?: (record: WorkflowProgressRecord) => void;
   /** 后台 Workflow 阶段预声明（启动即推完整 meta.phases，供运行态全阶段渲染） */
   onPhases?: (record: WorkflowPhasesRecord) => void;
+  /** P1 后台总结回合开始：前端据此立即建一条 streaming 气泡 */
+  onTurnStarted?: (record: BackgroundTurnStartedRecord) => void;
+  /** P1 后台总结回合 live 逐 envelope：前端增量 apply 渲染（治本：用户实时可见，不再空白等待） */
+  onTurnChunk?: (record: BackgroundTurnChunkRecord) => void;
 }
 
 /**
@@ -35,6 +39,14 @@ export class BackgroundTaskService {
     }
 
     this.listener = ({ event, record }) => {
+      if (event === 'background_task.turn_started' && record.kind === 'background_task_turn_started') {
+        this.handlers.onTurnStarted?.(record as BackgroundTurnStartedRecord);
+        return;
+      }
+      if (event === 'background_task.turn_chunk' && record.kind === 'background_task_turn_chunk') {
+        this.handlers.onTurnChunk?.(record as BackgroundTurnChunkRecord);
+        return;
+      }
       if (event === 'background_task.progress' && record.kind === 'workflow_phases') {
         this.handlers.onPhases?.(record as WorkflowPhasesRecord);
         return;

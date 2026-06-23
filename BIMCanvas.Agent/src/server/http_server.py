@@ -87,6 +87,22 @@ async def _background_progress_pusher(record: dict[str, Any]) -> None:
     await runtime_store.push_background_progress(record=record)
 
 
+async def _background_turn_started_pusher(record: dict[str, Any]) -> None:
+    """Agent 注入回调：后台总结回合开始信号（前端据此立即建 streaming 气泡）。
+
+    复用 interaction SSE 通道，事件名 background_task.turn_started（只实时、不落 history）。
+    """
+    await runtime_store.push_background_turn_started(record=record)
+
+
+async def _background_turn_chunk_pusher(record: dict[str, Any]) -> None:
+    """Agent 注入回调：后台总结回合 live 流式逐 envelope 推前端（P1 治本：用户实时可见）。
+
+    复用 interaction SSE 通道，事件名 background_task.turn_chunk（只实时、不落 history）。
+    """
+    await runtime_store.push_background_turn_chunk(record=record)
+
+
 def _build_session_ready_event(session_snapshot: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "session_ready",
@@ -684,6 +700,11 @@ async def get_agent(
             # 注入后台 Workflow 进度推送回调（Task 页实时可视化）
             if hasattr(agent, "set_background_progress_push"):
                 agent.set_background_progress_push(_background_progress_pusher)
+            # 注入后台总结回合 live 流式推送回调（P1：逐 envelope + 回合开始信号）
+            if hasattr(agent, "set_background_turn_push"):
+                agent.set_background_turn_push(
+                    _background_turn_chunk_pusher, _background_turn_started_pusher
+                )
 
             prefix = _get_window_prefix(seq)
             print(f"{prefix} [Server] ========== Agent 实例创建 ==========")

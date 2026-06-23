@@ -524,6 +524,10 @@ const {
   interruptMessage,
   injectBackgroundSummary,
   injectBackgroundTurn,
+  beginBackgroundTurn,
+  applyBackgroundTurnChunk,
+  finalizeBackgroundTurn,
+  hasBackgroundLiveTurn,
   checkAgentHealth,
   fetchProjectPath,
   cleanupHealthCheck,
@@ -620,7 +624,11 @@ const {
   windows,
   scrollToBottom,
   injectBackgroundSummary,
-  injectBackgroundTurn
+  injectBackgroundTurn,
+  beginBackgroundTurn,
+  applyBackgroundTurnChunk,
+  finalizeBackgroundTurn,
+  hasBackgroundLiveTurn
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);
