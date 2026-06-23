@@ -1626,7 +1626,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const win = options.activeWindow.value;
     if (!win) return;
 
-    if (win.isStreaming) {
+    if (win.isStreaming || hasActiveBgLiveTurn(win.id)) {
+      // P2：前台 streaming 或后台总结回合 live 流式期间 → 草稿排队（不打断仍在跑的回合、不丢草稿）；
+      // 后台回合 finalize 时由 sendQueuedDraftIfReady 自动发出。
       queueCurrentDraft(win);
       return;
     }
@@ -2023,6 +2025,14 @@ export const useChatStream = (options: ChatStreamOptions) => {
    */
   const bgLiveTurns = new Map<string, { windowId: string; message: ChatMessage }>();
 
+  /** P2：指定窗口是否有进行中的 live 后台总结回合（sendMessage 据此把新消息排队、不打断）。 */
+  const hasActiveBgLiveTurn = (windowId: string): boolean => {
+    for (const live of bgLiveTurns.values()) {
+      if (live.windowId === windowId) return true;
+    }
+    return false;
+  };
+
   /** 后台总结回合开始：建一条 streaming AI 气泡（与前台回合等价的 createRestoredAiMessage）。 */
   const beginBackgroundTurn = (
     windowId: string | null | undefined,
@@ -2075,7 +2085,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
     exitWaitingState(live.message.waitingState);
     bgLiveTurns.delete(turnId);
     const targetWindowId = live.windowId;
-    void nextTick().then(() => options.scrollToBottom({ windowId: targetWindowId }));
+    void nextTick().then(() => {
+      options.scrollToBottom({ windowId: targetWindowId });
+      sendQueuedDraftIfReady(targetWindowId);   // P2：回合收口后自动发出流式期间排队的草稿
+    });
     return true;
   };
 

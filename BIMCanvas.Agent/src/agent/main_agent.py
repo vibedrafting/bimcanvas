@@ -989,6 +989,14 @@ class MainAgent:
         """
         if self._bg_completion_pending is None:
             return
+        # P2：后台总结回合仍在 live 流式（最近 12s 内有 envelope 推送）→ 不破坏性 flush、不清 pending，
+        # 让其自然收口经 background_task.completed。仅真正静默超阈值才兜底（避免 M2_2 抓 125 字残文 + 误清 pending）。
+        if self._bg_last_chunk_at is not None and (time.monotonic() - self._bg_last_chunk_at) < 12.0:
+            if self.verbose:
+                self._agent_logger.log_info(
+                    "[Background] 总结回合仍活跃（live 流式中）→ 跳过兜底 flush、保留 pending"
+                )
+            return
         pending = self._bg_completion_pending
         content = "\n".join(self._bg_summary_parts).strip()
         self._bg_completion_pending = None
@@ -1237,6 +1245,7 @@ class MainAgent:
         self._bg_turn_events = []
         self._bg_tool_names = {}
         self._bg_stream_mapper = None
+        self._bg_last_chunk_at = None   # P2：清流式活跃时戳，避免影响下个回合的 flush 判断
         try:
             await self._background_push(record)
         except Exception as e:
