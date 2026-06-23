@@ -256,16 +256,7 @@ export const useCanvasStore = defineStore('canvas', () => {
                 next.set(designZoneId, { count, variantSlugs, hasAdopted, adoptedSlug });
             }
             variantInfoByDesignZone.value = next;
-
-            // 无 adopted 的设计区：自动激活首个可见变体，避免画布默认渲染空 canonical。
-            // （多方案待用户终选时无 adopted 是常态终态——不自动激活则 Agent 设计完成后画布一片空白，
-            //  需要用户手动点导航条切换才看得见方案。）已有 active / 已有 adopted 的设计区不动。
-            for (const [dz, info] of next) {
-                const firstSlug = info.variantSlugs[0];
-                if (!info.hasAdopted && firstSlug && !activeVariantByDesignZone.value.has(dz)) {
-                    void setActiveVariant(dz, firstSlug);
-                }
-            }
+            reconcileActiveVariants(next);
         } catch (err: any) {
             sysLog.warn('variant summary fetch failed', { err: err?.message ?? err });
             variantInfoByDesignZone.value = new Map();
@@ -273,6 +264,36 @@ export const useCanvasStore = defineStore('canvas', () => {
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-counts-changed', {
                 detail: { size: variantInfoByDesignZone.value.size }
             }));
+        }
+    }
+
+    /**
+     * 活跃变体协调（单遍，每个设计区至多一次 set/clear）。可见集判据沿用 server 已按 `_` 前缀 + adopted
+     * 过滤后的 variantSlugs，不另造真源：
+     *  1) active 是某可见 slug（不带 `_`）但已不在 variantSlugs（被 set_variant_visibility 改名带 `_` 隐藏 / 删除）
+     *     → 有其它可见变体则跳首个、无则回落 canonical。这是"隐藏当前激活变体后自动跳转"的核心。
+     *  2) active 以 `_` 开头 = 用户经导航条「显示隐藏」开关停在隐藏候选上，故意为之 → 不打扰（不视为失效）。
+     *  3) 无 adopted 且尚无 active 的设计区 → 自动激活首个可见变体（避免画布默认渲染空 canonical）。
+     * 覆盖 next 中的区 + 当前有 active 的区（后者可能已整体从 summary 消失，需回落）。
+     */
+    function reconcileActiveVariants(next: Map<string, VariantInfo>): void {
+        const designZones = new Set<string>([
+            ...next.keys(),
+            ...activeVariantByDesignZone.value.keys(),
+        ]);
+        for (const dz of designZones) {
+            const info = next.get(dz);
+            const visible = info?.variantSlugs ?? [];
+            const activeSlug = activeVariantByDesignZone.value.get(dz) ?? null;
+            if (activeSlug) {
+                // `_` 前缀 = 故意停在隐藏候选（「显示隐藏」开关），不协调；否则不在可见集即失效。
+                if (!activeSlug.startsWith('_') && !visible.includes(activeSlug)) {
+                    if (visible[0]) void setActiveVariant(dz, visible[0]);
+                    else void clearActiveVariant(dz);
+                }
+            } else if (info && !info.hasAdopted && visible[0]) {
+                void setActiveVariant(dz, visible[0]);
+            }
         }
     }
 
@@ -778,6 +799,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             rooms: data.baseline?.rooms?.length || 0,
             zones: data.activeScheme?.zones?.length || 0,
             modules: data.activeScheme?.modules?.length || 0,
+            rebuilt: !isVisualNoop,  // false=内容未变被去重、未重投影画布（Fix C 防闪生效）
         });
 
         const zoneErrors = data.activeScheme?.zoneErrors;
