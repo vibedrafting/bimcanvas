@@ -100,6 +100,51 @@ namespace BIMCanvas.Server.Controllers
             }
         }
 
+        /// <summary>
+        /// 批量校验：一个 python 子进程内跑完多个 scope（canonical + 各变体），同一 mode。
+        /// 取代前端逐 scope 各调一次 normalize/validate（每次起子进程、付 python+shapely 冷启动）；
+        /// Web Sync Data 用它把 ~2N 次冷启动收为 2 次（normalize 批 + validate 批）。
+        /// POST /api/validation/batch  body: { mode, scopes:[{zoneIds?, variantId?}] } → { reports:[...] }（顺序对齐 scopes）
+        /// </summary>
+        [HttpPost("batch")]
+        public async Task<ActionResult> ValidateBatch([FromBody] ValidationBatchRequest? request)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { message = "没有加载的项目" });
+
+            var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
+            if (!Directory.Exists(projectPath))
+                return NotFound(new { message = $"项目目录不存在: {projectPath}" });
+
+            var mode = request?.Mode;
+            if (mode != "normalize" && mode != "validate")
+                return BadRequest(new { message = "mode 必须是 normalize 或 validate" });
+
+            var scopes = request?.Scopes ?? new List<ScopeSpec>();
+            if (scopes.Count == 0)
+                return Ok(new { reports = new List<object>() });
+
+            // 与 RunAsync 同一强约束：variantId 非空时 zoneIds 必填，不允许全分区扫描变体
+            foreach (var s in scopes)
+                if (!string.IsNullOrWhiteSpace(s.VariantId) && (s.ZoneIds == null || s.ZoneIds.Count == 0))
+                    return BadRequest(new { message = "variantId 非空时必须显式指定 zoneIds，不允许全分区扫描变体" });
+
+            try
+            {
+                _logger.LogInformation("[Validation] 批量校验 mode={Mode} scopes={Count}: {Path}", mode, scopes.Count, projectPath);
+                var validatorScopes = scopes
+                    .Select(s => new ValidatorScope(s.ZoneIds, s.VariantId))
+                    .ToList();
+                var reports = await _validatorOrchestrator.RunBatchAsync(mode, projectPath, validatorScopes);
+                return Ok(new { reports });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Validation] 批量校验失败 (mode={Mode}): {Path}", mode, projectPath);
+                return StatusCode(500, new { message = $"批量校验失败: {ex.Message}" });
+            }
+        }
+
         // 旧 C# 校验实现：包A 已把逻辑委派给插件 validators 脚本，本方法保留为 parity 对照，
         // 待用户端到端验收一致后由「任务8」删除（连同其私有 helper + SchemeValidator）。
         private ActionResult<SchemeValidationReport> ValidateLayoutLegacy([FromBody] ValidateLayoutRequest? request)
@@ -642,6 +687,23 @@ namespace BIMCanvas.Server.Controllers
         /// 仅 module-relocation-agent 使用；layout-agent / generate-placement / Web 端验证留空。
         /// 非空时必须与非空 ZoneIds 同时提供，不允许全分区扫描变体。
         /// </summary>
+        public string? VariantId { get; set; }
+    }
+
+    /// <summary>批量校验请求体：同一 mode 下的一组 scope。</summary>
+    public class ValidationBatchRequest
+    {
+        /// <summary>"normalize" | "validate"</summary>
+        public string? Mode { get; set; }
+
+        /// <summary>scope 列表；canonical 用 {zoneIds:null, variantId:null}，变体用 {zoneIds:[dz], variantId:slug}。</summary>
+        public List<ScopeSpec>? Scopes { get; set; }
+    }
+
+    /// <summary>单个校验 scope 的请求形态（与 LayoutRequest 对齐）。</summary>
+    public class ScopeSpec
+    {
+        public List<string>? ZoneIds { get; set; }
         public string? VariantId { get; set; }
     }
 

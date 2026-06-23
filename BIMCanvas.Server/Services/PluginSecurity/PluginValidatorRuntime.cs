@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -54,7 +56,37 @@ public sealed class PluginValidatorRuntime
     public async Task<JObject> InvokeAsync(string mode, JObject request, CancellationToken ct = default)
     {
         if (request is null) throw new ArgumentNullException(nameof(request));
+        request["mode"] = mode;
+        var envelope = await InvokeRawAsync(request.ToString(Formatting.None), ct);
+        return UnwrapResult(envelope);
+    }
 
+    /// <summary>
+    /// 批量调用：一个子进程内顺序跑多个 scope 请求（各自带 mode），插件 + shapely 只导入一次。
+    /// 每个请求已由调用方填好 mode / projectPath / resolvedLeaves / zoneGeometry 等。
+    /// 返回与入参等长、顺序对齐的逐项信封 [{ok:true,result:{report,writeback}} | {ok:false,error,...}]。
+    /// </summary>
+    public async Task<List<JObject>> InvokeBatchAsync(IReadOnlyList<JObject> requests, CancellationToken ct = default)
+    {
+        if (requests is null) throw new ArgumentNullException(nameof(requests));
+
+        var batchArray = new JArray();
+        foreach (var r in requests) batchArray.Add(r);
+        var batchRequest = new JObject { ["batch"] = batchArray };
+
+        var envelope = await InvokeRawAsync(batchRequest.ToString(Formatting.None), ct);
+        var result = UnwrapResult(envelope);
+        var batch = result["batch"] as JArray
+            ?? throw new PluginValidatorException("批量校验未返回 result.batch 数组");
+        return batch.OfType<JObject>().ToList();
+    }
+
+    /// <summary>
+    /// 起 python 子进程跑 validator_host，stdin 喂入已序列化的请求 JSON，stdout 收单行信封并解析。
+    /// 单次与批量共用——只负责"调用机制"，不解释 result 内容。
+    /// </summary>
+    private async Task<JObject> InvokeRawAsync(string requestJson, CancellationToken ct)
+    {
         var serverConfig = ConfigService.Load();
         var activePluginId = serverConfig.Agent.ActivePlugin ?? "core-base";
 
@@ -76,9 +108,6 @@ public sealed class PluginValidatorRuntime
         var hostScript = Path.Combine(_agentProjectPath, "src", "runtime", "validator_host.py");
         if (!File.Exists(hostScript))
             throw new PluginValidatorException($"validator_host 运行器缺失: {hostScript}");
-
-        request["mode"] = mode;
-        var requestJson = request.ToString(Formatting.None);
 
         // FileName 用 PATH 上的 "python"（与 ExecutablePluginProbe / Program.cs 启动 Agent 一致）。
         // 部署要求：该 python 必须是装了 Agent 依赖（含 validators 脚本所需的 shapely）的环境；
@@ -128,17 +157,22 @@ public sealed class PluginValidatorRuntime
             throw new PluginValidatorException(
                 $"校验脚本非 0 退出 (code={process.ExitCode}): {Truncate(stdout)} | stderr: {Truncate(stderr)}");
 
-        JObject envelope;
         try
         {
-            envelope = JObject.Parse(stdout.Trim());
+            return JObject.Parse(stdout.Trim());
         }
         catch (Exception ex)
         {
             throw new PluginValidatorException(
                 $"校验脚本输出非 JSON ({ex.Message}); stdout: {Truncate(stdout)} | stderr: {Truncate(stderr)}");
         }
+    }
 
+    /// <summary>
+    /// 解信封：校验顶层 ok，失败抛出；成功返回 result 对象。
+    /// </summary>
+    private JObject UnwrapResult(JObject envelope)
+    {
         var ok = (bool?)envelope["ok"] ?? false;
         if (!ok)
         {

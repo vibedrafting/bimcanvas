@@ -13,10 +13,13 @@ import { getWebRuntime } from '../../runtime/runtimeRegistry';
 import { supports } from '../../runtime/WebRuntimeProtocol';
 import { LayoutValidationService, type Diagnostic, type LayoutRequest, type ModuleNormalizationReport, type SchemeValidationReport } from '../../services/LayoutValidationService';
 import { SchemeService } from '../../services/SchemeService';
+import { createLogger } from '../../utils/logger';
 
 const store = useCanvasStore();
 const appStore = useAppStore();
 const sys = useSystemStore();
+const userLog = createLogger('USER');
+const sysLog = createLogger('SYS');
 const runtime = getWebRuntime();
 const canServerPersistence = supports(runtime.capabilities.serverPersistence);
 const canProjectCatalog = supports(runtime.capabilities.projectCatalog);
@@ -157,53 +160,64 @@ const getRequestErrorMessage = (error: any): string => {
   return error?.message || String(error);
 };
 
-// 单个 scope（canonical 或单一变体）的"规范化 → 验证"双调用；
-// 规范化报错时跳过该 scope 的几何验证，避免脏数据进入 SchemeValidator。
-const runScopeCheck = async (label: string, request: LayoutRequest = {}): Promise<void> => {
-  let shouldValidate = true;
-  try {
-    const normalizeReport = await LayoutValidationService.normalizeModules(request);
-    notifyReportDiagnostics(`${label} 模块规范化`, normalizeReport);
-    shouldValidate = normalizeReport.errorCount <= 0;
-  } catch (error: any) {
-    shouldValidate = false;
-    sys.pushToast({ type: 'error', title: `${label} 模块规范化失败`, message: getRequestErrorMessage(error) });
-  }
-
-  if (shouldValidate) {
-    try {
-      const validationReport = await LayoutValidationService.validateLayout(request);
-      notifyReportDiagnostics(`${label} 布局验证`, validationReport);
-    } catch (error: any) {
-      sys.pushToast({ type: 'error', title: `${label} 布局验证失败`, message: getRequestErrorMessage(error) });
-    }
-  }
-};
-
 const handleSync = async () => {
   if (isSyncing.value) return;
   isSyncing.value = true;
+  const t0 = performance.now();
   try {
-    // 1. canonical 全分区扫描（保留原行为）
-    await runScopeCheck('canonical', {});
-
-    // 2. 全部变体逐个扫描；用 listVariantsSummary 一次拿到 (designZoneId → slugs[]) 索引
-    //    server 强约束 variantId 非空时 zoneIds 必填，因此每个变体单独调一次
+    // 1. 收集所有 scope：canonical + 全部变体。批量两程（normalize 批 + validate 批）取代
+    //    过去逐 scope 各起一次 python 子进程——把 ~2N 次冷启动收为 2 次。
+    const scopes: { label: string; request: LayoutRequest }[] = [{ label: 'canonical', request: {} }];
     try {
       const summary = await SchemeService.listVariantsSummary();
       for (const [designZoneId, entry] of Object.entries(summary)) {
         for (const slug of entry.variantSlugs) {
-          await runScopeCheck(
-            `variant ${designZoneId}/${slug}`,
-            { zoneIds: [designZoneId], variantId: slug }
-          );
+          scopes.push({
+            label: `variant ${designZoneId}/${slug}`,
+            request: { zoneIds: [designZoneId], variantId: slug },
+          });
         }
       }
     } catch (error: any) {
       sys.pushToast({ type: 'error', title: '获取变体清单失败', message: getRequestErrorMessage(error) });
     }
 
+    userLog.info('sync data', { scopes: scopes.length });
+
+    // 2. 第一程：批量 normalize（服务端一个子进程跑完所有 scope）
+    let normReports: ModuleNormalizationReport[] = [];
+    try {
+      normReports = await LayoutValidationService.normalizeBatch(scopes.map(s => s.request));
+      normReports.forEach((report, i) => notifyReportDiagnostics(`${scopes[i].label} 模块规范化`, report));
+    } catch (error: any) {
+      sys.pushToast({ type: 'error', title: '批量模块规范化失败', message: getRequestErrorMessage(error) });
+    }
+
+    // 3. 第二程：仅对 normalize 无错的 scope 批量 validate（保留"脏数据不进几何校验"语义）。
+    //    normReports 与 scopes 未对齐（批量整体失败 → 长度为 0）时不跑 validate，避免脏数据/连环报错。
+    const normalizeAligned = normReports.length === scopes.length;
+    const validateScopes = normalizeAligned
+      ? scopes.filter((_, i) => (normReports[i]?.errorCount ?? 0) <= 0)
+      : [];
+    let validateErrScopes = 0;
+    if (validateScopes.length > 0) {
+      try {
+        const valReports = await LayoutValidationService.validateBatch(validateScopes.map(s => s.request));
+        valReports.forEach((report, i) => notifyReportDiagnostics(`${validateScopes[i].label} 布局验证`, report));
+        validateErrScopes = valReports.filter(r => r.errorCount > 0).length;
+      } catch (error: any) {
+        sys.pushToast({ type: 'error', title: '批量布局验证失败', message: getRequestErrorMessage(error) });
+      }
+    }
+
     await store.forceSync();
+
+    sysLog.info('sync done', {
+      scopes: scopes.length,
+      normalizeErr: normReports.filter(r => r.errorCount > 0).length,
+      validateErr: validateErrScopes,
+      elapsedMs: Math.round(performance.now() - t0),
+    });
   } finally {
     setTimeout(() => { isSyncing.value = false; }, 600);
   }
