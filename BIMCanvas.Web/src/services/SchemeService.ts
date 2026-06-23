@@ -171,6 +171,21 @@ export class SchemeService {
     }
 
     /**
+     * 切换方案可见性（显/隐）：纯目录改名 _{slug} ↔ {slug}，与 MCP set_variant_visibility 同语义。
+     * visible=true 显示、false 隐藏；不能隐藏 adopted（server 护栏）。改名由 watcher 广播 variant-files-changed。
+     */
+    static async setVariantVisibility(request: { designZoneId: string; slug: string; visible: boolean }): Promise<{
+        slug: string;
+        visible: boolean;
+        dirName: string;
+        changed: boolean;
+        note?: string;
+    }> {
+        const response = await axios.post(`${API_BASE}/variant/visibility`, request);
+        return response.data;
+    }
+
+    /**
      * 删除变体目录 schemes/{designZoneId}/variants/{variantSlug}/（含 semantic_plan + modules）。
      */
     static async deleteVariant(request: { designZoneId: string; variantSlug: string }): Promise<{

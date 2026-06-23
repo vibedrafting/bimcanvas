@@ -218,13 +218,16 @@ namespace BIMCanvas.Server.Services
                 return;
             }
 
-            // 监控 schemes 目录（用于 Canvas 数据刷新）。Filter="*.*" 覆盖 json + DESIGN.md，
-            // 由 IsWatchedPath 精确 gate（modules/zones/finishes.json + DESIGN.md），其余文件忽略。
+            // 监控 schemes 目录（用于 Canvas 数据刷新），由 IsWatchedPath / IsVariantVisibilityRename 精确 gate。
+            // NotifyFilter 必须含 DirectoryName：set_variant_visibility 是目录改名（_{slug}↔{slug}），
+            //   不含 DirectoryName 则目录 rename 不触发 Renamed 事件 → 显隐切换 Web 收不到通知。
+            // Filter 用 "*" 而非 "*.*"：.NET (Core) 下 "*.*" 不匹配无扩展名的名字（变体目录如 west-bed-storage-l 无点），
+            //   会把目录改名整个滤掉；"*" 全匹配（json/DESIGN.md/目录皆覆盖），交由 gate 精确判定。
             _watcher = new FileSystemWatcher(schemesPath)
             {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
-                Filter = "*.*",
-                IncludeSubdirectories = true,  // 包含子目录（zones / 各设计区 DESIGN.md 等）
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                Filter = "*",
+                IncludeSubdirectories = true,  // 包含子目录（zones / 各设计区 DESIGN.md / 变体目录 等）
                 EnableRaisingEvents = true
             };
 
@@ -385,6 +388,15 @@ namespace BIMCanvas.Server.Services
         {
             if (!IsWatchedPath(e.FullPath))
             {
+                // set_variant_visibility 显隐 = schemes/{dz}/ 下 _{slug}↔{slug} 目录改名。
+                // 文件 gate（IsWatchedPath）只认具体文件名，漏掉目录改名；但它改变了"哪些变体可见"，
+                // 必须通知 Web 走 variant-files-changed（轻量 refetch + 活跃变体协调），否则 Web 不知情、
+                // 画布/Zone Tag 角标/导航条全不刷新（纯 MCP 改名不经 Server、无其它广播来源）。
+                if (!_projectContext.IsGitOperationInProgress && IsVariantVisibilityRename(e))
+                {
+                    _logger.LogInformation("检测到变体目录显隐改名: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
+                    ScheduleUpdate("modules.json", isVariantsSubtree: true); // isVariantsSubtree=true → trigger=variant-files-changed
+                }
                 return;
             }
             var fileName = Path.GetFileName(e.FullPath);
@@ -396,6 +408,24 @@ namespace BIMCanvas.Server.Services
 
             _logger.LogDebug("检测到文件重命名: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
             ScheduleUpdate(fileName, IsInVariantsSubtree(e.FullPath));
+        }
+
+        /// <summary>
+        /// 判定一次重命名是否为变体目录显隐切换（_{slug} ↔ {slug}）：old/new 仅差前导下划线、且目标是目录。
+        /// set_variant_visibility 的唯一磁盘动作就是这种目录改名。
+        /// </summary>
+        private static bool IsVariantVisibilityRename(RenamedEventArgs e)
+        {
+            var oldName = Path.GetFileName(e.OldFullPath);
+            var newName = Path.GetFileName(e.FullPath);
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName))
+                return false;
+            if (string.Equals(oldName, newName, StringComparison.Ordinal))
+                return false;
+            if (!string.Equals(oldName.TrimStart('_'), newName.TrimStart('_'), StringComparison.OrdinalIgnoreCase))
+                return false;
+            try { return Directory.Exists(e.FullPath); }
+            catch { return false; }
         }
 
         private static bool IsInVariantsSubtree(string fullPath)

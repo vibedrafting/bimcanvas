@@ -179,6 +179,69 @@ namespace BIMCanvas.Server.Controllers
             return Ok(result);
         }
 
+        // ─────────────────────────── SetVariantVisibility ───────────────────────────
+
+        /// <summary>
+        /// Web 端切换方案可见性（显/隐），与 MCP set_variant_visibility 同一磁盘语义：
+        /// 纯目录改名 _{slug} ↔ {slug}，`_` 前缀仍是唯一真理判据，不另造真源。
+        /// 护栏：不能隐藏 adopted（指针会悬空）；幂等（已是目标态返回 changed=false）；
+        /// 两态都缺 → 404；两态都在 → 409 需人工核查。改名由 watcher 捕获广播 variant-files-changed。
+        /// POST /api/scheme/variant/visibility  body: { designZoneId, slug, visible }
+        /// </summary>
+        [HttpPost("variant/visibility")]
+        public ActionResult SetVariantVisibility([FromBody] SetVariantVisibilityRequest? request)
+        {
+            if (!_projectContext.IsLoaded)
+                return BadRequest(new { error = "未加载项目" });
+            if (request == null || string.IsNullOrWhiteSpace(request.DesignZoneId) || string.IsNullOrWhiteSpace(request.Slug))
+                return BadRequest(new { error = "designZoneId 与 slug 必填" });
+
+            if (!TryResolveDesignZoneRoot(request.DesignZoneId, out var designZoneRoot, out var error))
+                return NotFound(new { error });
+
+            var bare = request.Slug.TrimStart('_'); // 归一：带不带 _ 前缀都接受
+            try { ModuleFileTopologyService.EnsureSafeVariantId(bare); }
+            catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+
+            var visibleDir = Path.Combine(designZoneRoot, bare);
+            var hiddenDir = Path.Combine(designZoneRoot, "_" + bare);
+            var targetDir = request.Visible ? visibleDir : hiddenDir;
+            var otherDir = request.Visible ? hiddenDir : visibleDir;
+
+            // 隐藏护栏：不能隐藏已采纳的生效方案（父 DESIGN.md adopted 指向它，隐藏会让指针悬空）
+            if (!request.Visible)
+            {
+                var projectPath = _projectContext.GetActiveWorktreePath() ?? _projectContext.CurrentProjectPath!;
+                var schemesPath = Path.Combine(projectPath, "schemes");
+                var adopted = _designDoc.ReadAdoptedSlug(schemesPath, request.DesignZoneId);
+                if (!string.IsNullOrWhiteSpace(adopted) && string.Equals(adopted, bare, StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { error = $"不能隐藏已采纳的生效方案 '{bare}'（父 DESIGN.md adopted 指向它）" });
+            }
+
+            var targetExists = Directory.Exists(targetDir);
+            var otherExists = Directory.Exists(otherDir);
+
+            if (targetExists && !otherExists)
+                return Ok(new { slug = bare, visible = request.Visible, dirName = Path.GetFileName(targetDir), changed = false, note = "已是目标态" });
+            if (!targetExists && !otherExists)
+                return NotFound(new { error = $"方案 '{bare}' 不存在（{request.DesignZoneId}）" });
+            if (targetExists && otherExists)
+                return Conflict(new { error = $"方案 '{bare}' 同时存在显隐两个目录，请人工核查" });
+
+            try
+            {
+                Directory.Move(otherDir, targetDir);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "切换可见性失败: {Dz}/{Slug}", request.DesignZoneId, bare);
+                return StatusCode(500, new { error = $"切换可见性失败: {ex.Message}" });
+            }
+
+            _logger.LogInformation("方案可见性切换: {Dz}/{Slug} → visible={Visible}", request.DesignZoneId, bare, request.Visible);
+            return Ok(new { slug = bare, visible = request.Visible, dirName = Path.GetFileName(targetDir), changed = true });
+        }
+
         // ─────────────────────────── GetVariantModules ───────────────────────────
 
         /// <summary>
@@ -772,6 +835,14 @@ namespace BIMCanvas.Server.Controllers
     {
         public string DesignZoneId { get; set; } = "";
         public string VariantSlug { get; set; } = "";
+    }
+
+    /// <summary>POST /api/scheme/variant/visibility 请求体：slug 带不带 _ 前缀均可，visible=true 显 / false 隐。</summary>
+    public class SetVariantVisibilityRequest
+    {
+        public string DesignZoneId { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public bool Visible { get; set; }
     }
 
     /// <summary>GET /api/scheme/variants/{dz}/{slug}/zones 响应体（变体分区线，供 Web 实时切换跟随）。</summary>
