@@ -288,7 +288,12 @@ class MainAgent:
         if self._bundle is None:
             # 组3: lazy 创建 long-lived aiohttp session,供 load_artifact / plugin 工具共享
             if self._owned_session is None:
-                self._owned_session = aiohttp.ClientSession()
+                # 识图/截图并发稳健化(同 factory.create_agent):扩连接上限+keep-alive+DNS 缓存,保并行。
+                self._owned_session = aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(
+                        limit=64, limit_per_host=32, ttl_dns_cache=300, enable_cleanup_closed=True
+                    )
+                )
             # 接线总开关:此懒加载路径(未经 factory.create_agent 预 configure)同样用
             # self.project_path 构造 ProjectBound,杜绝无参 build 得 projectless。
             lc = (
