@@ -120,8 +120,9 @@ namespace BIMCanvas.Server.Services
         /// <summary>
         /// 低层写入：直接持久化已合成的 wrapper（不重新派生 schemeMetadata）。
         /// 用于 normalize / migrate 等需保留原 metadata 的场景。原子写入（.tmp → rename）。
+        /// 内容与盘上逐字一致时跳过写入（不触发 watcher），返回 true=实际写入 / false=已跳过。
         /// </summary>
-        public async Task WriteWrapperAsync(string filePath, Models.ModulesWrapper wrapper)
+        public async Task<bool> WriteWrapperAsync(string filePath, Models.ModulesWrapper wrapper)
         {
             if (string.IsNullOrWhiteSpace(filePath))
                 throw new ArgumentException("filePath 必填", nameof(filePath));
@@ -131,13 +132,25 @@ namespace BIMCanvas.Server.Services
             wrapper.SchemeMetadata ??= new Models.SchemeMetadata();
             wrapper.Modules ??= new List<Module>();
 
+            var json = JsonConvert.SerializeObject(wrapper, Formatting.Indented, _jsonSettings);
+
+            // 幂等短路：盘上内容与将写入的逐字一致则跳过写（File.ReadAllText 自动剥 BOM，与 json 串可直接比对）。
+            // 校验/规范化路径（normalize/validate）对每个读到的 modules.json 无条件回传 writeback，内容多数未变；
+            // 若仍落盘，原子 rename 会触发 FileSystemWatcher 广播 ReceiveUpdate(reload)，引发 Web 全量重投影"高频闪烁"。
+            // 此处从源头断环：没变就不写、不触发 watcher。返回是否真的写了，供调用方按需统计/日志。
+            if (File.Exists(filePath)
+                && string.Equals(await File.ReadAllTextAsync(filePath), json, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
             var directory = Path.GetDirectoryName(filePath)!;
             Directory.CreateDirectory(directory);
 
-            var json = JsonConvert.SerializeObject(wrapper, Formatting.Indented, _jsonSettings);
             var tmpPath = filePath + ".tmp";
             await File.WriteAllTextAsync(tmpPath, json, Encoding.UTF8);
             File.Move(tmpPath, filePath, overwrite: true);
+            return true;
         }
 
         /// <summary>

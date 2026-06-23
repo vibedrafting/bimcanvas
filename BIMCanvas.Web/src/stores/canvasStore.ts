@@ -168,6 +168,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         count: number;
         variantSlugs: string[];
         hasAdopted: boolean;
+        // 被采纳方案的具体 slug（无采纳时 null）；供画布选中上下文告知 AI「已采纳哪个」。
+        adoptedSlug: string | null;
     }
     const variantInfoByDesignZone = ref<Map<string, VariantInfo>>(new Map());
 
@@ -250,7 +252,8 @@ export const useCanvasStore = defineStore('canvas', () => {
                     : [];
                 if (count <= 0) continue;
                 const hasAdopted = (rawEntry as { hasAdopted?: boolean }).hasAdopted === true;
-                next.set(designZoneId, { count, variantSlugs, hasAdopted });
+                const adoptedSlug = (rawEntry as { adoptedSlug?: string | null }).adoptedSlug ?? null;
+                next.set(designZoneId, { count, variantSlugs, hasAdopted, adoptedSlug });
             }
             variantInfoByDesignZone.value = next;
 
@@ -725,7 +728,16 @@ export const useCanvasStore = defineStore('canvas', () => {
     const applyProjectData = async (data: ProjectData, opts: LoadOptions): Promise<void> => {
         const preserveHistory = opts.preserveHistory ?? timeline.shouldPreserveHistory(opts.source);
 
-        projectData.value = data;
+        // 内容去重：仅当新 data 与当前 projectData 逐字相同才跳过赋值。
+        // 赋值是 ThreeSceneService deep-watch 的唯一触发点 → buildFromDocument 先 clearScene 全销毁再重建 → 家具"闪一下"。
+        // 服务端校验/规范化（normalize/validate）回写虽已在源头去重，但 Agent 写盘 / 多源 reload 仍可能送来内容未变的 reload；
+        // 此处兜底：若赋值会产生与现状完全一致的 projectData，则是可证明的视觉 no-op，跳过即不重建、不闪烁。
+        // 有活跃变体时 projectData 已被变体 patch、不会等于 canonical 入参 → 不命中、走原逻辑（无回归）。
+        const isVisualNoop = !!projectData.value
+            && JSON.stringify(data) === JSON.stringify(projectData.value);
+        if (!isVisualNoop) {
+            projectData.value = data;
+        }
         isDirty.value = false;
         sceneDataCache.clear();
 

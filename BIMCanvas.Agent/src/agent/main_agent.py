@@ -1688,11 +1688,25 @@ class MainAgent:
 
         # ── 分区（直接选中的区域标签） ──
         if context.get("zones"):
-            zone_list = "、".join(
-                f'{z.get("name", "?")}(id:{z.get("id", "?")})'
-                for z in context["zones"]
-            )
-            parts.append(f"分区：{zone_list}")
+            zone_strs = []
+            for z in context["zones"]:
+                base = f'{z.get("name", "?")}(id:{z.get("id", "?")})'
+                variants = z.get("variants")
+                if isinstance(variants, dict):
+                    slugs = variants.get("slugs") or []
+                    slugs_text = "、".join(slugs) if slugs else "无"
+                    displayed = variants.get("displayedSlug") or "未指定"
+                    if variants.get("hasAdopted"):
+                        adopted_text = f'已采纳：{variants.get("adoptedSlug") or "?"}'
+                    else:
+                        adopted_text = "尚无采纳方案（多方案待用户终选）"
+                    base += (
+                        f"；方案变体：共 {len(slugs)} 个 [{slugs_text}]；"
+                        f"当前显示：{displayed}；{adopted_text}"
+                    )
+                zone_strs.append(base)
+            # 每条分区内部已含顿号分隔的变体信息，分区之间改用分号，避免歧义。
+            parts.append("分区：" + "；".join(zone_strs))
 
         # ── 用户标注区域（完成后的临时意图批次） ──
         spatial_marks = context.get("spatialMarks")

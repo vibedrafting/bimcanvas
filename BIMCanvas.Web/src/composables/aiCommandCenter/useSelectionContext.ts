@@ -145,10 +145,29 @@ export function useSelectionContext() {
     }
     // 直接选中的区域标签作为独立类别（不再使用 inferredZoneIds）
     if (selectedZones.value.length > 0) {
-      ctx.zones = selectedZones.value.map((z: any) => ({
-        id: z.id,
-        name: z.name ?? z.id
-      }));
+      ctx.zones = selectedZones.value.map((z: any) => {
+        const entry: Record<string, any> = { id: z.id, name: z.name ?? z.id };
+        // 方案变体上下文：designZoneId 用 parentZoneId ?? id（与 VariantNavigatorBar 同口径）；
+        // variantInfoByDesignZone 命中即有变体，miss 即无变体（key 由 server IsDesignZoneId 校验过）。
+        const designZoneId: string = z.parentZoneId ?? z.id;
+        const info = store.variantInfoByDesignZone.get(designZoneId);
+        if (info) {
+          // activeSlug=null 表示画布当前停在 canonical（已采纳方案）槽；
+          // displayedSlug 把它解析成「实际显示哪个 slug」，避免 AI 对 null 误判。
+          const activeSlug = store.getActiveVariant(designZoneId);
+          const displayedSlug = activeSlug
+            ?? (info.hasAdopted ? info.adoptedSlug : (info.variantSlugs[0] ?? null));
+          entry.variants = {
+            designZoneId,
+            slugs: info.variantSlugs,
+            activeSlug,
+            displayedSlug,
+            hasAdopted: info.hasAdopted,
+            adoptedSlug: info.adoptedSlug
+          };
+        }
+        return entry;
+      });
     }
     if (walls.length > 0) {
       ctx.walls = walls.map((w: any) => ({ id: w.id, elementId: w.elementId ?? null }));

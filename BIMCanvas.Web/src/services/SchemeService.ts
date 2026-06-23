@@ -60,6 +60,8 @@ export interface VariantSummaryEntry {
     count: number;
     variantSlugs: string[];
     hasAdopted: boolean;
+    /** 被采纳方案的具体 slug；无采纳时为 null。 */
+    adoptedSlug?: string | null;
 }
 
 /**
