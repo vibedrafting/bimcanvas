@@ -1953,74 +1953,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
   };
 
   /**
-   * 注入「后台 Workflow 完成的主控原生总结」为一条 AI 气泡——走与 history 重建**完全相同**的渲染
-   * 管线（createRestoredAiMessage + applyNormalizedEventToMessage），而非手搓 createTextBubble。
-   * 折中重构：消除 useBackgroundTask 与 history 重建的双渲染路径，二者收敛到同一处。
-   * turnId 语义上对应 store 落盘的 bgtask:<taskId>，重载后由 history 重建复现同一条气泡（不重复）。
-   */
-  const injectBackgroundSummary = (
-    windowId: string | null | undefined,
-    content: string,
-    timestamp?: number
-  ): void => {
-    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
-    isAwaitingTaskResult.value = false;
-    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
-      ?? options.windows.value[0];
-    if (!windowState) return;
-    const text = (content ?? '').trim();
-    if (!text) return;
-    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
-
-    const aiMessage = createRestoredAiMessage(ts);
-    const normalized = normalizeStreamEvent({ eventType: 'text.completed', payload: { content: text } });
-    if (!normalized) return;
-    applyNormalizedEventToMessage(aiMessage, normalized, undefined);
-    aiMessage.isStreaming = false;
-    aiMessage.endTime = ts;
-    exitWaitingState(aiMessage.waitingState);
-    windowState.messages.push(aiMessage);
-
-    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
-  };
-
-  /**
-   * T2：注入「后台 Workflow 完成的主控原生总结回合」——把完整 envelope 序列（thinking/tool/text）
-   * 按序 apply 到一条 AI 消息，渲染成与前台回合等价的"思考气泡+工具气泡+文本气泡"。
-   * 走与 history 重建完全相同的 createRestoredAiMessage + applyNormalizedEventToMessage（零渲染漂移）。
-   * envelope 已由 Agent 端同一个 MainStreamMapper 产出，turnId=bgtask:<taskId>，重载时 history 重建复现同一条。
-   */
-  const injectBackgroundTurn = (
-    windowId: string | null | undefined,
-    events: Record<string, unknown>[],
-    timestamp?: number
-  ): void => {
-    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
-    isAwaitingTaskResult.value = false;
-    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
-      ?? options.windows.value[0];
-    if (!windowState || !Array.isArray(events) || events.length === 0) return;
-    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
-
-    const aiMessage = createRestoredAiMessage(ts);
-    for (const ev of events) {
-      const normalized = normalizeStreamEvent(ev);
-      if (normalized && !RUNTIME_ONLY_EVENT_TYPES.has(normalized.eventType)) {
-        applyNormalizedEventToMessage(aiMessage, normalized, undefined);
-      }
-    }
-    aiMessage.isStreaming = false;
-    aiMessage.endTime = ts;
-    exitWaitingState(aiMessage.waitingState);
-    windowState.messages.push(aiMessage);
-
-    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
-  };
-
-  /**
-   * P1 live 流式：后台总结回合按 turnId 维护的"进行中"消息（begin→apply→finalize）。
-   * 与 injectBackgroundTurn（完成时一次性兜底）+ history 重建共用 turnId=bgtask:<taskId> 键，
-   * useBackgroundTask.handleCompleted 据此去重：live 已渲染则完成事件只 finalize、不重渲。
+   * live 流式：后台总结回合按 turnId 维护的"进行中"消息（begin→apply→finalize）。
+   * 与 history 重建共用 turnId=bgtask:<taskId> 键；归一后 completed 事件不再渲染 Chat（只落盘+收口），
+   * useBackgroundTask.handleCompleted 仅调 finalizeBackgroundTurn 结束 live 的 streaming 态。
    * 治本：用户全程看到总结回合逐步出现（思考→文本→工具气泡），不再空白等待数十秒后打断。
    */
   const bgLiveTurns = new Map<string, { windowId: string; message: ChatMessage }>();
@@ -2077,6 +2012,7 @@ export const useChatStream = (options: ChatStreamOptions) => {
     turnId: string,
     timestamp?: number
   ): boolean => {
+    isAwaitingTaskResult.value = false;   // 后台完成 → 退出"等待后台结果"态（无论是否有 live 回合）
     const live = bgLiveTurns.get(turnId);
     if (!live) return false;
     const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
@@ -2441,8 +2377,6 @@ export const useChatStream = (options: ChatStreamOptions) => {
     newConversation,
     waitForInteractionContinuation,
     interruptMessage,
-    injectBackgroundSummary,
-    injectBackgroundTurn,
     beginBackgroundTurn,
     applyBackgroundTurnChunk,
     finalizeBackgroundTurn,
