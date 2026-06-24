@@ -79,13 +79,13 @@ Agent _emit_background_completion / _push_background_progress
 
 | SSE event | record.kind | producer（store.py / agent） | consumer（前端） | 关键字段 | 带状态转移? |
 |---|---|---|---|---|---|
-| `background_task.completed` | `background_task` | push_background_task ← _emit_background_completion | BackgroundTaskService.onCompleted → useBackgroundTask（live 已渲染则只 finalize；否则一次性兜底注入 + onWorkflowCompleted） | taskId/status/content/events/windowId/sessionId | ⚠ **是**（workflow→completed/failed） |
+| `background_task.completed` | `background_task` | push_background_task ← _emit_background_completion | BackgroundTaskService.onCompleted → useBackgroundTask（finalizeBackgroundTurn 收口 live + onWorkflowCompleted；**不渲染 Chat**） | taskId/status/events(落盘用)/windowId/sessionId | ⚠ **是**（workflow→completed/failed） |
 | `background_task.progress` | `workflow_progress` | push_background_progress ← _push_background_progress | onProgress → onWorkflowProgress | taskId/sdkSessionId/usage/lastToolName | 是（首次绑 taskId/sdkSessionId、保持 running） |
 | `background_task.progress` | `workflow_phases` | _maybe_emit_workflow_phases | onPhases → onWorkflowPhases | taskId⚠/sdkSessionId/phases | ⚠ TODO 核实是否带 taskId（影响 transcript 无 taskId 窗口） |
 | `background_task.turn_started` | `background_task_turn_started` | push_background_turn_started ← _emit_bg_turn_started | onTurnStarted → useChatStream.beginBackgroundTurn | taskId/turnId(=bgtask:&lt;taskId&gt;)/windowId/sessionId | 否（建 streaming 气泡；瞬时不落盘） |
 | `background_task.turn_chunk` | `background_task_turn_chunk` | push_background_turn_chunk ← _emit_bg_turn_chunk | onTurnChunk → useChatStream.applyBackgroundTurnChunk | taskId/turnId/envelope（单条 main-stream event） | 否（逐 envelope live 增量渲染；瞬时不落盘） |
 
-> **P1 live 流式（2026-06-23 新增）**：后台总结回合改为逐 envelope 经 `turn_started`/`turn_chunk` **实时流式**显示（治本：用户全程可见，不再因空白等待而打断未完成回合 —— M2_2 丢流真因）。三路投递（live `turn_chunk` / 完成兜底 `completed.events` / history 重建 `bgtask:<taskId>` 聚合）**共用 turnId 键**收敛到同一渲染入口 `applyNormalizedEventToMessage`。`turn_started`/`turn_chunk` 瞬时、不落 history；落盘与漏达兜底仍由 `completed` 承载。前端按 turnId 去重：live 已渲染 → `completed` 只 `finalizeBackgroundTurn`、不重渲。
+> **后台总结回合 live 流式 + 归一（2026-06-23）**：后台总结回合逐 envelope 经 `turn_started`/`turn_chunk` **实时流式**显示（治本：用户全程可见，不再因空白等待而打断未完成回合 —— M2_2 丢流真因）。**Chat 渲染单一路径**：在线走 live `turn_chunk`、刷新走 history 重建（`bgtask:<taskId>` 聚合），两者共用同一渲染入口 `applyNormalizedEventToMessage`。`background_task.completed` **不再渲染 Chat**，只负责 ① 落 history（`events`，重建真源）② 收口 Task 面板 + live streaming 态。`turn_started`/`turn_chunk` 瞬时、不落 history。
 
 ---
 
@@ -122,8 +122,8 @@ workflow 卡片状态 `running / completed / failed`（`useWorkflowProgress.ts`�
 ## 6. 已知不变量与改进方向
 
 **不变量（勿破）**：
-- 通道 A 与通道 B 严格区分；前台回合增量走 A。workflow 完成**总结内容**自 P1 起经通道 B 的 `turn_started`/`turn_chunk` **live 流式**到达（在线主路），`background_task.completed` 退为「落 history + 漏达一次性兜底 + 驱动 Task 面板收口」；三路共用 `turnId=bgtask:<taskId>` 去重。
-  - ⚠ P3 待办（gated on 用户手测确认 live 稳定后）：删 `hasSummary`/generic 占位、评估 `injectBackgroundSummary` 是否可删、`completed` 进一步降级为纯控制信号。**未验证前不拆兜底。**
+- 通道 A 与通道 B 严格区分；前台回合增量走 A。workflow 完成**总结内容**经通道 B 的 `turn_started`/`turn_chunk` **live 流式**到达（在线唯一渲染源），`background_task.completed` 已退为「落 history + 驱动 Task 面板/live 收口」、**不再渲染 Chat**；刷新由 history（`bgtask:<taskId>`）重建。
+  - 残留（**必需，非冗余**）：① history 落盘（`push_background_task`，刷新重建真源）；② bare 终态收口（`_emit_bare_background_completion`，`hasSummary=False`，并行任务防卡 running）。`hasSummary`/`content` 现仅供落盘 gating，不再驱动渲染。
 - `_emit_background_completion` 落 history + SSE 一体（push_background_task），故「Task 置 completed 却 Chat 无气泡」⇒ 一定不是 B 路径，往 A 的内联收口 / transcript 轮询查（事故排查捷径）。
 - SDK 一个 response 只有一个 ResultMessage（参 R4-3）。
 
