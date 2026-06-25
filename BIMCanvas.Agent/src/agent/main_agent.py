@@ -424,7 +424,9 @@ class MainAgent:
             system_prompt=system_prompt_file,      # WP-2 M2: SystemPromptFile dict,走 --system-prompt-file 绕 32767 上限
             cwd=self.working_directory,
             resume=resume_session_id,              # 续聊：续指定 SDK session;None=新会话。fork_session 默认 False=续同一 transcript
-            max_turns=30,
+            # max_turns 不设限（SDK 默认 None=无上限）：P1 后单变体落地并入主控上下文，
+            # 设计+落地一条龙轮数大幅上升，30 会在 Step F 前撞顶。注意：移除后失去 runaway 兜底，
+            # 弱模型反复试错时无轮数闸，靠成本/人工观察兜底。
             model=model,
             allowed_tools=allowed_tools,           # 工具权限 v3.2: bundle.tools_allow 原样;空 list = SDK 全开
             disallowed_tools=disallowed_tools,     # 工具权限 v3.2: bundle.tools_deny 原样;deny 优先
