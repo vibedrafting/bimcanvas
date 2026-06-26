@@ -503,7 +503,10 @@ async def _aoment_recognize(
                     return None, "aoment 识图失败: resultText 为空", True
                 return result_text, None, False
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            return None, f"无法连接 aoment: {type(e).__name__}: {e}", True
+            return None, (
+                f"无法连接 aoment: {type(e).__name__}: {e} "
+                f"(os_error={getattr(e, 'os_error', None)!r})"
+            ), True
 
     return await _retry_request("aoment", _attempt)
 
@@ -579,7 +582,10 @@ async def _apiyi_recognize(
                     return None, "apiyi 识图失败: content 为空", True
                 return text, None, False
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            return None, f"无法连接 apiyi: {type(e).__name__}: {e}", True
+            return None, (
+                f"无法连接 apiyi: {type(e).__name__}: {e} "
+                f"(os_error={getattr(e, 'os_error', None)!r})"
+            ), True
 
     return await _retry_request("apiyi", _attempt)
 

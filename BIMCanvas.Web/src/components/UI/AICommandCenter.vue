@@ -522,8 +522,10 @@ const {
   newConversation,
   waitForInteractionContinuation,
   interruptMessage,
-  injectBackgroundSummary,
-  injectBackgroundTurn,
+  beginBackgroundTurn,
+  applyBackgroundTurnChunk,
+  finalizeBackgroundTurn,
+  hasBackgroundLiveTurn,
   checkAgentHealth,
   fetchProjectPath,
   cleanupHealthCheck,
@@ -619,8 +621,10 @@ const {
   agentApiBase: AGENT_API_BASE,
   windows,
   scrollToBottom,
-  injectBackgroundSummary,
-  injectBackgroundTurn
+  beginBackgroundTurn,
+  applyBackgroundTurnChunk,
+  finalizeBackgroundTurn,
+  hasBackgroundLiveTurn
 });
 
 setStreamWelcomeMessage(streamWelcomeMessage);

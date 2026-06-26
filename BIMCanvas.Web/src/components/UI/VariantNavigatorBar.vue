@@ -17,6 +17,7 @@ const variants = ref<VariantDescriptor[]>([]);
 const isLoading = ref(false);
 const adoptingSlug = ref<string | null>(null);
 const deletingSlug = ref<string | null>(null);
+const togglingVisibility = ref<string | null>(null);
 const errorMessage = ref<string | null>(null);
 
 // 删除确认弹窗：暂存待删设计区 + 变体 slug
@@ -27,7 +28,7 @@ interface PendingDelete {
 const pendingDelete = ref<PendingDelete | null>(null);
 const showDeleteConfirm = computed(() => pendingDelete.value !== null);
 
-const busy = computed(() => !!adoptingSlug.value || !!deletingSlug.value);
+const busy = computed(() => !!adoptingSlug.value || !!deletingSlug.value || !!togglingVisibility.value);
 
 /**
  * 选中 zone 反查所属 designZoneId：
@@ -115,6 +116,12 @@ const indicator = computed(() => `${currentIndex.value + 1}/${sequence.value.len
 const barTitle = computed(() =>
     currentSummary.value ? `${currentLabel.value}：${currentSummary.value}` : currentLabel.value);
 
+// 显示条件（诉求2）：选中设计区且该区有任意方案（含全隐藏）。用 variants（listVariants 全量，
+// 含隐藏 / adopted）而非 sequence —— sequence 在「全隐藏 + 收起」时为空，但仍需调出 bar 让用户经
+// 左侧「临时显示」眼睛展开隐藏方案。
+const shouldShow = computed(() => !!variantContext.value && variants.value.length > 0);
+const isEmptySequence = computed(() => sequence.value.length === 0);
+
 async function gotoIndex(nextIndex: number) {
     const ctx = variantContext.value;
     if (!ctx) return;
@@ -193,6 +200,32 @@ async function onAdopt() {
     }
 }
 
+// 诉求1：对当前变体改可见性（显/隐），与 MCP set_variant_visibility 同语义（纯 `_` 目录改名）。
+async function onToggleVisibility() {
+    const ctx = variantContext.value;
+    const v = currentVariant.value;
+    if (!ctx || !v || busy.value) return;
+    const makeVisible = v.state === 'hidden';      // 隐藏候选→显示；可见方案→隐藏
+    const bareSlug = v.slug.replace(/^_+/, '');
+    togglingVisibility.value = v.slug;
+    errorMessage.value = null;
+    try {
+        await SchemeService.setVariantVisibility({ designZoneId: ctx.designZoneId, slug: v.slug, visible: makeVisible });
+        log.info('variant visibility', { dz: ctx.designZoneId, slug: bareSlug, visible: makeVisible });
+        // 显示当前正查看的隐藏方案：active 仍指旧 _slug 名（目录已改为 bareSlug）→ 切新名避免 404
+        if (makeVisible && canvasStore.getActiveVariant(ctx.designZoneId) === v.slug) {
+            await canvasStore.setActiveVariant(ctx.designZoneId, bareSlug);
+        }
+        // 立即刷新（refetchVariantCounts 内含 reconcile：隐藏当前 active 可见方案会自动跳走）；watcher 亦兜底。
+        await canvasStore.refetchVariantCounts();
+        await refetchVariants();
+    } catch (err: any) {
+        errorMessage.value = err?.response?.data?.error ?? err?.message ?? '切换可见性失败';
+    } finally {
+        togglingVisibility.value = null;
+    }
+}
+
 function onDelete() {
     const ctx = variantContext.value;
     const slug = currentVariant.value?.slug;
@@ -262,16 +295,38 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
 <template>
     <Transition name="vnav-fade">
         <div
-            v-if="variantContext && sequence.length > 0"
+            v-if="shouldShow"
             class="variant-navigator-bar"
             role="group"
             aria-label="布置变体切换"
             :title="barTitle"
         >
+            <!-- 临时显示（眼睛）：常驻最左；无隐藏方案时置灰（无可展开内容）。view-only，不改磁盘。 -->
+            <button
+                class="vnav-toggle-hidden"
+                :class="{ active: showHidden }"
+                type="button"
+                :disabled="busy || !hasHidden"
+                :aria-pressed="showHidden"
+                @click="toggleHidden"
+                :title="!hasHidden ? '当前设计区无隐藏方案' : (showHidden ? '收起「_」前缀的隐藏方案' : '临时显示「_」前缀的隐藏方案')"
+            >
+                <svg v-if="showHidden" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.8M9.4 5.2A9.4 9.4 0 0112 5c5 0 9 4.5 10 7-.4 1-1.2 2.3-2.4 3.5M6.1 6.2C3.8 7.6 2.4 9.8 2 12c1 2.5 5 7 10 7 1 0 2-.2 2.9-.5"
+                          fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
+                          fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+                </svg>
+            </button>
             <button
                 class="vnav-arrow"
                 type="button"
-                :disabled="busy"
+                :disabled="busy || isEmptySequence"
                 @click="onPrev"
                 aria-label="上一个变体"
                 title="上一个变体"
@@ -282,13 +337,16 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                 </svg>
             </button>
             <div class="vnav-center" :title="barTitle">
-                <span class="vnav-label" :class="{ 'is-adopted': isCanonicalCurrent, 'is-hidden-variant': isHiddenCurrent }">{{ currentLabel }}</span>
-                <span class="vnav-indicator">{{ indicator }}</span>
+                <template v-if="!isEmptySequence">
+                    <span class="vnav-label" :class="{ 'is-adopted': isCanonicalCurrent, 'is-hidden-variant': isHiddenCurrent }">{{ currentLabel }}</span>
+                    <span class="vnav-indicator">{{ indicator }}</span>
+                </template>
+                <span v-else class="vnav-label vnav-empty">仅隐藏方案</span>
             </div>
             <button
                 class="vnav-arrow"
                 type="button"
-                :disabled="busy"
+                :disabled="busy || isEmptySequence"
                 @click="onNext"
                 aria-label="下一个变体"
                 title="下一个变体"
@@ -317,6 +375,40 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                     title="此方案为当前已采纳方案"
                 >已采纳</button>
             </div>
+            <!-- 隐藏/显示（新）：改当前变体磁盘可见性（_ 前缀改名）。canonical 槽（已采纳）不出。
+                 用托盘箭头图标（下=收入隐藏 / 上=取出显示），与左侧「临时显示」眼睛图标区分。 -->
+            <button
+                v-if="showAdopt"
+                class="vnav-visibility"
+                type="button"
+                :disabled="busy"
+                @click="onToggleVisibility"
+                :aria-label="isHiddenCurrent ? '显示此方案' : '隐藏此方案'"
+                :title="isHiddenCurrent ? '将此方案转为可见（去掉 _ 前缀，进入轮播）' : '隐藏此方案（加 _ 前缀，退出轮播；保留数据、可复原）'"
+            >
+                <!-- 当前是隐藏方案 → 显示动作：归档箱 + 上箭头（从箱取出） -->
+                <svg v-if="isHiddenCurrent" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="4" rx="1" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linejoin="round" />
+                    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M12 16.5v-5" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" />
+                    <path d="M9.5 14l2.5-2.5 2.5 2.5" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <!-- 当前是可见方案 → 隐藏动作：归档箱 + 下箭头（收入归档箱） -->
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="4" rx="1" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linejoin="round" />
+                    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M12 11.5v5" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" />
+                    <path d="M9.5 14l2.5 2.5 2.5-2.5" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
             <button
                 v-if="showAdopt"
                 class="vnav-delete"
@@ -330,28 +422,6 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
                     <path d="M9 3h6m-9 4h12m-1 0l-1 12a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2L5 7m4 4v6m4-6v6"
                           fill="none" stroke="currentColor"
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-            </button>
-            <button
-                v-if="hasHidden"
-                class="vnav-toggle-hidden"
-                :class="{ active: showHidden }"
-                type="button"
-                :disabled="busy"
-                :aria-pressed="showHidden"
-                @click="toggleHidden"
-                :title="showHidden ? '收起「_」前缀的废弃/隐藏方案' : '临时显示「_」前缀的废弃/隐藏方案'"
-            >
-                <svg v-if="showHidden" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <path d="M3 3l18 18M10.6 10.7a2 2 0 002.7 2.8M9.4 5.2A9.4 9.4 0 0112 5c5 0 9 4.5 10 7-.4 1-1.2 2.3-2.4 3.5M6.1 6.2C3.8 7.6 2.4 9.8 2 12c1 2.5 5 7 10 7 1 0 2-.2 2.9-.5"
-                          fill="none" stroke="currentColor" stroke-width="2"
-                          stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"
-                          fill="none" stroke="currentColor" stroke-width="2"
-                          stroke-linecap="round" stroke-linejoin="round" />
-                    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
                 </svg>
             </button>
             <div v-if="errorMessage" class="vnav-error" :title="errorMessage">{{ errorMessage }}</div>
@@ -396,7 +466,7 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     /* 弹性宽度：bar 跟随内容（canonical 4 项 vs variant 5 项 + 中心 label 长度）伸缩，
      * 不再用固定列宽 + 占位符撑空。translateX(-50%) 居中让伸缩从中心对称展开，不抖动。 */
     width: max-content;
-    max-width: min(440px, calc(100vw - 32px));
+    max-width: min(520px, calc(100vw - 32px));
     height: 40px;
     padding: 5px;
     box-sizing: border-box;
@@ -607,6 +677,43 @@ watch(() => variantContext.value?.designZoneId ?? null, () => { void refetchVari
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
     cursor: default;
+}
+
+/* 隐藏/显示：改当前变体磁盘可见性的图标按钮（托盘箭头）；尺寸/交互对齐 .vnav-arrow/.vnav-delete。 */
+.vnav-visibility {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.vnav-visibility:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+}
+
+.vnav-visibility:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.vnav-visibility:disabled {
+    opacity: 0.5;
+    cursor: progress;
+}
+
+/* 空序列占位（全隐藏 + 收起时）：中性提示，引导用户点左侧眼睛展开 */
+.vnav-label.vnav-empty {
+    color: var(--text-secondary);
+    font-weight: 500;
 }
 
 .vnav-error {

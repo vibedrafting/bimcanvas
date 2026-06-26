@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -202,6 +203,11 @@ class MainAgent:
         self._bg_turn_events: list[dict[str, Any]] = []
         self._bg_tool_names: dict[str, str] = {}   # tool_use_id → tool_name（跨 Assistant/User 消息配对工具完成）
         self._bg_stream_mapper: MainStreamMapper | None = None
+        # P1 live 流式：后台总结回合逐 envelope 实时推送回调（host 注入；瞬时、不落盘）
+        self._background_turn_chunk_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        self._background_turn_started_push: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        # P2 用：最近一次 live envelope 推送时刻（monotonic），供 _flush_pending_background 判断回合是否仍活跃
+        self._bg_last_chunk_at: float | None = None
 
         # WP-2 CLAUDECODE: 进程级一次性 WARNING(SDK 0.1.51 PR #732 已自动剥离 CLAUDECODE env)
         global _claudecode_warned
@@ -238,6 +244,15 @@ class MainAgent:
     ) -> None:
         """注入后台 Workflow 进度的带外推送回调（host → runtime_store 发布，只实时不落盘）。"""
         self._background_progress_push = callback
+
+    def set_background_turn_push(
+        self,
+        chunk_callback: Callable[[dict[str, Any]], Awaitable[None]] | None,
+        started_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> None:
+        """注入后台总结回合 live 流式推送回调（逐 envelope + 回合开始信号；只实时不落盘）。"""
+        self._background_turn_chunk_push = chunk_callback
+        self._background_turn_started_push = started_callback
 
     @staticmethod
     def _normalize_response_model(model: Any) -> str | None:
@@ -288,7 +303,12 @@ class MainAgent:
         if self._bundle is None:
             # 组3: lazy 创建 long-lived aiohttp session,供 load_artifact / plugin 工具共享
             if self._owned_session is None:
-                self._owned_session = aiohttp.ClientSession()
+                # 识图/截图并发稳健化(同 factory.create_agent):扩连接上限+keep-alive+DNS 缓存,保并行。
+                self._owned_session = aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(
+                        limit=64, limit_per_host=32, ttl_dns_cache=300, enable_cleanup_closed=True
+                    )
+                )
             # 接线总开关:此懒加载路径(未经 factory.create_agent 预 configure)同样用
             # self.project_path 构造 ProjectBound,杜绝无参 build 得 projectless。
             lc = (
@@ -404,7 +424,9 @@ class MainAgent:
             system_prompt=system_prompt_file,      # WP-2 M2: SystemPromptFile dict,走 --system-prompt-file 绕 32767 上限
             cwd=self.working_directory,
             resume=resume_session_id,              # 续聊：续指定 SDK session;None=新会话。fork_session 默认 False=续同一 transcript
-            max_turns=30,
+            # max_turns 不设限（SDK 默认 None=无上限）：P1 后单变体落地并入主控上下文，
+            # 设计+落地一条龙轮数大幅上升，30 会在 Step F 前撞顶。注意：移除后失去 runaway 兜底，
+            # 弱模型反复试错时无轮数闸，靠成本/人工观察兜底。
             model=model,
             allowed_tools=allowed_tools,           # 工具权限 v3.2: bundle.tools_allow 原样;空 list = SDK 全开
             disallowed_tools=disallowed_tools,     # 工具权限 v3.2: bundle.tools_deny 原样;deny 优先
@@ -876,6 +898,8 @@ class MainAgent:
                 self._in_response = False
                 if self.verbose:
                     self._agent_logger.log_info("[Background] ↓ 主控原生完成总结回合（自动唤醒）")
+                # P1 live 流式：回合开始即推信号，前端立即建 streaming 气泡（不再等首个 envelope）
+                await self._emit_bg_turn_started()
         elif isinstance(message, AssistantMessage) and self._bg_completion_pending is not None:
             # 原生总结/绕行回合：可能多轮 agentic（每 tool-call 一个 ResultMessage）。
             # 记录本轮是否含工具调用（方案①据此判定收口）；复用正常日志路径（_process_message
@@ -885,7 +909,7 @@ class MainAgent:
             text = self._process_message(message)
             if text:
                 self._bg_summary_parts.append(text)
-            self._collect_bg_turn_events(message)   # T2：收 thinking/tool_use/text 的 envelope 序列
+            await self._collect_bg_turn_events(message)   # T2：收 thinking/tool_use/text 的 envelope 序列
         elif isinstance(message, ResultMessage):
             if self._bg_completion_pending is None:
                 # 启动回合自身的尾随 ResultMessage（detach 已提前结束回合）等 —— 丢弃即可
@@ -942,7 +966,7 @@ class MainAgent:
         elif isinstance(message, UserMessage) and self._bg_completion_pending is not None:
             # T2：后台回合的工具结果(ToolResultBlock)→ 收 tool.completed envelope（之前在下方 generic 分支被静默丢弃）
             await self._sniff_injected_task_notifications(message)
-            self._collect_bg_turn_events(message)
+            await self._collect_bg_turn_events(message)
         elif isinstance(message, UserMessage):
             # 注入式 task-notification 嗅探（终态投递第三路径），其余内容仍静默
             await self._sniff_injected_task_notifications(message)
@@ -967,6 +991,14 @@ class MainAgent:
         """
         if self._bg_completion_pending is None:
             return
+        # P2：后台总结回合仍在 live 流式（最近 12s 内有 envelope 推送）→ 不破坏性 flush、不清 pending，
+        # 让其自然收口经 background_task.completed。仅真正静默超阈值才兜底（避免 M2_2 抓 125 字残文 + 误清 pending）。
+        if self._bg_last_chunk_at is not None and (time.monotonic() - self._bg_last_chunk_at) < 12.0:
+            if self.verbose:
+                self._agent_logger.log_info(
+                    "[Background] 总结回合仍活跃（live 流式中）→ 跳过兜底 flush、保留 pending"
+                )
+            return
         pending = self._bg_completion_pending
         content = "\n".join(self._bg_summary_parts).strip()
         self._bg_completion_pending = None
@@ -989,7 +1021,7 @@ class MainAgent:
         prefix = f"后台任务{status_text}"
         return f"{prefix}\n\n{body}" if body else prefix
 
-    def _collect_bg_turn_events(self, message: Any) -> None:
+    async def _collect_bg_turn_events(self, message: Any) -> None:
         """T2：把后台原生总结回合一条 SDK 消息(Assistant/User)的 block 序列，镜像前台 block→chunk
         构造，经 per-turn MainStreamMapper 映射成 envelope，按序追加进 self._bg_turn_events。
         复用前台同一 mapper → envelope 形状零漂移；工具 started/completed 用 SDK tool_use_id 配对。
@@ -1037,7 +1069,9 @@ class MainAgent:
                 ))
         for chunk in chunks:
             try:
-                self._bg_turn_events.extend(mapper.map_chunk(chunk))
+                for envelope in mapper.map_chunk(chunk):
+                    self._bg_turn_events.append(envelope)
+                    await self._emit_bg_turn_chunk(envelope)
             except Exception as e:
                 logger.warning(f"[Background] map bg turn chunk failed: {e}")
 
@@ -1130,6 +1164,52 @@ class MainAgent:
         m = re.search(rf"<{tag}>(.*?)</{tag}>", blob, re.DOTALL)
         return m.group(1).strip() if m else None
 
+    async def _emit_bg_turn_started(self) -> None:
+        """P1 live 流式：后台总结回合开始信号——前端据此立即建一条 streaming 气泡。
+        turnId 用 bgtask:<taskId>，与逐 envelope / 完成兜底 / history 重建同键。失败仅告警。"""
+        push = self._background_turn_started_push
+        pending = self._bg_completion_pending
+        if push is None or not pending:
+            return
+        self._bg_last_chunk_at = time.monotonic()
+        ctx = self._last_runtime_context or {}
+        task_id = pending.get("taskId")
+        record = {
+            "kind": "background_task_turn_started",
+            "taskId": task_id,
+            "turnId": f"bgtask:{task_id}",
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+        }
+        try:
+            await push(record)
+        except Exception as e:
+            logger.warning(f"background turn_started push failed: {e}")
+
+    async def _emit_bg_turn_chunk(self, envelope: dict[str, Any]) -> None:
+        """P1 live 流式：把后台总结回合的单条 envelope 即时推前端（瞬时、不落盘）。
+        与完成兜底（background_task.completed 携全量 events）+ history 重建用同一 turnId 键，
+        前端据此去重（live 已渲染则完成事件不重渲、重载复现同一条）。失败仅告警，不破坏收口。"""
+        push = self._background_turn_chunk_push
+        pending = self._bg_completion_pending
+        if push is None or not pending:
+            return
+        self._bg_last_chunk_at = time.monotonic()
+        ctx = self._last_runtime_context or {}
+        task_id = pending.get("taskId")
+        record = {
+            "kind": "background_task_turn_chunk",
+            "taskId": task_id,
+            "turnId": f"bgtask:{task_id}",
+            "envelope": envelope,
+            "windowId": ctx.get("windowId"),
+            "sessionId": ctx.get("sessionId"),
+        }
+        try:
+            await push(record)
+        except Exception as e:
+            logger.warning(f"background turn_chunk push failed: {e}")
+
     async def _emit_background_completion(self, pending: dict[str, Any], content: str) -> None:
         """把后台 Workflow 完成汇报（优先用主控原生总结文本）经 host 回调带外推送给前端。
 
@@ -1167,6 +1247,7 @@ class MainAgent:
         self._bg_turn_events = []
         self._bg_tool_names = {}
         self._bg_stream_mapper = None
+        self._bg_last_chunk_at = None   # P2：清流式活跃时戳，避免影响下个回合的 flush 判断
         try:
             await self._background_push(record)
         except Exception as e:
@@ -1683,11 +1764,25 @@ class MainAgent:
 
         # ── 分区（直接选中的区域标签） ──
         if context.get("zones"):
-            zone_list = "、".join(
-                f'{z.get("name", "?")}(id:{z.get("id", "?")})'
-                for z in context["zones"]
-            )
-            parts.append(f"分区：{zone_list}")
+            zone_strs = []
+            for z in context["zones"]:
+                base = f'{z.get("name", "?")}(id:{z.get("id", "?")})'
+                variants = z.get("variants")
+                if isinstance(variants, dict):
+                    slugs = variants.get("slugs") or []
+                    slugs_text = "、".join(slugs) if slugs else "无"
+                    displayed = variants.get("displayedSlug") or "未指定"
+                    if variants.get("hasAdopted"):
+                        adopted_text = f'已采纳：{variants.get("adoptedSlug") or "?"}'
+                    else:
+                        adopted_text = "尚无采纳方案（多方案待用户终选）"
+                    base += (
+                        f"；方案变体：共 {len(slugs)} 个 [{slugs_text}]；"
+                        f"当前显示：{displayed}；{adopted_text}"
+                    )
+                zone_strs.append(base)
+            # 每条分区内部已含顿号分隔的变体信息，分区之间改用分号，避免歧义。
+            parts.append("分区：" + "；".join(zone_strs))
 
         # ── 用户标注区域（完成后的临时意图批次） ──
         spatial_marks = context.get("spatialMarks")

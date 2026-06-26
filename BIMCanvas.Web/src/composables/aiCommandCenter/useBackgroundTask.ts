@@ -10,10 +10,14 @@ interface BackgroundTaskOptions {
   agentApiBase: string
   windows: Ref<ChatWindow[]>
   scrollToBottom: (options?: { windowId?: string }) => void
-  /** 注入后台总结单文本气泡（events 为空时的兜底；走 history 重建同款渲染管线） */
-  injectBackgroundSummary: (windowId: string | null | undefined, content: string, timestamp?: number) => void
-  /** T2：注入后台总结完整回合（thinking/tool/text envelope 序列），走前台同款 applyNormalizedEventToMessage */
-  injectBackgroundTurn: (windowId: string | null | undefined, events: Record<string, unknown>[], timestamp?: number) => void
+  /** P1：后台总结回合开始（建一条 streaming 气泡） */
+  beginBackgroundTurn: (windowId: string | null | undefined, turnId: string, timestamp?: number) => void
+  /** P1：后台总结回合逐 envelope 增量渲染（治本：用户实时可见） */
+  applyBackgroundTurnChunk: (windowId: string | null | undefined, turnId: string, envelope: Record<string, unknown>) => void
+  /** P1：后台总结回合收口（结束 streaming 态） */
+  finalizeBackgroundTurn: (turnId: string, timestamp?: number) => boolean
+  /** P1：该 turnId 是否已有 live 消息（完成事件去重用） */
+  hasBackgroundLiveTurn: (turnId: string) => boolean
 }
 
 export const useBackgroundTask = (options: BackgroundTaskOptions) => {
@@ -41,19 +45,11 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
       sdkSessionId: record.sdkSessionId
     })
 
-    // ② Chat 气泡。generic 占位(hasSummary=false 且无 events)不渲染（承接 Bug4）。
+    // ② Chat：归一后 completed 不再渲染气泡。总结内容在线由 live 流式（turn_started/turn_chunk）渲染，
+    // 刷新由 history 重建；completed 只负责落盘（Agent 端）+ 收口 live streaming 态 + Task 面板收口。
     const ts = record.timestamp ? Date.parse(record.timestamp) : Date.now()
     const stamp = isNaN(ts) ? Date.now() : ts
-    // T2：有完整 envelope 序列 → 渲染成"思考+工具+文本"完整一条回合（走前台同款管线）。
-    if (Array.isArray(record.events) && record.events.length > 0) {
-      options.injectBackgroundTurn(record.windowId, record.events, stamp)
-      return
-    }
-    // 兜底：无 events（旧 Agent / 异常）但有原生总结 → 单文本气泡。
-    if (!record.hasSummary) return
-    const text = (record.content || record.summary || '').trim()
-    if (!text) return
-    options.injectBackgroundSummary(record.windowId, text, stamp)
+    options.finalizeBackgroundTurn(`bgtask:${record.taskId}`, stamp)
   }
 
   const startListening = () => {
@@ -85,6 +81,18 @@ export const useBackgroundTask = (options: BackgroundTaskOptions) => {
           workflowName: record.workflowName,
           phases: record.phases
         })
+      },
+      // P1 live 流式：后台总结回合开始 → 建一条 streaming 气泡（治本：用户即刻看到回合在跑）
+      onTurnStarted: (record) => {
+        options.beginBackgroundTurn(
+          record.windowId,
+          record.turnId,
+          record.timestamp ? Date.parse(record.timestamp) : undefined
+        )
+      },
+      // P1 live 流式：后台总结回合逐 envelope → 增量 apply 到该 turnId 的气泡
+      onTurnChunk: (record) => {
+        options.applyBackgroundTurnChunk(record.windowId, record.turnId, record.envelope)
       }
     })
   }

@@ -30,6 +30,10 @@ namespace BIMCanvas.Server.Services
         private readonly ILogger<BackgroundScreenshotService> _logger;
         private readonly JsonSerializerSettings _jsonSettings;
         private readonly SemaphoreSlim _semaphore;
+        // 单张截图并发:N 槽 + 暖页池(BatchPageSession),取代旧 _semaphore(1,1)+单例 _page 的串行,
+        // 让多 agent / 一 agent 内多次识图的截图阶段真并行(强制并行诉求)。
+        private readonly SemaphoreSlim _singleRenderSlots = new SemaphoreSlim(MaxBatchParallelism, MaxBatchParallelism);
+        private readonly System.Collections.Concurrent.ConcurrentBag<BatchPageSession> _singlePagePool = new();
         private readonly Lazy<Task<IPlaywright>> _playwright;
         private IBrowser? _browser;
         private IBrowserContext? _context;
@@ -111,10 +115,10 @@ namespace BIMCanvas.Server.Services
                 };
             }
 
-            var shouldReuseProject = string.Equals(_pageProjectKey, projectKey, StringComparison.Ordinal);
             var renderConfig = new RenderConfig
             {
-                ProjectData = shouldReuseProject ? null : projectData,
+                // 是否复用(免重发 projectData)改由并发槽内的 per-session ProjectKey 决定(见下);此处先置全量。
+                ProjectData = projectData,
                 ProjectKey = projectKey,
                 ViewMode = viewMode,
                 Layers = request.Layers,
@@ -130,13 +134,19 @@ namespace BIMCanvas.Server.Services
                 ? ResolveViewportSize(projectData, viewport)
                 : new ViewportSize { Width = DefaultViewportWidth, Height = DefaultViewportHeight };
 
-            await _semaphore.WaitAsync(cancellationToken);
+            // 单张截图:N 槽并发 + 暖页池(取代旧 _semaphore(1,1)+单例 _page 的串行)。
+            // 每个并发渲染独占一个 BatchPageSession(用完归池复用、保暖页,不冷启退化 Web 单图)。
+            await _singleRenderSlots.WaitAsync(cancellationToken);
+            var renderSession = _singlePagePool.TryTake(out var pooled) ? pooled : new BatchPageSession();
             try
             {
-                var page = await GetPageAsync(viewportSize, request.Scale, renderConfig.Theme, cancellationToken);
+                var page = await GetBatchPageAsync(renderSession, viewportSize, request.Scale, theme, cancellationToken);
+                // per-session 复用判定:同一 session 已渲染过该 project 则免重发 projectData。
+                renderConfig.ProjectData = string.Equals(renderSession.ProjectKey, projectKey, StringComparison.Ordinal)
+                    ? null
+                    : projectData;
                 var imageData = await RenderAndCaptureAsync(page, renderConfig, cancellationToken);
-
-                _pageProjectKey = projectKey;
+                renderSession.ProjectKey = projectKey;
 
                 stopwatch.Stop();
                 _logger.LogInformation("后台截图完成，耗时 {Elapsed}ms", stopwatch.ElapsedMilliseconds);
@@ -145,7 +155,8 @@ namespace BIMCanvas.Server.Services
             }
             finally
             {
-                _semaphore.Release();
+                _singlePagePool.Add(renderSession);
+                _singleRenderSlots.Release();
             }
         }
 
@@ -400,8 +411,14 @@ namespace BIMCanvas.Server.Services
         public async ValueTask DisposeAsync()
         {
             _semaphore.Dispose();
+            _singleRenderSlots.Dispose();
 
             await DisposePageAsync();
+
+            while (_singlePagePool.TryTake(out var pooledSession))
+            {
+                await pooledSession.DisposeAsync();
+            }
 
             if (_browser != null)
             {

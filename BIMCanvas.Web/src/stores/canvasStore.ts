@@ -168,6 +168,8 @@ export const useCanvasStore = defineStore('canvas', () => {
         count: number;
         variantSlugs: string[];
         hasAdopted: boolean;
+        // 被采纳方案的具体 slug（无采纳时 null）；供画布选中上下文告知 AI「已采纳哪个」。
+        adoptedSlug: string | null;
     }
     const variantInfoByDesignZone = ref<Map<string, VariantInfo>>(new Map());
 
@@ -250,19 +252,11 @@ export const useCanvasStore = defineStore('canvas', () => {
                     : [];
                 if (count <= 0) continue;
                 const hasAdopted = (rawEntry as { hasAdopted?: boolean }).hasAdopted === true;
-                next.set(designZoneId, { count, variantSlugs, hasAdopted });
+                const adoptedSlug = (rawEntry as { adoptedSlug?: string | null }).adoptedSlug ?? null;
+                next.set(designZoneId, { count, variantSlugs, hasAdopted, adoptedSlug });
             }
             variantInfoByDesignZone.value = next;
-
-            // 无 adopted 的设计区：自动激活首个可见变体，避免画布默认渲染空 canonical。
-            // （多方案待用户终选时无 adopted 是常态终态——不自动激活则 Agent 设计完成后画布一片空白，
-            //  需要用户手动点导航条切换才看得见方案。）已有 active / 已有 adopted 的设计区不动。
-            for (const [dz, info] of next) {
-                const firstSlug = info.variantSlugs[0];
-                if (!info.hasAdopted && firstSlug && !activeVariantByDesignZone.value.has(dz)) {
-                    void setActiveVariant(dz, firstSlug);
-                }
-            }
+            reconcileActiveVariants(next);
         } catch (err: any) {
             sysLog.warn('variant summary fetch failed', { err: err?.message ?? err });
             variantInfoByDesignZone.value = new Map();
@@ -270,6 +264,36 @@ export const useCanvasStore = defineStore('canvas', () => {
             window.dispatchEvent(new CustomEvent('bimcanvas:variant-counts-changed', {
                 detail: { size: variantInfoByDesignZone.value.size }
             }));
+        }
+    }
+
+    /**
+     * 活跃变体协调（单遍，每个设计区至多一次 set/clear）。可见集判据沿用 server 已按 `_` 前缀 + adopted
+     * 过滤后的 variantSlugs，不另造真源：
+     *  1) active 是某可见 slug（不带 `_`）但已不在 variantSlugs（被 set_variant_visibility 改名带 `_` 隐藏 / 删除）
+     *     → 有其它可见变体则跳首个、无则回落 canonical。这是"隐藏当前激活变体后自动跳转"的核心。
+     *  2) active 以 `_` 开头 = 用户经导航条「显示隐藏」开关停在隐藏候选上，故意为之 → 不打扰（不视为失效）。
+     *  3) 无 adopted 且尚无 active 的设计区 → 自动激活首个可见变体（避免画布默认渲染空 canonical）。
+     * 覆盖 next 中的区 + 当前有 active 的区（后者可能已整体从 summary 消失，需回落）。
+     */
+    function reconcileActiveVariants(next: Map<string, VariantInfo>): void {
+        const designZones = new Set<string>([
+            ...next.keys(),
+            ...activeVariantByDesignZone.value.keys(),
+        ]);
+        for (const dz of designZones) {
+            const info = next.get(dz);
+            const visible = info?.variantSlugs ?? [];
+            const activeSlug = activeVariantByDesignZone.value.get(dz) ?? null;
+            if (activeSlug) {
+                // `_` 前缀 = 故意停在隐藏候选（「显示隐藏」开关），不协调；否则不在可见集即失效。
+                if (!activeSlug.startsWith('_') && !visible.includes(activeSlug)) {
+                    if (visible[0]) void setActiveVariant(dz, visible[0]);
+                    else void clearActiveVariant(dz);
+                }
+            } else if (info && !info.hasAdopted && visible[0]) {
+                void setActiveVariant(dz, visible[0]);
+            }
         }
     }
 
@@ -725,7 +749,16 @@ export const useCanvasStore = defineStore('canvas', () => {
     const applyProjectData = async (data: ProjectData, opts: LoadOptions): Promise<void> => {
         const preserveHistory = opts.preserveHistory ?? timeline.shouldPreserveHistory(opts.source);
 
-        projectData.value = data;
+        // 内容去重：仅当新 data 与当前 projectData 逐字相同才跳过赋值。
+        // 赋值是 ThreeSceneService deep-watch 的唯一触发点 → buildFromDocument 先 clearScene 全销毁再重建 → 家具"闪一下"。
+        // 服务端校验/规范化（normalize/validate）回写虽已在源头去重，但 Agent 写盘 / 多源 reload 仍可能送来内容未变的 reload；
+        // 此处兜底：若赋值会产生与现状完全一致的 projectData，则是可证明的视觉 no-op，跳过即不重建、不闪烁。
+        // 有活跃变体时 projectData 已被变体 patch、不会等于 canonical 入参 → 不命中、走原逻辑（无回归）。
+        const isVisualNoop = !!projectData.value
+            && JSON.stringify(data) === JSON.stringify(projectData.value);
+        if (!isVisualNoop) {
+            projectData.value = data;
+        }
         isDirty.value = false;
         sceneDataCache.clear();
 
@@ -766,6 +799,7 @@ export const useCanvasStore = defineStore('canvas', () => {
             rooms: data.baseline?.rooms?.length || 0,
             zones: data.activeScheme?.zones?.length || 0,
             modules: data.activeScheme?.modules?.length || 0,
+            rebuilt: !isVisualNoop,  // false=内容未变被去重、未重投影画布（Fix C 防闪生效）
         });
 
         const zoneErrors = data.activeScheme?.zoneErrors;

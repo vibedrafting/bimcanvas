@@ -42,7 +42,13 @@ def create_agent(
         else resolve_launch_context()
     )
 
-    owned_session = aiohttp.ClientSession()
+    owned_session = aiohttp.ClientSession(
+        # 识图/截图并发稳健化:扩连接上限(≥并发峰值,非限流,保并行)+ keep-alive 复用 + DNS 缓存,
+        # 削减并发突发下的本地建连抖动(www.aoment.com ClientConnectorError);跨进程抖动交重试兜底。
+        connector=aiohttp.TCPConnector(
+            limit=64, limit_per_host=32, ttl_dns_cache=300, enable_cleanup_closed=True
+        )
+    )
     bundle = build_config_bundle(launch_context=launch_context, session=owned_session)
 
     if normalized == OPENAI_RUNTIME_ID:

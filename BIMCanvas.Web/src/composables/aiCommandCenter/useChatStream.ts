@@ -1626,7 +1626,9 @@ export const useChatStream = (options: ChatStreamOptions) => {
     const win = options.activeWindow.value;
     if (!win) return;
 
-    if (win.isStreaming) {
+    if (win.isStreaming || hasActiveBgLiveTurn(win.id)) {
+      // P2：前台 streaming 或后台总结回合 live 流式期间 → 草稿排队（不打断仍在跑的回合、不丢草稿）；
+      // 后台回合 finalize 时由 sendQueuedDraftIfReady 自动发出。
       queueCurrentDraft(win);
       return;
     }
@@ -1951,69 +1953,83 @@ export const useChatStream = (options: ChatStreamOptions) => {
   };
 
   /**
-   * 注入「后台 Workflow 完成的主控原生总结」为一条 AI 气泡——走与 history 重建**完全相同**的渲染
-   * 管线（createRestoredAiMessage + applyNormalizedEventToMessage），而非手搓 createTextBubble。
-   * 折中重构：消除 useBackgroundTask 与 history 重建的双渲染路径，二者收敛到同一处。
-   * turnId 语义上对应 store 落盘的 bgtask:<taskId>，重载后由 history 重建复现同一条气泡（不重复）。
+   * live 流式：后台总结回合按 turnId 维护的"进行中"消息（begin→apply→finalize）。
+   * 与 history 重建共用 turnId=bgtask:<taskId> 键；归一后 completed 事件不再渲染 Chat（只落盘+收口），
+   * useBackgroundTask.handleCompleted 仅调 finalizeBackgroundTurn 结束 live 的 streaming 态。
+   * 治本：用户全程看到总结回合逐步出现（思考→文本→工具气泡），不再空白等待数十秒后打断。
    */
-  const injectBackgroundSummary = (
+  const bgLiveTurns = new Map<string, { windowId: string; message: ChatMessage }>();
+
+  /** P2：指定窗口是否有进行中的 live 后台总结回合（sendMessage 据此把新消息排队、不打断）。 */
+  const hasActiveBgLiveTurn = (windowId: string): boolean => {
+    for (const live of bgLiveTurns.values()) {
+      if (live.windowId === windowId) return true;
+    }
+    return false;
+  };
+
+  /** 后台总结回合开始：建一条 streaming AI 气泡（与前台回合等价的 createRestoredAiMessage）。 */
+  const beginBackgroundTurn = (
     windowId: string | null | undefined,
-    content: string,
+    turnId: string,
     timestamp?: number
   ): void => {
-    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
+    if (!turnId || bgLiveTurns.has(turnId)) return;
     isAwaitingTaskResult.value = false;
     const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
       ?? options.windows.value[0];
     if (!windowState) return;
-    const text = (content ?? '').trim();
-    if (!text) return;
     const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
-
-    const aiMessage = createRestoredAiMessage(ts);
-    const normalized = normalizeStreamEvent({ eventType: 'text.completed', payload: { content: text } });
-    if (!normalized) return;
-    applyNormalizedEventToMessage(aiMessage, normalized, undefined);
-    aiMessage.isStreaming = false;
-    aiMessage.endTime = ts;
-    exitWaitingState(aiMessage.waitingState);
+    const aiMessage = createRestoredAiMessage(ts);   // isStreaming=true（保持流式态直到 finalize）
     windowState.messages.push(aiMessage);
-
+    bgLiveTurns.set(turnId, { windowId: windowState.id, message: aiMessage });
     void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
   };
 
-  /**
-   * T2：注入「后台 Workflow 完成的主控原生总结回合」——把完整 envelope 序列（thinking/tool/text）
-   * 按序 apply 到一条 AI 消息，渲染成与前台回合等价的"思考气泡+工具气泡+文本气泡"。
-   * 走与 history 重建完全相同的 createRestoredAiMessage + applyNormalizedEventToMessage（零渲染漂移）。
-   * envelope 已由 Agent 端同一个 MainStreamMapper 产出，turnId=bgtask:<taskId>，重载时 history 重建复现同一条。
-   */
-  const injectBackgroundTurn = (
+  /** 后台总结回合逐 envelope：增量 apply 到该 turnId 的 streaming 气泡（复用前台同款渲染入口）。 */
+  const applyBackgroundTurnChunk = (
     windowId: string | null | undefined,
-    events: Record<string, unknown>[],
-    timestamp?: number
+    turnId: string,
+    envelope: Record<string, unknown>
   ): void => {
-    // 后台完成汇报已到达 → "正在等待后台任务"等待态结束（detach 路径的收口契约）。
-    isAwaitingTaskResult.value = false;
-    const windowState = (windowId ? options.windows.value.find(w => w.id === windowId) : undefined)
-      ?? options.windows.value[0];
-    if (!windowState || !Array.isArray(events) || events.length === 0) return;
-    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
-
-    const aiMessage = createRestoredAiMessage(ts);
-    for (const ev of events) {
-      const normalized = normalizeStreamEvent(ev);
-      if (normalized && !RUNTIME_ONLY_EVENT_TYPES.has(normalized.eventType)) {
-        applyNormalizedEventToMessage(aiMessage, normalized, undefined);
-      }
+    if (!turnId || !envelope) return;
+    let live = bgLiveTurns.get(turnId);
+    if (!live) {
+      // 漏收 turn_started（乱序/晚到）→ 用首个 chunk lazily 建消息，保证不丢内容。
+      beginBackgroundTurn(windowId, turnId);
+      live = bgLiveTurns.get(turnId);
+      if (!live) return;
     }
-    aiMessage.isStreaming = false;
-    aiMessage.endTime = ts;
-    exitWaitingState(aiMessage.waitingState);
-    windowState.messages.push(aiMessage);
-
-    void nextTick().then(() => options.scrollToBottom({ windowId: windowState.id }));
+    const normalized = normalizeStreamEvent(envelope);
+    if (!normalized || RUNTIME_ONLY_EVENT_TYPES.has(normalized.eventType)) return;
+    applyNormalizedEventToMessage(live.message, normalized, undefined);
+    const targetWindowId = live.windowId;
+    void nextTick().then(() => options.scrollToBottom({ windowId: targetWindowId }));
   };
+
+  /** 后台总结回合收口：结束 streaming 态。返回 true 表示 live 路径已处理（完成兜底不必再注入）。 */
+  const finalizeBackgroundTurn = (
+    turnId: string,
+    timestamp?: number
+  ): boolean => {
+    isAwaitingTaskResult.value = false;   // 后台完成 → 退出"等待后台结果"态（无论是否有 live 回合）
+    const live = bgLiveTurns.get(turnId);
+    if (!live) return false;
+    const ts = (typeof timestamp === 'number' && isFinite(timestamp)) ? timestamp : Date.now();
+    live.message.isStreaming = false;
+    live.message.endTime = ts;
+    exitWaitingState(live.message.waitingState);
+    bgLiveTurns.delete(turnId);
+    const targetWindowId = live.windowId;
+    void nextTick().then(() => {
+      options.scrollToBottom({ windowId: targetWindowId });
+      sendQueuedDraftIfReady(targetWindowId);   // P2：回合收口后自动发出流式期间排队的草稿
+    });
+    return true;
+  };
+
+  /** 该 turnId 是否存在 live 进行中/已建的消息（handleCompleted 去重用）。 */
+  const hasBackgroundLiveTurn = (turnId: string): boolean => bgLiveTurns.has(turnId);
 
   const wait = (ms: number): Promise<void> =>
     new Promise(resolve => setTimeout(resolve, ms));
@@ -2361,8 +2377,10 @@ export const useChatStream = (options: ChatStreamOptions) => {
     newConversation,
     waitForInteractionContinuation,
     interruptMessage,
-    injectBackgroundSummary,
-    injectBackgroundTurn,
+    beginBackgroundTurn,
+    applyBackgroundTurnChunk,
+    finalizeBackgroundTurn,
+    hasBackgroundLiveTurn,
     checkAgentHealth,
     fetchProjectPath,
     cleanupHealthCheck,

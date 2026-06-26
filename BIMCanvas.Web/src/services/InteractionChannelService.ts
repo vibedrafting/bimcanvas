@@ -16,7 +16,9 @@ const INTERACTION_EVENT_NAMES: ChannelEventName[] = [
   'interaction.cancelled',
   'interaction.expired',
   'background_task.completed',
-  'background_task.progress'
+  'background_task.progress',
+  'background_task.turn_started',
+  'background_task.turn_chunk'
 ];
 
 const log = createLogger('SYS');
