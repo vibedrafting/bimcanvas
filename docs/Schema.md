@@ -323,7 +323,7 @@ camelCase 字符串，按功能分组（持续扩展，权威定义见 `BIMCanva
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `schemeMetadata.summary` | string | 否 | 一句话设计意图 |
-| `id` | string | 是 | 实例 ID（`m_` + 随机，缺失时自动补全） |
+| `id` | string | 是 | 实例 ID，格式契约 `^m_[0-9a-z]{8}$`（`m_` + 8 位随机字母数字）。**Agent 不要手写**——留空由系统补全（见下） |
 | `moduleId` | string | 是 | 模块库类型 ID |
 | `moduleName` | string | 否 | 可读名称 |
 | `zoneId` | string | 是 | 所属区域（运行时填充） |
@@ -331,6 +331,8 @@ camelCase 字符串，按功能分组（持续扩展，权威定义见 `BIMCanva
 | `facing` | Facing | 是 | 朝向对象（见下） |
 | `items` | ModuleItem[] | 否 | 内部家具清单 |
 | `placementReason` | string | 否 | 布置理由 |
+
+**实例 `id` 契约（唯一权威）**：格式 `^m_[0-9a-z]{8}$`，须全局唯一（聚合进统一模型时跨设计区不撞），且一经落盘**稳定不变**（`MergeService` 按 id 匹配同一模块）。三处生成器按此契约对齐：Web `BIMCanvas.Web/src/utils/shortId.ts`（手动放置即时生成）、Core `BIMCanvas.Core/Models/Layout/Module.cs`（C# 反序列化时**仅补空**，不在读取时改写已有值）、插件校验器 `validators/interior-layout.py` 的 `_normalize_ids`（normalize/validate 时把空 / 非法 / 文件内重复的 id 改写为合规值，经 writeback **落盘持久化**——这是 Agent 直写路径的确定性补全点）。**Agent 写 modules.json 时不要填 `id`**，留空或省略，由校验器补全。
 
 **Facing**（混合对象，**不再支持纯字符串**）：
 
